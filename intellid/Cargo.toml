@@ -1,0 +1,17 @@
+[package]
+name = "intellid"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+intellid-mcp-server = { workspace = true}
+serde_json = { workspace = true}
+serde = { workspace = true}
+tokio = { workspace = true}
+sqlx = { workspace = true}
+moka = { workspace = true}
+once_cell = { workspace = true}
+async-trait = { workspace = true}
+tracing = { workspace = true}
+tracing-subscriber = { workspace = true}
+anyhow = { workspace = true}
