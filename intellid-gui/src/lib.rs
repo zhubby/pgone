@@ -7,9 +7,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use eframe::egui::widgets::Image as EguiImage;
-use eframe::egui::TextureHandle;
-use eframe::epaint::ColorImage;
-use eframe::egui::text::{LayoutJob, TextFormat};
+// removed unused imports
 use std::collections::HashMap;
 
 mod models; use models::*;
@@ -21,10 +19,18 @@ mod openai_client; use openai_client::chat_once;
 #[derive(Debug, Clone)]
 struct PreviewState { path: PathBuf, zoom: f32 }
 
+#[derive(Debug)]
+enum AppMsg {
+    SqlResult { columns: Vec<String>, rows: Vec<Vec<String>> },
+    SqlError(String),
+    Connected { session_id: u64, pool: Result<PgPool, String> },
+    OpenAIResult { session_id: u64, result: Result<String, String> },
+}
+
 pub struct IntelliGuiApp {
     input: String,
     state: PersistedState,
-    textures: std::collections::HashMap<PathBuf, TextureHandle>,
+    media: MediaCache,
     show_settings: bool,
     renaming_index: Option<usize>,
     rename_buffer: String,
@@ -35,6 +41,7 @@ pub struct IntelliGuiApp {
     query_columns: Vec<String>,
     query_rows: Vec<Vec<String>>,
     pools: HashMap<u64, PgPool>,
+    rt: tokio::runtime::Runtime,
 }
 
 impl IntelliGuiApp {
@@ -50,7 +57,7 @@ impl IntelliGuiApp {
         Self {
             input: String::new(),
             state,
-            textures: Default::default(),
+            media: Default::default(),
             show_settings: false,
             renaming_index: None,
             rename_buffer: String::new(),
@@ -60,6 +67,7 @@ impl IntelliGuiApp {
             query_columns: vec![],
             query_rows: vec![],
             pools: HashMap::new(),
+            rt: tokio::runtime::Runtime::new().expect("tokio runtime"),
         }
     }
 
@@ -103,37 +111,39 @@ impl IntelliGuiApp {
 impl eframe::App for IntelliGuiApp {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
         TopBottomPanel::top("menu_top").show(ctx, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui.button("Add Image...").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Images", &[
-                        "png", "jpg", "jpeg", "gif", "bmp", "webp"
-                    ]).pick_file() {
-                        self.add_image_message(path);
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Add Image...").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().add_filter("Images", &[
+                            "png", "jpg", "jpeg", "gif", "bmp", "webp"
+                        ]).pick_file() {
+                            self.add_image_message(path);
+                        }
+                        ui.close();
                     }
-                    ui.close();
-                }
-                if ui.button("Add Video...").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Videos", &[
-                        "mp4", "mov", "m4v", "mkv", "webm"
-                    ]).pick_file() {
-                        self.add_video_message(path);
+                    if ui.button("Add Video...").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().add_filter("Videos", &[
+                            "mp4", "mov", "m4v", "mkv", "webm"
+                        ]).pick_file() {
+                            self.add_video_message(path);
+                        }
+                        ui.close();
                     }
-                    ui.close();
-                }
+                });
+                ui.menu_button("View", |ui| {
+                    if ui.button("Clear Current Session").clicked() {
+                        self.clear_current_session();
+                        ui.close();
+                    }
+                });
+                ui.menu_button("Settings", |ui| {
+                    if ui.button("Open Settings").clicked() {
+                        self.show_settings = true;
+                        ui.close();
+                    }
+                });
+                ui.menu_button("Help", |_| {});
             });
-            ui.menu_button("View", |ui| {
-                if ui.button("Clear Current Session").clicked() {
-                    self.clear_current_session();
-                    ui.close();
-                }
-            });
-            ui.menu_button("Settings", |ui| {
-                if ui.button("Open Settings").clicked() {
-                    self.show_settings = true;
-                    ui.close();
-                }
-            });
-            ui.menu_button("Help", |_| {});
         });
 
         // Settings window
@@ -309,7 +319,7 @@ impl eframe::App for IntelliGuiApp {
                                     match &msg.content {
                                         MessageContent::Markdown(text) => render_markdown(ui, text),
                                         MessageContent::Image { path, width, height } => {
-                                            if let Some(handle) = self.ensure_texture(ui.ctx(), path) {
+                                        if let Some(handle) = self.media.ensure_texture(ui.ctx(), path) {
                                                 let size = egui::vec2(*width as f32, *height as f32).min(egui::vec2(512.0, 512.0));
                                                 let img = EguiImage::new(&handle).fit_to_exact_size(size);
                                                 let resp = ui.add(img);
@@ -351,7 +361,7 @@ impl eframe::App for IntelliGuiApp {
                     ui.label(format!("{}", path.display()));
                     ui.add(egui::Slider::new(&mut zoom, 0.1..=5.0).text("Zoom"));
                 });
-                if let Some(handle) = self.ensure_texture(ui.ctx(), &path) {
+                if let Some(handle) = self.media.ensure_texture(ui.ctx(), &path) {
                     let tex_size = handle.size_vec2();
                     let size = tex_size * zoom;
                     ui.add(EguiImage::new(&handle).fit_to_exact_size(size));
@@ -410,18 +420,7 @@ impl IntelliGuiApp {
         self.save_state();
     }
 
-    fn ensure_texture(&mut self, ctx: &egui::Context, path: &PathBuf) -> Option<TextureHandle> {
-        if let Some(handle) = self.textures.get(path) {
-            return Some(handle.clone());
-        }
-        let img = image::open(path).ok()?;
-        let size = [img.width() as usize, img.height() as usize];
-        let rgba = img.to_rgba8();
-        let color_image = ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
-        let handle = ctx.load_texture("img:".to_owned() + &path.to_string_lossy(), color_image, egui::TextureOptions::LINEAR);
-        self.textures.insert(path.clone(), handle.clone());
-        Some(handle)
-    }
+    // texture loading now handled by media::MediaCache
 
     fn check_sql(&mut self) {
         self.sql_error = None;
