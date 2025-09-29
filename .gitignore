@@ -1,3 +1,5 @@
 /target
 intellid.db
+intellid.db-wal
+.DS_Store
 sessions.json

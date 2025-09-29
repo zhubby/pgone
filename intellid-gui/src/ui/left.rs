@@ -1,4 +1,5 @@
 use crate::{IntelliGuiApp, models::Session, models::DbConfig};
+use egui::{Response};
 
 impl IntelliGuiApp {
     pub fn ui_sessions(&mut self, ui: &mut egui::Ui) {
@@ -49,23 +50,35 @@ impl IntelliGuiApp {
     }
 
     pub fn ui_db_config(&mut self, ui: &mut egui::Ui) {
-        ui.heading("DB Config");
-        ui.separator();
-        if let Some(sess) = self.state.sessions.get_mut(self.state.current_index) {
-            ui.label("Engine");
-            ui.text_edit_singleline(&mut sess.db.engine);
-            ui.label("DSN");
-            let changed = ui.text_edit_singleline(&mut sess.db.dsn).changed();
-            if changed { self.save_state(); }
-            let sid = self.state.sessions[self.state.current_index].id;
-            let connected = self.pools.contains_key(&sid);
-            ui.horizontal(|ui| {
-                if !connected {
-                    if ui.button("Connect").clicked() { self.connect_current_session(); }
-                } else {
-                    ui.colored_label(egui::Color32::GREEN, "Connected");
-                    if ui.button("Disconnect").clicked() { self.disconnect_current_session(); }
+        self.ensure_storage();
+        let mut to_switch: Option<String> = None;
+        if let Some(storage) = &self.storage {
+            let list = self.rt.block_on(async { storage.list_db_configs(None).await }).unwrap_or_default();
+            for cfg in list {
+                let icon = egui_phosphor::regular::DATABASE;
+                let label = if Some(cfg.id.clone()) == self.active_db_config_id { format!("{} {} (active)", icon, cfg.id) } else { format!("{} {}", icon, cfg.id) };
+                let resp: Response = ui.selectable_label(false, label);
+                if resp.double_clicked() {
+                    to_switch = Some(cfg.id.clone());
                 }
+            }
+        } else {
+            ui.label("Storage not ready");
+        }
+
+        // confirmation window when switching
+        if let Some(target) = to_switch {
+            let mut open = true;
+            egui::Window::new("Switch Database Config").open(&mut open).collapsible(false).resizable(false).show(ui.ctx(), |ui| {
+                ui.label(format!("Switch active DB config to '{}' ?", target));
+                ui.horizontal(|ui| {
+                    if ui.button("Confirm").clicked() {
+                        self.active_db_config_id = Some(target.clone());
+                    }
+                    if ui.button("Cancel").clicked() {
+                        // do nothing
+                    }
+                });
             });
         }
     }
