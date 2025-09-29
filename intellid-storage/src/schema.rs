@@ -1,5 +1,8 @@
 use anyhow::Result;
+#[cfg(feature = "backend-libsql")]
 use libsql::Connection;
+#[cfg(feature = "backend-turso")]
+use turso::Connection;
 
 pub async fn migrate(conn: &mut Connection) -> Result<()> {
     // no foreign keys; program ensures associations

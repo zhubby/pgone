@@ -43,6 +43,7 @@ prometheus-client-derive-encode = { version = "0.4.2" }
 
 # Turso/libsql for local embedded storage
 libsql = { version = "0.4" }
+turso = { version = "0.1.5" }
 
 intellid-mcp-server = { path = "intellid-mcp-server" }
 intellid-gui = { path = "intellid-gui" }

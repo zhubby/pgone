@@ -1,4 +1,5 @@
 use eframe::egui::{self, CentralPanel, Context, SidePanel, TopBottomPanel, ScrollArea, TextEdit};
+use egui_phosphor::Variant as PhosphorVariant;
 use egui_extras::{TableBuilder, StripBuilder, Size};
 use sqlx::{Row, Column};
 use sqlx::postgres::{PgRow, PgPool, PgPoolOptions};
@@ -9,6 +10,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui::widgets::Image as EguiImage;
 // removed unused imports
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 mod models; use models::*;
 use intellid_storage::blocking::StorageBlocking;
@@ -44,6 +46,19 @@ pub struct IntelliGuiApp {
     pools: HashMap<u64, PgPool>,
     rt: tokio::runtime::Runtime,
     storage: Option<StorageBlocking>,
+    show_add_db: bool,
+    add_db_engine: String,
+    add_db_name: String,
+    add_db_host: String,
+    add_db_port: String,
+    add_db_database: String,
+    add_db_user: String,
+    add_db_password: String,
+    add_db_error: Option<String>,
+    show_manage_db: bool,
+    // collapsible side panels flags
+    show_left_panel: bool,
+    show_right_panel: bool,
 }
 
 impl IntelliGuiApp {
@@ -71,6 +86,18 @@ impl IntelliGuiApp {
             pools: HashMap::new(),
             rt: tokio::runtime::Runtime::new().expect("tokio runtime"),
             storage: None,
+            show_add_db: false,
+            add_db_engine: "postgres".to_string(),
+            add_db_name: String::new(),
+            add_db_host: "localhost".to_string(),
+            add_db_port: "5432".to_string(),
+            add_db_database: String::new(),
+            add_db_user: String::new(),
+            add_db_password: String::new(),
+            add_db_error: None,
+            show_manage_db: false,
+            show_left_panel: true,
+            show_right_panel: true,
         }
     }
 
@@ -138,10 +165,50 @@ impl IntelliGuiApp {
         }
         Ok(())
     }
+
+    fn now_ts() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 }
+
+    fn save_new_database(&mut self) -> Result<(), String> {
+        self.ensure_storage();
+        let Some(storage) = self.storage.as_ref() else { return Err("storage not ready".into()); };
+
+        // basic validations
+        if self.add_db_name.trim().is_empty() { return Err("Name is required".into()); }
+        if self.add_db_engine.trim().is_empty() { return Err("Type is required".into()); }
+        if self.add_db_host.trim().is_empty() { return Err("Host is required".into()); }
+        let port: u16 = self.add_db_port.parse().map_err(|_| "Port must be a number")?;
+        if port == 0 { return Err("Port must be > 0".into()); }
+        if self.add_db_user.trim().is_empty() { return Err("User is required".into()); }
+
+        // build DSN (postgres as example)
+        let dbname = if self.add_db_database.trim().is_empty() { String::new() } else { self.add_db_database.trim().to_string() };
+        let dsn = format!("{}://{}:{}@{}:{}{}",
+            self.add_db_engine.trim(),
+            urlencoding::encode(self.add_db_user.trim()),
+            urlencoding::encode(self.add_db_password.trim()),
+            self.add_db_host.trim(),
+            port,
+            if dbname.is_empty() { String::new() } else { format!("/{}", dbname) }
+        );
+
+        let now = Self::now_ts();
+        let cfg = intellid_storage::models::DbConfig {
+            id: self.add_db_name.trim().to_string(),
+            engine: self.add_db_engine.trim().to_string(),
+            dsn,
+            default_schemas: None,
+            include_system: Some(false),
+            created_at: now,
+            updated_at: now,
+        };
+        let res = self.rt.block_on(async { storage.upsert_db_config(&cfg).await });
+        match res { Ok(_) => Ok(()), Err(e) => Err(e.to_string()) }
+    }
 }
 
 impl eframe::App for IntelliGuiApp {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
+        // fonts are initialized in run() creation context to avoid runtime deadlocks
         TopBottomPanel::top("menu_top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -161,10 +228,35 @@ impl eframe::App for IntelliGuiApp {
                         }
                         ui.close();
                     }
+                    if ui.button("New Database...").clicked() {
+                        self.show_add_db = true;
+                        ui.close();
+                    }
+                    if ui.button("Manage Databases...").clicked() {
+                        self.show_manage_db = true;
+                        ui.close();
+                    }
                 });
                 ui.menu_button("View", |ui| {
                     if ui.button("Clear Current Session").clicked() {
                         self.clear_current_session();
+                        ui.close();
+                    }
+                    ui.separator();
+                    let left_label = if self.show_left_panel { "Hide Left Panel" } else { "Show Left Panel" };
+                    if ui.button(left_label).clicked() { self.show_left_panel = !self.show_left_panel; ui.close(); }
+                    let right_label = if self.show_right_panel { "Hide Right Panel" } else { "Show Right Panel" };
+                    if ui.button(right_label).clicked() { self.show_right_panel = !self.show_right_panel; ui.close(); }
+                });
+                ui.menu_button("Layout", |ui| {
+                    let left_icon = if self.show_left_panel { egui_phosphor::regular::EYE } else { egui_phosphor::regular::EYE_SLASH };
+                    if ui.button(egui::RichText::new(format!("{}  Left Panel", left_icon)).size(14.0)).clicked() {
+                        self.show_left_panel = !self.show_left_panel;
+                        ui.close();
+                    }
+                    let right_icon = if self.show_right_panel { egui_phosphor::regular::EYE } else { egui_phosphor::regular::EYE_SLASH };
+                    if ui.button(egui::RichText::new(format!("{}  Right Panel", right_icon)).size(14.0)).clicked() {
+                        self.show_right_panel = !self.show_right_panel;
                         ui.close();
                     }
                 });
@@ -178,7 +270,62 @@ impl eframe::App for IntelliGuiApp {
             });
         });
 
+        // edge toggle buttons when panels are hidden (using phosphor icons)
+        if !self.show_left_panel {
+            egui::Area::new("left_edge_toggle".into()).anchor(egui::Align2::LEFT_CENTER, [6.0, 0.0]).show(ctx, |ui| {
+                if ui.button(egui::RichText::new(egui_phosphor::regular::ARROW_RIGHT).size(16.0)).clicked() {
+                    self.show_left_panel = true;
+                }
+            });
+        }
+        if !self.show_right_panel {
+            egui::Area::new("right_edge_toggle".into()).anchor(egui::Align2::RIGHT_CENTER, [-6.0, 0.0]).show(ctx, |ui| {
+                if ui.button(egui::RichText::new(egui_phosphor::regular::ARROW_LEFT).size(16.0)).clicked() {
+                    self.show_right_panel = true;
+                }
+            });
+        }
+
         // Settings window
+        if self.show_add_db {
+            let mut open = true;
+            egui::Window::new("New Database").open(&mut open).show(ctx, |ui| {
+                ui.horizontal(|ui| { ui.label("Type"); ui.text_edit_singleline(&mut self.add_db_engine); });
+                ui.horizontal(|ui| { ui.label("Name"); ui.text_edit_singleline(&mut self.add_db_name); });
+                ui.horizontal(|ui| { ui.label("Host"); ui.text_edit_singleline(&mut self.add_db_host); });
+                ui.horizontal(|ui| { ui.label("Port"); ui.text_edit_singleline(&mut self.add_db_port); });
+                ui.horizontal(|ui| { ui.label("Database"); ui.text_edit_singleline(&mut self.add_db_database); });
+                ui.horizontal(|ui| { ui.label("User"); ui.text_edit_singleline(&mut self.add_db_user); });
+                ui.horizontal(|ui| { ui.label("Password"); ui.add(egui::TextEdit::singleline(&mut self.add_db_password).password(true)); });
+                if let Some(err) = &self.add_db_error { ui.colored_label(egui::Color32::RED, err); }
+                if ui.button("Save").clicked() {
+                    if let Err(e) = self.save_new_database() { self.add_db_error = Some(e); } else { self.show_add_db = false; self.add_db_error = None; }
+                }
+            });
+            if !open { self.show_add_db = false; }
+        }
+
+        if self.show_manage_db {
+            let mut open = true;
+            egui::Window::new("Databases").open(&mut open).show(ctx, |ui| {
+                self.ensure_storage();
+                if let Some(storage) = &self.storage {
+                    let list = self.rt.block_on(async { storage.list_db_configs(None).await }).unwrap_or_default();
+                    for cfg in list {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}", cfg.id));
+                            ui.small(format!("[{}]", cfg.engine));
+                            if ui.small_button("Delete").clicked() {
+                                let _ = self.rt.block_on(async { storage.delete_db_config(&cfg.id).await });
+                            }
+                        });
+                    }
+                } else {
+                    ui.label("Storage not ready");
+                }
+            });
+            if !open { self.show_manage_db = false; }
+        }
         if self.show_settings {
             let mut open = true;
             egui::Window::new("Settings").open(&mut open).show(ctx, |ui| {
@@ -214,9 +361,15 @@ impl eframe::App for IntelliGuiApp {
             if !open { self.show_settings = false; }
         }
 
-        // 左栏：会话 + DB 配置
+        // 左栏：会话 + DB 配置（可见性切换）
+        if self.show_left_panel {
         SidePanel::left("session_panel").resizable(true).min_width(220.0).show(ctx, |ui| {
-            ui.heading("Sessions");
+            ui.horizontal(|ui| {
+                ui.heading("Sessions");
+                ui.add_space(ui.available_width() - 24.0);
+                let icon = egui::RichText::new(egui_phosphor::regular::ARROW_LEFT).size(16.0);
+                if ui.add_sized([20.0, 20.0], egui::Button::new(icon)).clicked() { self.show_left_panel = false; }
+            });
             ui.separator();
             if ui.button("+ New Session").clicked() {
                 let id = self.state.next_session_id;
@@ -283,6 +436,7 @@ impl eframe::App for IntelliGuiApp {
                 });
             }
         });
+        }
 
         // 中栏：SQL 编辑 + 结果表
         CentralPanel::default().show(ctx, |ui| {
@@ -332,9 +486,15 @@ impl eframe::App for IntelliGuiApp {
                 });
         });
 
-        // 右栏：聊天
+        // 右栏：聊天（可见性切换）
+        if self.show_right_panel {
         SidePanel::right("chat_panel").resizable(true).min_width(260.0).show(ctx, |ui| {
-            ui.heading("Chat");
+            ui.horizontal(|ui| {
+                let icon = egui::RichText::new(egui_phosphor::regular::ARROW_RIGHT).size(16.0);
+                if ui.add_sized([20.0, 20.0], egui::Button::new(icon)).clicked() { self.show_right_panel = false; }
+                ui.add_space(ui.available_width() - 24.0);
+                ui.heading("Chat");
+            });
             ui.separator();
             StripBuilder::new(ui)
                 .size(Size::remainder())
@@ -384,6 +544,7 @@ impl eframe::App for IntelliGuiApp {
                     });
                 });
         });
+        }
 
         // Image preview window
         if self.preview.is_some() {
@@ -586,10 +747,19 @@ impl IntelliGuiApp {
 
 
 pub fn run() -> eframe::Result<()> {
-    let native_options = eframe::NativeOptions::default();
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_fullscreen(true),
+        ..Default::default()
+    };
     eframe::run_native(
         "Intelligent Database",
         native_options,
-        Box::new(|_| Ok(Box::new(IntelliGuiApp::new()))),
+        Box::new(|cc| {
+            // Inject phosphor font once at creation to avoid runtime deadlocks
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, PhosphorVariant::Regular);
+            cc.egui_ctx.set_fonts(fonts);
+            Ok(Box::new(IntelliGuiApp::new()))
+        }),
     )
 }

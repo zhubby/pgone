@@ -1,5 +1,8 @@
 use anyhow::Result;
+#[cfg(feature = "backend-libsql")]
 use libsql::{Builder, Database, Connection};
+#[cfg(feature = "backend-turso")]
+use turso::{Database, Connection, Builder};
 
 pub mod models;
 pub mod schema;

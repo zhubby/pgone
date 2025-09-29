@@ -1,6 +1,8 @@
 use anyhow::Result;
-use libsql::params;
-use libsql::Connection;
+#[cfg(feature = "backend-libsql")]
+use libsql::{params, Connection};
+#[cfg(feature = "backend-turso")]
+use turso::{params, Connection};
 use crate::models::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,6 +38,32 @@ pub async fn get_db_config(conn: &mut Connection, id: &str) -> Result<Option<DbC
             updated_at: row.get::<i64>(6)?,
         }))
     } else { Ok(None) }
+}
+
+pub async fn list_db_configs(conn: &mut Connection, limit: Option<i64>) -> Result<Vec<DbConfig>> {
+    let sql = match limit { Some(_) =>
+        "SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs ORDER BY updated_at DESC LIMIT ?1",
+        None =>
+        "SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs ORDER BY updated_at DESC",
+    };
+    let mut rows = if let Some(l) = limit {
+        conn.query(sql, params![l]).await?
+    } else {
+        conn.query(sql, params![]).await?
+    };
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(DbConfig {
+            id: row.get::<String>(0)?,
+            engine: row.get::<String>(1)?,
+            dsn: row.get::<String>(2)?,
+            default_schemas: row.get::<Option<String>>(3)?,
+            include_system: row.get::<Option<i64>>(4)?.map(|v| v != 0),
+            created_at: row.get::<i64>(5)?,
+            updated_at: row.get::<i64>(6)?,
+        });
+    }
+    Ok(out)
 }
 
 pub async fn delete_db_config(conn: &mut Connection, id: &str) -> Result<()> {

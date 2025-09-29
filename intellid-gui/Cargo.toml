@@ -8,6 +8,8 @@ emath = { version = "0.32.3", default-features = false }
 ecolor = { version = "0.32.3", default-features = false }
 epaint = { version = "0.32.3", default-features = false }
 epaint_default_fonts = { version = "0.32.3" }
+egui_dock = "0.17"
+egui-phosphor = "0.10"
 egui = { version = "0.32.3", default-features = false }
 eframe = { version = "0.32.3" }
 egui_extras = { version = "0.32.3" }
@@ -26,3 +28,4 @@ hex = "0.4"
 csv = "1"
 async-openai = "0.25"
 intellid-storage = { workspace = true }
+urlencoding = "2"

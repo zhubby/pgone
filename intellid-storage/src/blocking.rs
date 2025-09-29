@@ -22,6 +22,11 @@ impl StorageBlocking {
         crate::storage::get_db_config(&mut conn, id).await
     }
 
+    pub async fn list_db_configs(&self, limit: Option<i64>) -> Result<Vec<DbConfig>> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::list_db_configs(&mut conn, limit).await
+    }
+
     pub async fn delete_db_config(&self, id: &str) -> Result<()> {
         let mut conn = self.inner.conn().await?;
         crate::storage::delete_db_config(&mut conn, id).await
