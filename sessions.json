@@ -1,0 +1,57 @@
+{
+  "sessions": [
+    {
+      "id": 1,
+      "title": "New Session",
+      "messages": []
+    },
+    {
+      "id": 2,
+      "title": "Session 2",
+      "messages": []
+    },
+    {
+      "id": 3,
+      "title": "Session 3",
+      "messages": []
+    },
+    {
+      "id": 4,
+      "title": "Session 4",
+      "messages": [
+        {
+          "role": "user",
+          "timestamp": "2025-09-29T03:03:45.459869Z",
+          "content": {
+            "type": "Markdown",
+            "data": "dsad"
+          }
+        },
+        {
+          "role": "user",
+          "timestamp": "2025-09-29T03:03:47.083969Z",
+          "content": {
+            "type": "Markdown",
+            "data": "dsada"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Session 5",
+      "messages": []
+    },
+    {
+      "id": 6,
+      "title": "Session 6",
+      "messages": []
+    }
+  ],
+  "current_index": 3,
+  "next_session_id": 7,
+  "settings": {
+    "dark_theme": true,
+    "send_shortcut": "CmdEnter"
+  }
+}
