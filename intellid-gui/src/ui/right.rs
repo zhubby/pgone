@@ -38,10 +38,30 @@ impl IntelliGuiApp {
                 strip.cell(|ui| {
                     ui.label("Message");
                     let editor = ui.add(egui::TextEdit::multiline(&mut self.input).desired_rows(4));
-                    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    let cmd = ui.input(|i| i.modifiers.command);
-                    let send_via_shortcut = match self.state.settings.send_shortcut { super::super::models::SendShortcut::Enter => enter && editor.has_focus() && !cmd, super::super::models::SendShortcut::CmdEnter => enter && editor.has_focus() && cmd };
-                    if ui.button("Send").clicked() || send_via_shortcut { self.commit_input(); }
+                    
+                    // 安全地检查键盘事件，避免Shift键导致的卡死问题
+                    let send_via_shortcut = if editor.has_focus() {
+                        let input = ui.input(|i| i.clone());
+                        let enter_pressed = input.key_pressed(egui::Key::Enter);
+                        let cmd_pressed = input.modifiers.command;
+                        let shift_pressed = input.modifiers.shift;
+                        
+                        // 避免在按下Shift键时触发快捷键
+                        if shift_pressed {
+                            false
+                        } else {
+                            match self.state.settings.send_shortcut {
+                                super::super::models::SendShortcut::Enter => enter_pressed && !cmd_pressed,
+                                super::super::models::SendShortcut::CmdEnter => enter_pressed && cmd_pressed,
+                            }
+                        }
+                    } else {
+                        false
+                    };
+                    
+                    if ui.button("Send").clicked() || send_via_shortcut { 
+                        self.commit_input(); 
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("Send (OpenAI)").clicked() { self.send_openai(); }
                         if ui.button("Send MCP").clicked() { /* TODO */ }

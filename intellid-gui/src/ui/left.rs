@@ -37,7 +37,18 @@ impl IntelliGuiApp {
             if self.renaming_index == Some(idx) {
                 ui.horizontal(|ui| {
                     let resp = ui.add(egui::TextEdit::singleline(&mut self.rename_buffer));
-                    let press_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    
+                    // 安全地检查Enter键，避免Shift键导致的卡死问题
+                    let press_enter = if resp.has_focus() {
+                        let input = ui.input(|i| i.clone());
+                        let enter_pressed = input.key_pressed(egui::Key::Enter);
+                        let shift_pressed = input.modifiers.shift;
+                        // 避免在按下Shift键时触发Enter事件
+                        enter_pressed && !shift_pressed
+                    } else {
+                        false
+                    };
+                    
                     if ui.button("Save").clicked() || (resp.lost_focus() && press_enter) {
                         if let Some(s) = self.state.sessions.get_mut(idx) { s.title = self.rename_buffer.trim().to_string(); }
                         self.renaming_index = None;
