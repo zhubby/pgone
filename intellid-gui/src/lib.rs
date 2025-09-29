@@ -1,6 +1,7 @@
-use eframe::egui::{self, CentralPanel, Context, SidePanel, TopBottomPanel, ScrollArea, TextEdit};
+use eframe::egui::{self, CentralPanel, Context, SidePanel, TopBottomPanel};
+use egui_dock::{DockArea, DockState};
 use egui_phosphor::Variant as PhosphorVariant;
-use egui_extras::{TableBuilder, StripBuilder, Size};
+use egui_extras::{StripBuilder, Size};
 use sqlx::{Row, Column};
 use sqlx::postgres::{PgRow, PgPool, PgPoolOptions};
 use chrono::{Utc, DateTime};
@@ -14,21 +15,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod models; use models::*;
 use intellid_storage::blocking::StorageBlocking;
-mod markdown; use markdown::render_markdown;
-mod sql; use sql::{highlight_sql, format_cell};
+mod markdown;
+mod sql; use sql::format_cell;
 mod media; use media::MediaCache;
 mod openai_client; use openai_client::chat_once;
+mod ui;
+use ui::tabs::{LeftTab, RightTab, CenterTopTab, CenterBottomTab, LeftViewer, RightViewer, CenterTopViewer, CenterBottomViewer};
 
 #[derive(Debug, Clone)]
 struct PreviewState { path: PathBuf, zoom: f32 }
 
-#[derive(Debug)]
-enum AppMsg {
-    SqlResult { columns: Vec<String>, rows: Vec<Vec<String>> },
-    SqlError(String),
-    Connected { session_id: u64, pool: Result<PgPool, String> },
-    OpenAIResult { session_id: u64, result: Result<String, String> },
-}
+// removed unused AppMsg
 
 pub struct IntelliGuiApp {
     input: String,
@@ -59,7 +56,13 @@ pub struct IntelliGuiApp {
     // collapsible side panels flags
     show_left_panel: bool,
     show_right_panel: bool,
+    // Dock trees for left/right and center (top/bottom)
+    left_tree: DockState<LeftTab>,
+    right_tree: DockState<RightTab>,
+    center_top_tree: DockState<CenterTopTab>,
+    center_bottom_tree: DockState<CenterBottomTab>,
 }
+
 
 impl IntelliGuiApp {
     const SESSIONS_PATH: &'static str = "sessions.json";
@@ -71,6 +74,12 @@ impl IntelliGuiApp {
             next_session_id: 2,
             settings: Settings::default(),
         });
+        // initialize dock trees
+        let left_tree = DockState::new(vec![LeftTab::Sessions, LeftTab::DbConfig]);
+        let right_tree = DockState::new(vec![RightTab::Chat]);
+        let center_top_tree = DockState::new(vec![CenterTopTab::SqlEditor]);
+        let center_bottom_tree = DockState::new(vec![CenterBottomTab::Results]);
+
         Self {
             input: String::new(),
             state,
@@ -98,6 +107,10 @@ impl IntelliGuiApp {
             show_manage_db: false,
             show_left_panel: true,
             show_right_panel: true,
+            left_tree,
+            right_tree,
+            center_top_tree,
+            center_bottom_tree,
         }
     }
 
@@ -361,188 +374,71 @@ impl eframe::App for IntelliGuiApp {
             if !open { self.show_settings = false; }
         }
 
-        // 左栏：会话 + DB 配置（可见性切换）
+        // 左栏：使用 Dock Tabs（Sessions/DB Config）（可见性切换）
         if self.show_left_panel {
         SidePanel::left("session_panel").resizable(true).min_width(220.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("Sessions");
+                ui.heading("Left");
                 ui.add_space(ui.available_width() - 24.0);
                 let icon = egui::RichText::new(egui_phosphor::regular::ARROW_LEFT).size(16.0);
                 if ui.add_sized([20.0, 20.0], egui::Button::new(icon)).clicked() { self.show_left_panel = false; }
             });
             ui.separator();
-            if ui.button("+ New Session").clicked() {
-                let id = self.state.next_session_id;
-                self.state.next_session_id += 1;
-                self.state.sessions.push(Session { id, title: format!("Session {}", id), messages: Vec::new(), db: DbConfig { engine: "postgres".to_string(), dsn: String::new() } });
-                self.state.current_index = self.state.sessions.len() - 1;
-                self.save_state();
-                self.ensure_storage();
-                if let Some(storage) = &self.storage {
-                    let sess = intellid_storage::models::Session { id: id.to_string(), title: format!("Session {}", id), config_id: None, created_at: 0, updated_at: 0 };
-                    let _ = self.rt.block_on(async { storage.create_session(&sess).await });
-                }
+            // avoid aliasing &mut self and &mut self.left_tree by swapping
+            let mut tmp = DockState::new(Vec::new());
+            std::mem::swap(&mut self.left_tree, &mut tmp);
+            {
+                let mut viewer = LeftViewer { app: self };
+                DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
             }
-            ui.separator();
-
-            let items: Vec<(usize, String)> = self.state.sessions.iter().enumerate()
-                .map(|(i, s)| (i, s.title.clone())).collect();
-            for (idx, title) in items {
-                ui.horizontal(|ui| {
-                    let selected = idx == self.state.current_index;
-                    if ui.selectable_label(selected, &title).clicked() {
-                        self.state.current_index = idx;
-                        self.save_state();
-                    }
-                    if ui.small_button("Rename").clicked() {
-                        self.renaming_index = Some(idx);
-                        self.rename_buffer = title.clone();
-                    }
-                    if ui.small_button("Delete").clicked() {
-                        self.delete_session(idx);
-                    }
-                });
-                if self.renaming_index == Some(idx) {
-                    ui.horizontal(|ui| {
-                        let resp = ui.add(egui::TextEdit::singleline(&mut self.rename_buffer));
-                        let press_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if ui.button("Save").clicked() || (resp.lost_focus() && press_enter) {
-                            if let Some(s) = self.state.sessions.get_mut(idx) { s.title = self.rename_buffer.trim().to_string(); }
-                            self.renaming_index = None;
-                            self.save_state();
-                        }
-                        if ui.button("Cancel").clicked() { self.renaming_index = None; }
-                    });
-                }
-            }
-
-            ui.separator();
-            ui.heading("DB Config");
-            if let Some(sess) = self.state.sessions.get_mut(self.state.current_index) {
-                ui.label("Engine");
-                ui.text_edit_singleline(&mut sess.db.engine);
-                ui.label("DSN");
-                let changed = ui.text_edit_singleline(&mut sess.db.dsn).changed();
-                if changed { self.save_state(); }
-                let sid = self.state.sessions[self.state.current_index].id;
-                let connected = self.pools.contains_key(&sid);
-                ui.horizontal(|ui| {
-                    if !connected {
-                        if ui.button("Connect").clicked() { self.connect_current_session(); }
-                    } else {
-                        ui.colored_label(egui::Color32::GREEN, "Connected");
-                        if ui.button("Disconnect").clicked() { self.disconnect_current_session(); }
-                    }
-                });
-            }
+            std::mem::swap(&mut self.left_tree, &mut tmp);
         });
         }
 
-        // 中栏：SQL 编辑 + 结果表
+        // 中栏：上下分别为 Dock tabs（SQL / Results）
         CentralPanel::default().show(ctx, |ui| {
             StripBuilder::new(ui)
                 .size(Size::relative(0.55)) // editor area
                 .size(Size::remainder())     // results
                 .vertical(|mut strip| {
                     strip.cell(|ui| {
-                        ui.heading("SQL Editor");
-                        ui.separator();
-                        let current_sql = self.sql_input.clone();
-                        let editor = ui.add(TextEdit::multiline(&mut self.sql_input)
-                            .desired_rows(8)
-                            .layouter(&mut move |ui, _text, wrap_width| {
-                                let mut job = highlight_sql(&current_sql, ui.visuals());
-                                job.wrap.max_width = wrap_width;
-                                ui.fonts(|f| f.layout_job(job))
-                            })
-                        );
-                        ui.horizontal(|ui| {
-                            if ui.button("Check").clicked() { self.check_sql(); }
-                            if ui.button("Run").clicked() { self.run_sql(); }
-                        });
-                        if let Some(err) = &self.sql_error { ui.colored_label(egui::Color32::RED, err); }
-                        if editor.changed() { self.sql_error = None; }
+                        let mut tmp = DockState::new(Vec::new());
+                        std::mem::swap(&mut self.center_top_tree, &mut tmp);
+                        {
+                            let mut viewer = CenterTopViewer { app: self };
+                            DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
+                        }
+                        std::mem::swap(&mut self.center_top_tree, &mut tmp);
                     });
                     strip.cell(|ui| {
-                        ui.heading("Results");
-                        ui.separator();
-                        if self.query_columns.is_empty() {
-                            ui.label("No results");
-                        } else {
-                            if ui.button("Export CSV...").clicked() { self.export_csv(); }
-                            let mut table = TableBuilder::new(ui).striped(true).cell_layout(egui::Layout::left_to_right(egui::Align::Center));
-                            for _ in &self.query_columns { table = table.column(egui_extras::Column::auto()); }
-                            table.header(20.0, |mut header| {
-                                for col in &self.query_columns { header.col(|ui| { ui.strong(col); }); }
-                            }).body(|mut body| {
-                                for row in &self.query_rows {
-                                    body.row(18.0, |mut r| {
-                                        for cell in row { r.col(|ui| { ui.label(cell); }); }
-                                    });
-                                }
-                            });
+                        let mut tmp = DockState::new(Vec::new());
+                        std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
+                        {
+                            let mut viewer = CenterBottomViewer { app: self };
+                            DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
                         }
+                        std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
                     });
                 });
         });
 
-        // 右栏：聊天（可见性切换）
+        // 右栏：改为 Dock tabs（Chat）（可见性切换）
         if self.show_right_panel {
         SidePanel::right("chat_panel").resizable(true).min_width(260.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 let icon = egui::RichText::new(egui_phosphor::regular::ARROW_RIGHT).size(16.0);
                 if ui.add_sized([20.0, 20.0], egui::Button::new(icon)).clicked() { self.show_right_panel = false; }
                 ui.add_space(ui.available_width() - 24.0);
-                ui.heading("Chat");
+                ui.heading("Right");
             });
             ui.separator();
-            StripBuilder::new(ui)
-                .size(Size::remainder())
-                .size(Size::exact(120.0))
-                .vertical(|mut strip| {
-                    strip.cell(|ui| {
-                        ScrollArea::vertical()
-                            .auto_shrink([false; 2])
-                            .stick_to_bottom(true)
-                            .show(ui, |ui| {
-                                let messages: Vec<Message> = self.state.sessions.get(self.state.current_index)
-                                    .map(|s| s.messages.clone()).unwrap_or_default();
-                                for msg in &messages {
-                                    ui.horizontal(|ui| {
-                                        ui.strong(match msg.role { Role::User => "User", Role::Assistant => "Assistant", Role::System => "System" });
-                                        ui.label(msg.timestamp.format("%Y-%m-%d %H:%M:%S").to_string());
-                                        if ui.small_button("Copy").clicked() { if let MessageContent::Markdown(text) = &msg.content { ui.ctx().copy_text(text.clone()); } }
-                                    });
-                                    match &msg.content {
-                                        MessageContent::Markdown(text) => render_markdown(ui, text),
-                                        MessageContent::Image { path, width, height } => {
-                                        if let Some(handle) = self.media.ensure_texture(ui.ctx(), path) {
-                                                let size = egui::vec2(*width as f32, *height as f32).min(egui::vec2(512.0, 512.0));
-                                                let img = EguiImage::new(&handle).fit_to_exact_size(size);
-                                                let resp = ui.add(img);
-                                                if resp.clicked() { self.preview = Some(PreviewState { path: path.clone(), zoom: 1.0 }); }
-                                            } else { ui.label(format!("[image missing] {}", path.display())); }
-                                        }
-                                        MessageContent::Video { path, .. } => { if ui.link(path.display().to_string()).clicked() { let _ = open::that(path); } }
-                                    }
-                                    ui.separator();
-                                }
-                            });
-                    });
-                    strip.cell(|ui| {
-                        ui.label("Message");
-                        let editor = ui.add(TextEdit::multiline(&mut self.input).desired_rows(4));
-                        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        let cmd = ui.input(|i| i.modifiers.command);
-                        let send_via_shortcut = match self.state.settings.send_shortcut { SendShortcut::Enter => enter && editor.has_focus() && !cmd, SendShortcut::CmdEnter => enter && editor.has_focus() && cmd };
-                        if ui.button("Send").clicked() || send_via_shortcut { self.commit_input(); }
-                        ui.horizontal(|ui| {
-                            if ui.button("Send (OpenAI)").clicked() { self.send_openai(); }
-                            if ui.button("Send MCP").clicked() { /* TODO: integrate MCP */ }
-                        });
-                        ui.small("[Planned] Connect OpenAI and MCP clients here");
-                    });
-                });
+            let mut tmp = DockState::new(Vec::new());
+            std::mem::swap(&mut self.right_tree, &mut tmp);
+            {
+                let mut viewer = RightViewer { app: self };
+                DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
+            }
+            std::mem::swap(&mut self.right_tree, &mut tmp);
         });
         }
 
@@ -722,6 +618,169 @@ impl IntelliGuiApp {
             Err(e) => { self.sql_error = Some(format!("openai error: {}", e)); }
         }
     }
+
+    // --- helper renderers moved into ui/* modules ---
+    /*
+    fn ui_sessions(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Sessions");
+        ui.separator();
+        if ui.button("+ New Session").clicked() {
+            let id = self.state.next_session_id;
+            self.state.next_session_id += 1;
+            self.state.sessions.push(Session { id, title: format!("Session {}", id), messages: Vec::new(), db: DbConfig { engine: "postgres".to_string(), dsn: String::new() } });
+            self.state.current_index = self.state.sessions.len() - 1;
+            self.save_state();
+            self.ensure_storage();
+            if let Some(storage) = &self.storage {
+                let sess = intellid_storage::models::Session { id: id.to_string(), title: format!("Session {}", id), config_id: None, created_at: 0, updated_at: 0 };
+                let _ = self.rt.block_on(async { storage.create_session(&sess).await });
+            }
+        }
+        ui.separator();
+        let items: Vec<(usize, String)> = self.state.sessions.iter().enumerate().map(|(i, s)| (i, s.title.clone())).collect();
+        for (idx, title) in items {
+            ui.horizontal(|ui| {
+                let selected = idx == self.state.current_index;
+                if ui.selectable_label(selected, &title).clicked() {
+                    self.state.current_index = idx;
+                    self.save_state();
+                }
+                if ui.small_button("Rename").clicked() {
+                    self.renaming_index = Some(idx);
+                    self.rename_buffer = title.clone();
+                }
+                if ui.small_button("Delete").clicked() {
+                    self.delete_session(idx);
+                }
+            });
+            if self.renaming_index == Some(idx) {
+                ui.horizontal(|ui| {
+                    let resp = ui.add(egui::TextEdit::singleline(&mut self.rename_buffer));
+                    let press_enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button("Save").clicked() || (resp.lost_focus() && press_enter) {
+                        if let Some(s) = self.state.sessions.get_mut(idx) { s.title = self.rename_buffer.trim().to_string(); }
+                        self.renaming_index = None;
+                        self.save_state();
+                    }
+                    if ui.button("Cancel").clicked() { self.renaming_index = None; }
+                });
+            }
+        }
+    }
+
+    fn ui_db_config(&mut self, ui: &mut egui::Ui) {
+        ui.heading("DB Config");
+        ui.separator();
+        if let Some(sess) = self.state.sessions.get_mut(self.state.current_index) {
+            ui.label("Engine");
+            ui.text_edit_singleline(&mut sess.db.engine);
+            ui.label("DSN");
+            let changed = ui.text_edit_singleline(&mut sess.db.dsn).changed();
+            if changed { self.save_state(); }
+            let sid = self.state.sessions[self.state.current_index].id;
+            let connected = self.pools.contains_key(&sid);
+            ui.horizontal(|ui| {
+                if !connected {
+                    if ui.button("Connect").clicked() { self.connect_current_session(); }
+                } else {
+                    ui.colored_label(egui::Color32::GREEN, "Connected");
+                    if ui.button("Disconnect").clicked() { self.disconnect_current_session(); }
+                }
+            });
+        }
+    }
+
+    fn ui_sql_editor(&mut self, ui: &mut egui::Ui) {
+        ui.heading("SQL Editor");
+        ui.separator();
+        let current_sql = self.sql_input.clone();
+        let editor = ui.add(TextEdit::multiline(&mut self.sql_input)
+            .desired_rows(8)
+            .layouter(&mut move |ui, _text, wrap_width| {
+                let mut job = highlight_sql(&current_sql, ui.visuals());
+                job.wrap.max_width = wrap_width;
+                ui.fonts(|f| f.layout_job(job))
+            })
+        );
+        ui.horizontal(|ui| {
+            if ui.button("Check").clicked() { self.check_sql(); }
+            if ui.button("Run").clicked() { self.run_sql(); }
+        });
+        if let Some(err) = &self.sql_error { ui.colored_label(egui::Color32::RED, err); }
+        if editor.changed() { self.sql_error = None; }
+    }
+
+    fn ui_results(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Results");
+        ui.separator();
+        if self.query_columns.is_empty() {
+            ui.label("No results");
+        } else {
+            if ui.button("Export CSV...").clicked() { self.export_csv(); }
+            let mut table = TableBuilder::new(ui).striped(true).cell_layout(egui::Layout::left_to_right(egui::Align::Center));
+            for _ in &self.query_columns { table = table.column(egui_extras::Column::auto()); }
+            table.header(20.0, |mut header| {
+                for col in &self.query_columns { header.col(|ui| { ui.strong(col); }); }
+            }).body(|mut body| {
+                for row in &self.query_rows {
+                    body.row(18.0, |mut r| {
+                        for cell in row { r.col(|ui| { ui.label(cell); }); }
+                    });
+                }
+            });
+        }
+    }
+
+    fn ui_chat(&mut self, ui: &mut egui::Ui) {
+        StripBuilder::new(ui)
+            .size(Size::remainder())
+            .size(Size::exact(120.0))
+            .vertical(|mut strip| {
+                strip.cell(|ui| {
+                    ScrollArea::vertical()
+                        .auto_shrink([false; 2])
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            let messages: Vec<Message> = self.state.sessions.get(self.state.current_index)
+                                .map(|s| s.messages.clone()).unwrap_or_default();
+                            for msg in &messages {
+                                ui.horizontal(|ui| {
+                                    ui.strong(match msg.role { Role::User => "User", Role::Assistant => "Assistant", Role::System => "System" });
+                                    ui.label(msg.timestamp.format("%Y-%m-%d %H:%M:%S").to_string());
+                                    if ui.small_button("Copy").clicked() { if let MessageContent::Markdown(text) = &msg.content { ui.ctx().copy_text(text.clone()); } }
+                                });
+                                match &msg.content {
+                                    MessageContent::Markdown(text) => render_markdown(ui, text),
+                                    MessageContent::Image { path, width, height } => {
+                                        if let Some(handle) = self.media.ensure_texture(ui.ctx(), path) {
+                                            let size = egui::vec2(*width as f32, *height as f32).min(egui::vec2(512.0, 512.0));
+                                            let img = EguiImage::new(&handle).fit_to_exact_size(size);
+                                            let resp = ui.add(img);
+                                            if resp.clicked() { self.preview = Some(PreviewState { path: path.clone(), zoom: 1.0 }); }
+                                        } else { ui.label(format!("[image missing] {}", path.display())); }
+                                    }
+                                    MessageContent::Video { path, .. } => { if ui.link(path.display().to_string()).clicked() { let _ = open::that(path); } }
+                                }
+                                ui.separator();
+                            }
+                        });
+                });
+                strip.cell(|ui| {
+                    ui.label("Message");
+                    let editor = ui.add(TextEdit::multiline(&mut self.input).desired_rows(4));
+                    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let cmd = ui.input(|i| i.modifiers.command);
+                    let send_via_shortcut = match self.state.settings.send_shortcut { SendShortcut::Enter => enter && editor.has_focus() && !cmd, SendShortcut::CmdEnter => enter && editor.has_focus() && cmd };
+                    if ui.button("Send").clicked() || send_via_shortcut { self.commit_input(); }
+                    ui.horizontal(|ui| {
+                        if ui.button("Send (OpenAI)").clicked() { self.send_openai(); }
+                        if ui.button("Send MCP").clicked() { /* TODO */ }
+                    });
+                    ui.small("[Planned] Connect OpenAI and MCP clients here");
+                });
+            });
+    }
+    */
 }
 
 impl IntelliGuiApp {
@@ -748,7 +807,7 @@ impl IntelliGuiApp {
 
 pub fn run() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_fullscreen(true),
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
         ..Default::default()
     };
     eframe::run_native(
