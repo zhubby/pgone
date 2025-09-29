@@ -1,11 +1,12 @@
 use egui_dock::TabViewer;
+use egui::WidgetText;
 
 use crate::IntelliGuiApp;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeftTab { Sessions, DbConfig }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RightTab { Chat }
 
 #[derive(Debug, Clone)]
@@ -23,8 +24,11 @@ impl<'a> TabViewer for LeftViewer<'a> {
             LeftTab::DbConfig => self.app.ui_db_config(ui),
         }
     }
-    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
-        match tab { LeftTab::Sessions => "Sessions".into(), LeftTab::DbConfig => "DB Config".into() }
+    fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
+        match tab {
+            LeftTab::Sessions => format!("{} Sessions", egui_phosphor::regular::CHAT_TEXT).into(),
+            LeftTab::DbConfig => format!("{} DB Config", egui_phosphor::regular::DATABASE).into(),
+        }
     }
 }
 
@@ -34,8 +38,8 @@ impl<'a> TabViewer for RightViewer<'a> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         match tab { RightTab::Chat => self.app.ui_chat(ui) }
     }
-    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
-        match tab { RightTab::Chat => "Chat".into() }
+    fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
+        match tab { RightTab::Chat => format!("{} Chat", egui_phosphor::regular::CHAT_TEXT).into() }
     }
 }
 

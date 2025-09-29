@@ -56,7 +56,7 @@ pub struct IntelliGuiApp {
     // collapsible side panels flags
     show_left_panel: bool,
     show_right_panel: bool,
-    // Dock trees for left/right and center (top/bottom)
+    // Dock trees for sidebars and center (top/bottom)
     left_tree: DockState<LeftTab>,
     right_tree: DockState<RightTab>,
     center_top_tree: DockState<CenterTopTab>,
@@ -255,23 +255,6 @@ impl eframe::App for IntelliGuiApp {
                         self.clear_current_session();
                         ui.close();
                     }
-                    ui.separator();
-                    let left_label = if self.show_left_panel { "Hide Left Panel" } else { "Show Left Panel" };
-                    if ui.button(left_label).clicked() { self.show_left_panel = !self.show_left_panel; ui.close(); }
-                    let right_label = if self.show_right_panel { "Hide Right Panel" } else { "Show Right Panel" };
-                    if ui.button(right_label).clicked() { self.show_right_panel = !self.show_right_panel; ui.close(); }
-                });
-                ui.menu_button("Layout", |ui| {
-                    let left_icon = if self.show_left_panel { egui_phosphor::regular::EYE } else { egui_phosphor::regular::EYE_SLASH };
-                    if ui.button(egui::RichText::new(format!("{}  Left Panel", left_icon)).size(14.0)).clicked() {
-                        self.show_left_panel = !self.show_left_panel;
-                        ui.close();
-                    }
-                    let right_icon = if self.show_right_panel { egui_phosphor::regular::EYE } else { egui_phosphor::regular::EYE_SLASH };
-                    if ui.button(egui::RichText::new(format!("{}  Right Panel", right_icon)).size(14.0)).clicked() {
-                        self.show_right_panel = !self.show_right_panel;
-                        ui.close();
-                    }
                 });
                 ui.menu_button("Settings", |ui| {
                     if ui.button("Open Settings").clicked() {
@@ -283,21 +266,7 @@ impl eframe::App for IntelliGuiApp {
             });
         });
 
-        // edge toggle buttons when panels are hidden (using phosphor icons)
-        if !self.show_left_panel {
-            egui::Area::new("left_edge_toggle".into()).anchor(egui::Align2::LEFT_CENTER, [6.0, 0.0]).show(ctx, |ui| {
-                if ui.button(egui::RichText::new(egui_phosphor::regular::ARROW_RIGHT).size(16.0)).clicked() {
-                    self.show_left_panel = true;
-                }
-            });
-        }
-        if !self.show_right_panel {
-            egui::Area::new("right_edge_toggle".into()).anchor(egui::Align2::RIGHT_CENTER, [-6.0, 0.0]).show(ctx, |ui| {
-                if ui.button(egui::RichText::new(egui_phosphor::regular::ARROW_LEFT).size(16.0)).clicked() {
-                    self.show_right_panel = true;
-                }
-            });
-        }
+        // fixed three-column layout; no edge toggle buttons
 
         // Settings window
         if self.show_add_db {
@@ -374,26 +343,17 @@ impl eframe::App for IntelliGuiApp {
             if !open { self.show_settings = false; }
         }
 
-        // 左栏：使用 Dock Tabs（Sessions/DB Config）（可见性切换）
-        if self.show_left_panel {
+        // 左栏：使用 Dock Tabs（Sessions/DB Config）
         SidePanel::left("session_panel").resizable(true).min_width(220.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Left");
-                ui.add_space(ui.available_width() - 24.0);
-                let icon = egui::RichText::new(egui_phosphor::regular::ARROW_LEFT).size(16.0);
-                if ui.add_sized([20.0, 20.0], egui::Button::new(icon)).clicked() { self.show_left_panel = false; }
-            });
-            ui.separator();
-            // avoid aliasing &mut self and &mut self.left_tree by swapping
+            // Dock tabs on left (uses TabViewer titles with icons)
             let mut tmp = DockState::new(Vec::new());
             std::mem::swap(&mut self.left_tree, &mut tmp);
-            {
+            ui.push_id("left_dock", |ui| {
                 let mut viewer = LeftViewer { app: self };
                 DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-            }
+            });
             std::mem::swap(&mut self.left_tree, &mut tmp);
         });
-        }
 
         // 中栏：上下分别为 Dock tabs（SQL / Results）
         CentralPanel::default().show(ctx, |ui| {
@@ -404,43 +364,34 @@ impl eframe::App for IntelliGuiApp {
                     strip.cell(|ui| {
                         let mut tmp = DockState::new(Vec::new());
                         std::mem::swap(&mut self.center_top_tree, &mut tmp);
-                        {
+                        ui.push_id("center_top_dock", |ui| {
                             let mut viewer = CenterTopViewer { app: self };
                             DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-                        }
+                        });
                         std::mem::swap(&mut self.center_top_tree, &mut tmp);
                     });
                     strip.cell(|ui| {
                         let mut tmp = DockState::new(Vec::new());
                         std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
-                        {
+                        ui.push_id("center_bottom_dock", |ui| {
                             let mut viewer = CenterBottomViewer { app: self };
                             DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-                        }
+                        });
                         std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
                     });
                 });
         });
 
-        // 右栏：改为 Dock tabs（Chat）（可见性切换）
-        if self.show_right_panel {
+        // 右栏：Dock tabs（Chat）
         SidePanel::right("chat_panel").resizable(true).min_width(260.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let icon = egui::RichText::new(egui_phosphor::regular::ARROW_RIGHT).size(16.0);
-                if ui.add_sized([20.0, 20.0], egui::Button::new(icon)).clicked() { self.show_right_panel = false; }
-                ui.add_space(ui.available_width() - 24.0);
-                ui.heading("Right");
-            });
-            ui.separator();
             let mut tmp = DockState::new(Vec::new());
             std::mem::swap(&mut self.right_tree, &mut tmp);
-            {
+            ui.push_id("right_dock", |ui| {
                 let mut viewer = RightViewer { app: self };
                 DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-            }
+            });
             std::mem::swap(&mut self.right_tree, &mut tmp);
         });
-        }
 
         // Image preview window
         if self.preview.is_some() {
