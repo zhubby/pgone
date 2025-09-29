@@ -1,0 +1,147 @@
+use anyhow::Result;
+use libsql::params;
+use libsql::Connection;
+use crate::models::*;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn now_ts() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 }
+
+pub async fn upsert_db_config(conn: &mut Connection, cfg: &DbConfig) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO db_configs (id, engine, dsn, default_schemas, include_system, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT created_at FROM db_configs WHERE id=?1), ?6), ?7)",
+        params![
+            cfg.id.as_str(),
+            cfg.engine.as_str(),
+            cfg.dsn.as_str(),
+            cfg.default_schemas.as_deref(),
+            cfg.include_system.map(|b| if b {1i64} else {0i64}),
+            cfg.created_at,
+            cfg.updated_at,
+        ],
+    ).await?;
+    Ok(())
+}
+
+pub async fn get_db_config(conn: &mut Connection, id: &str) -> Result<Option<DbConfig>> {
+    let mut rows = conn.query("SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs WHERE id=?1", params![id]).await?;
+    if let Some(row) = rows.next().await? {
+        Ok(Some(DbConfig {
+            id: row.get::<String>(0)?,
+            engine: row.get::<String>(1)?,
+            dsn: row.get::<String>(2)?,
+            default_schemas: row.get::<Option<String>>(3)?,
+            include_system: row.get::<Option<i64>>(4)?.map(|v| v != 0),
+            created_at: row.get::<i64>(5)?,
+            updated_at: row.get::<i64>(6)?,
+        }))
+    } else { Ok(None) }
+}
+
+pub async fn delete_db_config(conn: &mut Connection, id: &str) -> Result<()> {
+    // program-side cascade: delete sessions and messages
+    let mut srows = conn.query("SELECT id FROM sessions WHERE config_id=?1", params![id]).await?;
+    let mut sess_ids: Vec<String> = Vec::new();
+    while let Some(r) = srows.next().await? { sess_ids.push(r.get::<String>(0)?); }
+    for sid in sess_ids { delete_session(conn, &sid).await?; }
+    conn.execute("DELETE FROM db_configs WHERE id=?1", params![id]).await?;
+    Ok(())
+}
+
+pub async fn create_session(conn: &mut Connection, s: &Session) -> Result<()> {
+    conn.execute(
+        "INSERT INTO sessions (id, title, config_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![s.id.as_str(), s.title.as_str(), s.config_id.as_deref(), s.created_at, s.updated_at],
+    ).await?;
+    Ok(())
+}
+
+pub async fn update_session_title(conn: &mut Connection, id: &str, title: &str) -> Result<()> {
+    conn.execute("UPDATE sessions SET title=?2, updated_at=?3 WHERE id=?1", params![id, title, now_ts()]).await?;
+    Ok(())
+}
+
+pub async fn list_sessions(conn: &mut Connection, limit: i64) -> Result<Vec<Session>> {
+    let mut rows = conn.query("SELECT id, title, config_id, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?1", params![limit]).await?;
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().await? {
+        out.push(Session {
+            id: r.get::<String>(0)?,
+            title: r.get::<String>(1)?,
+            config_id: r.get::<Option<String>>(2)?,
+            created_at: r.get::<i64>(3)?,
+            updated_at: r.get::<i64>(4)?,
+        });
+    }
+    Ok(out)
+}
+
+pub async fn delete_session(conn: &mut Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM messages WHERE session_id=?1", params![id]).await?;
+    conn.execute("DELETE FROM sessions WHERE id=?1", params![id]).await?;
+    Ok(())
+}
+
+pub async fn clear_session_messages(conn: &mut Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM messages WHERE session_id=?1", params![id]).await?;
+    Ok(())
+}
+
+pub async fn append_markdown(conn: &mut Connection, session_id: &str, role: Role, md: &str) -> Result<String> {
+    let id = uuid();
+    conn.execute(
+        "INSERT INTO messages (id, session_id, role, timestamp, kind, content_markdown) VALUES (?1, ?2, ?3, ?4, 'Markdown', ?5)",
+        params![id.as_str(), session_id, format_role(&role), now_ts(), md],
+    ).await?;
+    Ok(id)
+}
+
+pub async fn append_image(conn: &mut Connection, session_id: &str, role: Role, path: &str, w: i64, h: i64) -> Result<String> {
+    let id = uuid();
+    conn.execute(
+        "INSERT INTO messages (id, session_id, role, timestamp, kind, image_path, image_w, image_h) VALUES (?1, ?2, ?3, ?4, 'Image', ?5, ?6, ?7)",
+        params![id.as_str(), session_id, format_role(&role), now_ts(), path, w, h],
+    ).await?;
+    Ok(id)
+}
+
+pub async fn append_video(conn: &mut Connection, session_id: &str, role: Role, path: &str, dur_ms: Option<i64>) -> Result<String> {
+    let id = uuid();
+    conn.execute(
+        "INSERT INTO messages (id, session_id, role, timestamp, kind, video_path, video_duration_ms) VALUES (?1, ?2, ?3, ?4, 'Video', ?5, ?6)",
+        params![id.as_str(), session_id, format_role(&role), now_ts(), path, dur_ms],
+    ).await?;
+    Ok(id)
+}
+
+pub async fn list_messages(conn: &mut Connection, session_id: &str, limit: i64) -> Result<Vec<Message>> {
+    let mut rows = conn.query(
+        "SELECT id, session_id, role, timestamp, kind, content_markdown, image_path, image_w, image_h, video_path, video_duration_ms
+         FROM messages WHERE session_id=?1 ORDER BY timestamp ASC LIMIT ?2",
+        params![session_id, limit]
+    ).await?;
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().await? {
+        out.push(Message {
+            id: r.get::<String>(0)?,
+            session_id: r.get::<String>(1)?,
+            role: parse_role(r.get::<String>(2)?),
+            timestamp: r.get::<i64>(3)?,
+            kind: parse_kind(r.get::<String>(4)?),
+            content_markdown: r.get::<Option<String>>(5)?,
+            image_path: r.get::<Option<String>>(6)?,
+            image_w: r.get::<Option<i64>>(7)?,
+            image_h: r.get::<Option<i64>>(8)?,
+            video_path: r.get::<Option<String>>(9)?,
+            video_duration_ms: r.get::<Option<i64>>(10)?,
+        });
+    }
+    Ok(out)
+}
+
+fn uuid() -> String { use std::time::{SystemTime}; let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(); format!("id-{}", t) }
+fn format_role(r: &Role) -> &'static str { match r { Role::User => "User", Role::Assistant => "Assistant", Role::System => "System" } }
+fn parse_role(s: String) -> Role { match s.as_str() { "User" => Role::User, "Assistant" => Role::Assistant, _ => Role::System } }
+fn parse_kind(s: String) -> MessageKind { match s.as_str() { "Markdown" => MessageKind::Markdown, "Image" => MessageKind::Image, _ => MessageKind::Video } }
+
+

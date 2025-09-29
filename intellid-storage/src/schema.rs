@@ -1,0 +1,53 @@
+use anyhow::Result;
+use libsql::Connection;
+
+pub async fn migrate(conn: &mut Connection) -> Result<()> {
+    // no foreign keys; program ensures associations
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS db_configs (
+            id TEXT PRIMARY KEY,
+            engine TEXT NOT NULL,
+            dsn TEXT NOT NULL,
+            default_schemas TEXT,
+            include_system INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )",
+        (),
+    ).await?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            config_id TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )",
+        (),
+    ).await?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_config_id ON sessions(config_id)", ()).await?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at)", ()).await?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            content_markdown TEXT,
+            image_path TEXT,
+            image_w INTEGER,
+            image_h INTEGER,
+            video_path TEXT,
+            video_duration_ms INTEGER
+        )",
+        (),
+    ).await?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session_time ON messages(session_id, timestamp)", ()).await?;
+
+    Ok(())
+}
+
+

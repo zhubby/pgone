@@ -4,6 +4,7 @@ members = [
     "intellid-a2a",
     "intellid-apiserver",
     "intellid-gui",
+    "intellid-storage",
     "intellid-mcp-server",
     "intellid-protocol",
 ]
@@ -40,4 +41,10 @@ sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-r
 prometheus-client = "0.23.1"
 prometheus-client-derive-encode = { version = "0.4.2" }
 
+# Turso/libsql for local embedded storage
+libsql = { version = "0.4" }
+
 intellid-mcp-server = { path = "intellid-mcp-server" }
+intellid-gui = { path = "intellid-gui" }
+intellid-protocol = { path = "intellid-protocol" }
+intellid-storage = { path = "intellid-storage" }

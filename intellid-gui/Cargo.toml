@@ -25,3 +25,4 @@ sqlx = { workspace = true }
 hex = "0.4"
 csv = "1"
 async-openai = "0.25"
+intellid-storage = { workspace = true }

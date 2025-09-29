@@ -11,6 +11,7 @@ use eframe::egui::widgets::Image as EguiImage;
 use std::collections::HashMap;
 
 mod models; use models::*;
+use intellid_storage::blocking::StorageBlocking;
 mod markdown; use markdown::render_markdown;
 mod sql; use sql::{highlight_sql, format_cell};
 mod media; use media::MediaCache;
@@ -42,6 +43,7 @@ pub struct IntelliGuiApp {
     query_rows: Vec<Vec<String>>,
     pools: HashMap<u64, PgPool>,
     rt: tokio::runtime::Runtime,
+    storage: Option<StorageBlocking>,
 }
 
 impl IntelliGuiApp {
@@ -68,6 +70,7 @@ impl IntelliGuiApp {
             query_rows: vec![],
             pools: HashMap::new(),
             rt: tokio::runtime::Runtime::new().expect("tokio runtime"),
+            storage: None,
         }
     }
 
@@ -103,8 +106,37 @@ impl IntelliGuiApp {
         None
     }
 
-    fn save_state(&self) {
-        let _ = fs::write(Self::SESSIONS_PATH, serde_json::to_string_pretty(&self.state).unwrap_or_default());
+    fn save_state(&self) { let _ = fs::write(Self::SESSIONS_PATH, serde_json::to_string_pretty(&self.state).unwrap_or_default()); }
+
+    fn ensure_storage(&mut self) {
+        if self.storage.is_some() { return; }
+        if let Ok(storage) = self.rt.block_on(async { StorageBlocking::open_local("intellid.db").await }) {
+            // one-time migrate from sessions.json if exists
+            if Path::new(Self::SESSIONS_PATH).exists() {
+                let _ = self.migrate_from_json();
+                let _ = std::fs::remove_file(Self::SESSIONS_PATH);
+            }
+            self.storage = Some(storage);
+        } else {
+            self.sql_error = Some("storage open failed".into());
+        }
+    }
+
+    fn migrate_from_json(&mut self) -> Result<(), String> {
+        let Some(storage) = self.storage.as_ref() else { return Err("storage missing".into()); };
+        // migrate sessions and messages
+        for s in &self.state.sessions {
+            let sess = intellid_storage::models::Session { id: s.id.to_string(), title: s.title.clone(), config_id: None, created_at: 0, updated_at: 0 };
+            let _ = self.rt.block_on(async { storage.create_session(&sess).await });
+            for m in &s.messages {
+                match &m.content {
+                    MessageContent::Markdown(text) => { let _ = self.rt.block_on(async { storage.append_markdown(&sess.id, intellid_storage::models::Role::User, text).await }); }
+                    MessageContent::Image { path, width, height } => { let _ = self.rt.block_on(async { storage.append_image(&sess.id, intellid_storage::models::Role::User, &path.display().to_string(), *width as i64, *height as i64).await }); }
+                    MessageContent::Video { path, duration_ms, .. } => { let _ = self.rt.block_on(async { storage.append_video(&sess.id, intellid_storage::models::Role::User, &path.display().to_string(), duration_ms.map(|v| v as i64)).await }); }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -192,6 +224,11 @@ impl eframe::App for IntelliGuiApp {
                 self.state.sessions.push(Session { id, title: format!("Session {}", id), messages: Vec::new(), db: DbConfig { engine: "postgres".to_string(), dsn: String::new() } });
                 self.state.current_index = self.state.sessions.len() - 1;
                 self.save_state();
+                self.ensure_storage();
+                if let Some(storage) = &self.storage {
+                    let sess = intellid_storage::models::Session { id: id.to_string(), title: format!("Session {}", id), config_id: None, created_at: 0, updated_at: 0 };
+                    let _ = self.rt.block_on(async { storage.create_session(&sess).await });
+                }
             }
             ui.separator();
 
@@ -551,7 +588,7 @@ impl IntelliGuiApp {
 pub fn run() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
-        "IntelliD GUI",
+        "Intelligent Database",
         native_options,
         Box::new(|_| Ok(Box::new(IntelliGuiApp::new()))),
     )
