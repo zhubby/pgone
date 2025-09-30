@@ -607,8 +607,10 @@ impl IntelliGuiApp {
 
 
 pub fn run() -> eframe::Result<()> {
+    let data = std::fs::read("assets/icon.png").expect("Failed to load icon");
+    let icon = eframe::icon_data::from_png_bytes(&data).expect("Failed to load icon");
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_maximized(true),
+        viewport: egui::ViewportBuilder::default().with_maximized(true).with_icon(icon),
         ..Default::default()
     };
     eframe::run_native(
