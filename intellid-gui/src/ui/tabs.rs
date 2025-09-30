@@ -16,6 +16,7 @@ pub enum CenterTopTab { SqlEditor }
 pub enum CenterBottomTab { Results }
 
 pub struct LeftViewer<'a> { pub app: &'a mut IntelliGuiApp }
+
 impl<'a> TabViewer for LeftViewer<'a> {
     type Tab = LeftTab;
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
