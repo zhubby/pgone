@@ -17,7 +17,7 @@ mod sql;
 mod openai_client;
 mod ui;
 use ui::tabs::{LeftTab, RightTab, CenterTopTab, CenterBottomTab, LeftViewer, RightViewer, CenterTopViewer, CenterBottomViewer};
-mod components; use components::{ChatPanel, SessionsPanel, DbManager, SqlPanel, PreviewManager};
+mod components; use components::{ChatPanel, SessionsPanel, DbManager, SqlPanel, PreviewManager, ChatCtx};
 mod media;
 
 pub struct IntelliGuiApp {
@@ -134,7 +134,9 @@ impl eframe::App for IntelliGuiApp {
                             "png", "jpg", "jpeg", "gif", "bmp", "webp"
                         ]).pick_file() {
                             let mut chat = std::mem::take(&mut self.chat);
-                            chat.add_image_message(self, path);
+                            let settings = self.state.settings.clone();
+                            let mut ctxs = ChatCtx { state: &mut self.state, preview: &mut self.preview, send_shortcut: settings.send_shortcut, openai_api_key: settings.openai_api_key.clone(), openai_model: settings.openai_model.clone() };
+                            chat.add_image_message(&mut ctxs, path);
                             self.chat = chat;
                         }
                         ui.close();
@@ -144,7 +146,9 @@ impl eframe::App for IntelliGuiApp {
                             "mp4", "mov", "m4v", "mkv", "webm"
                         ]).pick_file() {
                             let mut chat = std::mem::take(&mut self.chat);
-                            chat.add_video_message(self, path);
+                            let settings = self.state.settings.clone();
+                            let mut ctxs = ChatCtx { state: &mut self.state, preview: &mut self.preview, send_shortcut: settings.send_shortcut, openai_api_key: settings.openai_api_key.clone(), openai_model: settings.openai_model.clone() };
+                            chat.add_video_message(&mut ctxs, path);
                             self.chat = chat;
                         }
                         ui.close();

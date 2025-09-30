@@ -1,5 +1,6 @@
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Row, Column};
+use crate::components::SqlCtx;
 
 pub struct SqlPanel {
     pub sql_input: String,
@@ -13,11 +14,11 @@ impl Default for SqlPanel {
 }
 
 impl SqlPanel {
-    pub fn ui_editor(&mut self, app: &mut crate::IntelliGuiApp, ui: &mut egui::Ui) {
+    pub fn ui_editor(&mut self, ctxs: &mut SqlCtx, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.heading(format!("{} SQL Editor", egui_phosphor::regular::QUESTION));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add(egui::Button::new(egui_phosphor::regular::PLAY).min_size(egui::vec2(28.0, 28.0))).clicked() { self.run_sql(app); }
+                if ui.add(egui::Button::new(egui_phosphor::regular::PLAY).min_size(egui::vec2(28.0, 28.0))).clicked() { self.run_sql(ctxs); }
                 ui.add_space(8.0);
                 if ui.add(egui::Button::new(egui_phosphor::regular::CHECK).min_size(egui::vec2(28.0, 28.0))).clicked() { self.check_sql(); }
             });
@@ -65,14 +66,14 @@ impl SqlPanel {
         match sqlparser::parser::Parser::parse_sql(&dialect, &self.sql_input) { Ok(_) => { self.sql_error = None; } Err(e) => { self.sql_error = Some(format!("{}", e)); } }
     }
 
-    pub fn run_sql(&mut self, app: &mut crate::IntelliGuiApp) {
+    pub fn run_sql(&mut self, ctxs: &mut SqlCtx) {
         self.sql_error = None;
-        let Some(sess) = app.state.sessions.get(app.state.current_index).cloned() else { self.sql_error = Some("No active session".into()); return; };
+        let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index).cloned() else { self.sql_error = Some("No active session".into()); return; };
         let dsn = sess.db.dsn.clone();
         if dsn.trim().is_empty() { self.sql_error = Some("DSN is empty".into()); return; }
         let sql = self.sql_input.clone();
         let rt = match tokio::runtime::Runtime::new() { Ok(rt) => rt, Err(e) => { self.sql_error = Some(format!("runtime error: {}", e)); return; } };
-        let pool_opt = app.db.pools.get(&sess.id).cloned();
+        let pool_opt = ctxs.db.pools.get(&sess.id).cloned();
         let res: Result<(Vec<String>, Vec<Vec<String>>), String> = rt.block_on(async move {
             let pool = match pool_opt { Some(p) => p, None => PgPoolOptions::new().max_connections(1).connect(&dsn).await.map_err(|e| e.to_string())? };
             let rows: Vec<PgRow> = sqlx::query(&sql).fetch_all(&pool).await.map_err(|e| e.to_string())?;
