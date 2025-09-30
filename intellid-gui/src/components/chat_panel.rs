@@ -4,10 +4,11 @@ use chrono::Utc;
 
 pub struct ChatPanel {
     pub input: String,
+    pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
 }
 
 impl Default for ChatPanel {
-    fn default() -> Self { Self { input: String::new() } }
+    fn default() -> Self { Self { input: String::new(), pending: None } }
 }
 
 impl ChatPanel {
@@ -60,12 +61,16 @@ impl ChatPanel {
                             }
                         }
                     } else { false };
-                    if ui.button("Send").clicked() || send_via_shortcut { self.commit_input(ctxs); }
-                    ui.horizontal(|ui| {
-                        if ui.button("Send (OpenAI)").clicked() { self.send_openai(ctxs); }
-                        if ui.button("Send MCP").clicked() { /* TODO */ }
-                    });
-                    ui.small("[Planned] Connect OpenAI and MCP clients here");
+                    if ui.button("Ask").clicked() || send_via_shortcut { self.send_openai_with_tools(ctxs); }
+                    // poll pending result
+                    if let Some(rx) = &self.pending {
+                        if let Ok(Ok(text)) = rx.try_recv() {
+                            if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                                sess.messages.push(Message { role: Role::Assistant, timestamp: Utc::now(), content: MessageContent::Markdown(text) });
+                            }
+                            self.pending = None;
+                        }
+                    }
                 });
             });
     }
@@ -112,6 +117,50 @@ impl ChatPanel {
             }
             Err(_e) => { }
         }
+    }
+
+    pub fn send_mcp(&mut self, ctxs: &mut ChatCtx) {
+        // 简单示例：请求 introspect_all 并把 markdown/结果消息追加到当前会话
+        let _conn_id = ctxs.state.sessions.get(ctxs.state.current_index).map(|s| s.db.dsn.clone()).filter(|s| !s.is_empty());
+        let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let ret: Result<String, String> = rt.block_on(async move {
+                let cli = match crate::mcp_client::McpClient::spawn_with_default().await { Ok(c) => c, Err(e) => return Err(e.to_string()) };
+                let params = serde_json::json!({ "connectionId": "default", "format": "markdown" });
+                match cli.call("introspect_all", params).await {
+                    Ok(v) => {
+                        if let Some(md) = v.get("markdown").and_then(|x| x.as_str()) { Ok(md.to_string()) } else { Ok(v.to_string()) }
+                    }
+                    Err(e) => Err(e.to_string())
+                }
+            });
+            let _ = tx.send(ret);
+        });
+        if let Ok(Ok(text)) = rx.recv() {
+            if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                sess.messages.push(Message { role: Role::Assistant, timestamp: Utc::now(), content: MessageContent::Markdown(text) });
+            }
+        }
+    }
+
+    pub fn send_openai_with_tools(&mut self, ctxs: &mut ChatCtx) {
+        let Some(key) = ctxs.openai_api_key.clone() else { return; };
+        let model = ctxs.openai_model.clone();
+        let prompt = self.input.trim().to_string();
+        if prompt.is_empty() { return; }
+        // append user message first
+        if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+            session.messages.push(Message { role: Role::User, timestamp: Utc::now(), content: MessageContent::Markdown(prompt.clone()) });
+        }
+        self.input.clear();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let ret = rt.block_on(async move { crate::openai_client::chat_with_tools(key, model, prompt).await });
+            let _ = tx.send(ret);
+        });
+        self.pending = Some(rx);
     }
 }
 

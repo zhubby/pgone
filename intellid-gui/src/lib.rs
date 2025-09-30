@@ -15,6 +15,7 @@ mod models; use models::*;
 mod markdown;
 mod sql;
 mod openai_client;
+mod mcp_client;
 mod ui;
 use ui::tabs::{LeftTab, RightTab, CenterTopTab, CenterBottomTab, LeftViewer, RightViewer, CenterTopViewer, CenterBottomViewer};
 mod components; use components::{ChatPanel, SessionsPanel, DbManager, SqlPanel, PreviewManager, ChatCtx};
