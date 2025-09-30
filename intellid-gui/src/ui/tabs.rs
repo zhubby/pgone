@@ -20,10 +20,7 @@ pub struct LeftViewer<'a> { pub app: &'a mut IntelliGuiApp }
 impl<'a> TabViewer for LeftViewer<'a> {
     type Tab = LeftTab;
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
-        match tab {
-            LeftTab::Sessions => self.app.ui_sessions(ui),
-            LeftTab::DbConfig => self.app.ui_db_config(ui),
-        }
+        match tab { LeftTab::Sessions => self.app.ui_sessions(ui), LeftTab::DbConfig => self.app.ui_db_config(ui) }
     }
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
         match tab {
