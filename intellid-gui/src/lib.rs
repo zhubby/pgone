@@ -273,17 +273,17 @@ impl eframe::App for IntelliGuiApp {
                         ui.close();
                     }
                     if ui.button("New Database...").clicked() {
-                        self.db.show_add_db = true;
+                        db.show_add_db = true;
                         ui.close();
                     }
                     if ui.button("Manage Databases...").clicked() {
-                        self.db.show_manage_db = true;
+                        db.show_manage_db = true;
                         ui.close();
                     }
                 });
                 ui.menu_button("View", |ui| {
                     if ui.button("Clear Current Session").clicked() {
-                        self.clear_current_session();
+                        // self.clear_current_session();
                         ui.close();
                     }
                 });
