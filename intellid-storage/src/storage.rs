@@ -1,12 +1,17 @@
+use crate::models::*;
 use anyhow::Result;
 #[cfg(feature = "backend-libsql")]
-use libsql::{params, Connection};
-#[cfg(feature = "backend-turso")]
-use turso::{params, Connection};
-use crate::models::*;
+use libsql::{Connection, params};
 use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(feature = "backend-turso")]
+use turso::{Connection, params};
 
-fn now_ts() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 }
+fn now_ts() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
 
 pub async fn upsert_db_config(conn: &mut Connection, cfg: &DbConfig) -> Result<()> {
     conn.execute(
@@ -37,14 +42,19 @@ pub async fn get_db_config(conn: &mut Connection, id: &str) -> Result<Option<DbC
             created_at: row.get::<i64>(5)?,
             updated_at: row.get::<i64>(6)?,
         }))
-    } else { Ok(None) }
+    } else {
+        Ok(None)
+    }
 }
 
 pub async fn list_db_configs(conn: &mut Connection, limit: Option<i64>) -> Result<Vec<DbConfig>> {
-    let sql = match limit { Some(_) =>
-        "SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs ORDER BY updated_at DESC LIMIT ?1",
-        None =>
-        "SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs ORDER BY updated_at DESC",
+    let sql = match limit {
+        Some(_) => {
+            "SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs ORDER BY updated_at DESC LIMIT ?1"
+        }
+        None => {
+            "SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs ORDER BY updated_at DESC"
+        }
     };
     let mut rows = if let Some(l) = limit {
         conn.query(sql, params![l]).await?
@@ -68,11 +78,18 @@ pub async fn list_db_configs(conn: &mut Connection, limit: Option<i64>) -> Resul
 
 pub async fn delete_db_config(conn: &mut Connection, id: &str) -> Result<()> {
     // program-side cascade: delete sessions and messages
-    let mut srows = conn.query("SELECT id FROM sessions WHERE config_id=?1", params![id]).await?;
+    let mut srows = conn
+        .query("SELECT id FROM sessions WHERE config_id=?1", params![id])
+        .await?;
     let mut sess_ids: Vec<String> = Vec::new();
-    while let Some(r) = srows.next().await? { sess_ids.push(r.get::<String>(0)?); }
-    for sid in sess_ids { delete_session(conn, &sid).await?; }
-    conn.execute("DELETE FROM db_configs WHERE id=?1", params![id]).await?;
+    while let Some(r) = srows.next().await? {
+        sess_ids.push(r.get::<String>(0)?);
+    }
+    for sid in sess_ids {
+        delete_session(conn, &sid).await?;
+    }
+    conn.execute("DELETE FROM db_configs WHERE id=?1", params![id])
+        .await?;
     Ok(())
 }
 
@@ -85,7 +102,11 @@ pub async fn create_session(conn: &mut Connection, s: &Session) -> Result<()> {
 }
 
 pub async fn update_session_title(conn: &mut Connection, id: &str, title: &str) -> Result<()> {
-    conn.execute("UPDATE sessions SET title=?2, updated_at=?3 WHERE id=?1", params![id, title, now_ts()]).await?;
+    conn.execute(
+        "UPDATE sessions SET title=?2, updated_at=?3 WHERE id=?1",
+        params![id, title, now_ts()],
+    )
+    .await?;
     Ok(())
 }
 
@@ -105,17 +126,25 @@ pub async fn list_sessions(conn: &mut Connection, limit: i64) -> Result<Vec<Sess
 }
 
 pub async fn delete_session(conn: &mut Connection, id: &str) -> Result<()> {
-    conn.execute("DELETE FROM messages WHERE session_id=?1", params![id]).await?;
-    conn.execute("DELETE FROM sessions WHERE id=?1", params![id]).await?;
+    conn.execute("DELETE FROM messages WHERE session_id=?1", params![id])
+        .await?;
+    conn.execute("DELETE FROM sessions WHERE id=?1", params![id])
+        .await?;
     Ok(())
 }
 
 pub async fn clear_session_messages(conn: &mut Connection, id: &str) -> Result<()> {
-    conn.execute("DELETE FROM messages WHERE session_id=?1", params![id]).await?;
+    conn.execute("DELETE FROM messages WHERE session_id=?1", params![id])
+        .await?;
     Ok(())
 }
 
-pub async fn append_markdown(conn: &mut Connection, session_id: &str, role: Role, md: &str) -> Result<String> {
+pub async fn append_markdown(
+    conn: &mut Connection,
+    session_id: &str,
+    role: Role,
+    md: &str,
+) -> Result<String> {
     let id = uuid();
     conn.execute(
         "INSERT INTO messages (id, session_id, role, timestamp, kind, content_markdown) VALUES (?1, ?2, ?3, ?4, 'Markdown', ?5)",
@@ -124,7 +153,14 @@ pub async fn append_markdown(conn: &mut Connection, session_id: &str, role: Role
     Ok(id)
 }
 
-pub async fn append_image(conn: &mut Connection, session_id: &str, role: Role, path: &str, w: i64, h: i64) -> Result<String> {
+pub async fn append_image(
+    conn: &mut Connection,
+    session_id: &str,
+    role: Role,
+    path: &str,
+    w: i64,
+    h: i64,
+) -> Result<String> {
     let id = uuid();
     conn.execute(
         "INSERT INTO messages (id, session_id, role, timestamp, kind, image_path, image_w, image_h) VALUES (?1, ?2, ?3, ?4, 'Image', ?5, ?6, ?7)",
@@ -133,7 +169,13 @@ pub async fn append_image(conn: &mut Connection, session_id: &str, role: Role, p
     Ok(id)
 }
 
-pub async fn append_video(conn: &mut Connection, session_id: &str, role: Role, path: &str, dur_ms: Option<i64>) -> Result<String> {
+pub async fn append_video(
+    conn: &mut Connection,
+    session_id: &str,
+    role: Role,
+    path: &str,
+    dur_ms: Option<i64>,
+) -> Result<String> {
     let id = uuid();
     conn.execute(
         "INSERT INTO messages (id, session_id, role, timestamp, kind, video_path, video_duration_ms) VALUES (?1, ?2, ?3, ?4, 'Video', ?5, ?6)",
@@ -142,7 +184,11 @@ pub async fn append_video(conn: &mut Connection, session_id: &str, role: Role, p
     Ok(id)
 }
 
-pub async fn list_messages(conn: &mut Connection, session_id: &str, limit: i64) -> Result<Vec<Message>> {
+pub async fn list_messages(
+    conn: &mut Connection,
+    session_id: &str,
+    limit: i64,
+) -> Result<Vec<Message>> {
     let mut rows = conn.query(
         "SELECT id, session_id, role, timestamp, kind, content_markdown, image_path, image_w, image_h, video_path, video_duration_ms
          FROM messages WHERE session_id=?1 ORDER BY timestamp ASC LIMIT ?2",
@@ -167,9 +213,32 @@ pub async fn list_messages(conn: &mut Connection, session_id: &str, limit: i64) 
     Ok(out)
 }
 
-fn uuid() -> String { use std::time::{SystemTime}; let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(); format!("id-{}", t) }
-fn format_role(r: &Role) -> &'static str { match r { Role::User => "User", Role::Assistant => "Assistant", Role::System => "System" } }
-fn parse_role(s: String) -> Role { match s.as_str() { "User" => Role::User, "Assistant" => Role::Assistant, _ => Role::System } }
-fn parse_kind(s: String) -> MessageKind { match s.as_str() { "Markdown" => MessageKind::Markdown, "Image" => MessageKind::Image, _ => MessageKind::Video } }
-
-
+fn uuid() -> String {
+    use std::time::SystemTime;
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("id-{}", t)
+}
+fn format_role(r: &Role) -> &'static str {
+    match r {
+        Role::User => "User",
+        Role::Assistant => "Assistant",
+        Role::System => "System",
+    }
+}
+fn parse_role(s: String) -> Role {
+    match s.as_str() {
+        "User" => Role::User,
+        "Assistant" => Role::Assistant,
+        _ => Role::System,
+    }
+}
+fn parse_kind(s: String) -> MessageKind {
+    match s.as_str() {
+        "Markdown" => MessageKind::Markdown,
+        "Image" => MessageKind::Image,
+        _ => MessageKind::Video,
+    }
+}

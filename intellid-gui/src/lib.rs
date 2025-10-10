@@ -33,12 +33,9 @@ mod media;
 pub struct AppFrame {
     state: PersistedState,
     show_settings: bool,
-    // components
-    sessions: SessionsPanel,
     db: DbManager,
     sql: SqlPanel,
     preview: PreviewManager,
-    // Dock trees for sidebars and center (top/bottom)
     left_tree: DockState<LeftTab>,
     right_tree: DockState<RightTab>,
     center_top_tree: DockState<CenterTopTab>,
@@ -72,8 +69,6 @@ impl AppFrame {
         Self {
             state,
             show_settings: false,
-            // chat: Default::default(),
-            sessions: Default::default(),
             db: Default::default(),
             sql: Default::default(),
             preview: Default::default(),
