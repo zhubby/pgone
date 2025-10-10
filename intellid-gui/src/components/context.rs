@@ -1,9 +1,15 @@
+use crate::components::{DbManager, PreviewManager};
 use crate::models::{PersistedState, SendShortcut};
-use crate::components::PreviewManager;
 
-pub struct SessionsCtx<'a> {
-    pub state: &'a mut PersistedState,
-    pub db: &'a mut crate::components::DbManager,
+pub struct SessionsCtx {
+    pub state: PersistedState,
+    pub db: DbManager,
+}
+
+impl Default for SessionsCtx {
+    fn default() -> Self {
+        Self { state: PersistedState::default(), db: DbManager::default() }
+    }
 }
 
 pub struct ChatCtx<'a> {
@@ -18,5 +24,3 @@ pub struct SqlCtx<'a> {
     pub state: &'a mut PersistedState,
     pub db: &'a mut crate::components::DbManager,
 }
-
-

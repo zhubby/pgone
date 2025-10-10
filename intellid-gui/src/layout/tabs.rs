@@ -2,16 +2,8 @@ use egui::WidgetText;
 use egui_dock::TabViewer;
 
 use crate::{
-    components::{ChatCtx, ChatPanel, PreviewManager}, models::PersistedState, IntelliGuiApp
+    components::{ChatCtx, ChatPanel, PreviewManager, SessionsPanel}, models::PersistedState, IntelliGuiApp
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LeftTab {
-    Sessions,
-    DbConfig,
-}
-
-
 
 #[derive(Debug, Clone)]
 pub enum CenterTopTab {
@@ -21,26 +13,6 @@ pub enum CenterTopTab {
 #[derive(Debug, Clone)]
 pub enum CenterBottomTab {
     Results,
-}
-
-pub struct LeftViewer<'a> {
-    pub app: &'a mut IntelliGuiApp,
-}
-
-impl<'a> TabViewer for LeftViewer<'a> {
-    type Tab = LeftTab;
-    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
-        match tab {
-            LeftTab::Sessions => self.app.ui_sessions(ui),
-            LeftTab::DbConfig => self.app.ui_db_config(ui),
-        }
-    }
-    fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
-        match tab {
-            LeftTab::Sessions => format!("{} Sessions", egui_phosphor::regular::CHAT_TEXT).into(),
-            LeftTab::DbConfig => format!("{} DB Config", egui_phosphor::regular::DATABASE).into(),
-        }
-    }
 }
 
 pub struct CenterTopViewer<'a> {

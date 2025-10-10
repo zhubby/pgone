@@ -1,11 +1,14 @@
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot};
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
-use std::collections::HashMap;
 use tokio::sync::Mutex;
+use tokio::sync::{mpsc, oneshot};
 
 pub struct McpClient {
     child: Child,
@@ -21,13 +24,16 @@ impl McpClient {
         cmd.arg("run").arg("-p").arg("intellid-mcp-server");
         cmd.env("INTELLID_MCP_STDIO", "1");
         cmd.env("INTELLID_CONNECTIONS_PATH", "examples/connections.yaml");
-        cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
         let mut child = cmd.spawn()?;
         let stdin = child.stdin.take().expect("stdin");
         let stdout = child.stdout.take().expect("stdout");
 
         let (tx, mut rx) = mpsc::channel::<(u64, String)>(64);
-        let waiters: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let waiters: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let waiters_writer = waiters.clone();
         let mut writer = tokio::io::BufWriter::new(stdin);
         tokio::spawn(async move {
@@ -58,7 +64,12 @@ impl McpClient {
             }
         });
 
-        Ok(Self { child, tx, waiters: waiters_writer, seq: AtomicU64::new(1) })
+        Ok(Self {
+            child,
+            tx,
+            waiters: waiters_writer,
+            seq: AtomicU64::new(1),
+        })
     }
 
     pub async fn call(&self, method: &str, params: Value) -> anyhow::Result<Value> {
@@ -69,9 +80,9 @@ impl McpClient {
         let line = serde_json::to_string(&req)?;
         let _ = self.tx.send((id, line)).await;
         let v = rx_resp.await?;
-        if let Some(err) = v.get("error") { anyhow::bail!(format!("mcp error: {}", err)); }
+        if let Some(err) = v.get("error") {
+            anyhow::bail!(format!("mcp error: {}", err));
+        }
         Ok(v.get("result").cloned().unwrap_or(json!(null)))
     }
 }
-
-

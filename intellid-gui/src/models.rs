@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -14,8 +14,16 @@ pub enum Role {
 #[serde(tag = "type", content = "data")]
 pub enum MessageContent {
     Markdown(String),
-    Image { path: PathBuf, width: u32, height: u32 },
-    Video { path: PathBuf, duration_ms: Option<u64>, thumbnail: Option<PathBuf> },
+    Image {
+        path: PathBuf,
+        width: u32,
+        height: u32,
+    },
+    Video {
+        path: PathBuf,
+        duration_ms: Option<u64>,
+        thumbnail: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +41,10 @@ pub struct DbConfig {
 
 impl Default for DbConfig {
     fn default() -> Self {
-        Self { engine: "postgres".to_string(), dsn: String::new() }
+        Self {
+            engine: "postgres".to_string(),
+            dsn: String::new(),
+        }
     }
 }
 
@@ -54,7 +65,10 @@ pub struct PersistedState {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum SendShortcut { Enter, CmdEnter }
+pub enum SendShortcut {
+    Enter,
+    CmdEnter,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -74,5 +88,3 @@ impl Default for Settings {
         }
     }
 }
-
-

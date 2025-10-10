@@ -17,13 +17,16 @@ mod markdown;
 mod mcp_client;
 mod openai_client;
 mod sql;
-mod ui;
-use ui::tabs::{
-    CenterBottomTab, CenterBottomViewer, CenterTopTab, CenterTopViewer, LeftTab, LeftViewer,
+mod layout;
+use layout::tabs::{
+    CenterBottomTab, CenterBottomViewer, CenterTopTab, CenterTopViewer,
 };
 
-use ui::right::RightTab;
-use ui::right::RightViewer;
+use layout::left::LeftTab;
+use layout::left::LeftViewer;
+
+use layout::right::RightTab;
+use layout::right::RightViewer;
 
 mod components;
 use components::{ChatCtx, ChatPanel, DbManager, PreviewManager, SessionsPanel, SqlPanel};
@@ -227,6 +230,7 @@ impl IntelliGuiApp {
 
 impl eframe::App for IntelliGuiApp {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
+        let Self {left_tree,right_tree,state,preview,db,..} = self ;
         // fonts are initialized in run() creation context to avoid runtime deadlocks
         TopBottomPanel::top("menu_top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -237,14 +241,14 @@ impl eframe::App for IntelliGuiApp {
                             .pick_file()
                         {
                             
-                            let settings = self.state.settings.clone();
-                            let mut ctxs = ChatCtx {
-                                state: &mut self.state,
-                                preview: &mut self.preview,
-                                send_shortcut: settings.send_shortcut,
-                                openai_api_key: settings.openai_api_key.clone(),
-                                openai_model: settings.openai_model.clone(),
-                            };
+                            // let settings = self.state.settings.clone();
+                            // let mut ctxs = ChatCtx {
+                            //     state: &mut self.state,
+                            //     preview: &mut self.preview,
+                            //     send_shortcut: settings.send_shortcut,
+                            //     openai_api_key: settings.openai_api_key.clone(),
+                            //     openai_model: settings.openai_model.clone(),
+                            // };
                             // self.chat.add_image_message(&mut ctxs, path);
                         }
                         ui.close();
@@ -255,14 +259,14 @@ impl eframe::App for IntelliGuiApp {
                             .pick_file()
                         {
                             // let mut chat = std::mem::take(&mut self.chat);
-                            let settings = self.state.settings.clone();
-                            let mut ctxs = ChatCtx {
-                                state: &mut self.state,
-                                preview: &mut self.preview,
-                                send_shortcut: settings.send_shortcut,
-                                openai_api_key: settings.openai_api_key.clone(),
-                                openai_model: settings.openai_model.clone(),
-                            };
+                            // let settings = self.state.settings.clone();
+                            // let mut ctxs = ChatCtx {
+                            //     state: &mut self.state,
+                            //     preview: &mut self.preview,
+                            //     send_shortcut: settings.send_shortcut,
+                            //     openai_api_key: settings.openai_api_key.clone(),
+                            //     openai_model: settings.openai_model.clone(),
+                            // };
                             // chat.add_video_message(&mut ctxs, path);
                             // self.chat = chat;
                         }
@@ -298,8 +302,7 @@ impl eframe::App for IntelliGuiApp {
             ui.horizontal(|ui| {
                 ui.label("Ready");
                 ui.add_space(ui.available_width() - 120.0);
-                let name = self
-                    .db
+                let name = db
                     .active_db_config_id
                     .clone()
                     .unwrap_or_else(|| "<no db>".to_string());
@@ -311,139 +314,125 @@ impl eframe::App for IntelliGuiApp {
 
         // Settings window
         {
-            let mut db = std::mem::take(&mut self.db);
-            db.ui_add_db_window(self, ctx);
-            self.db = db;
+            db.ui_add_db_window(ctx);
         }
 
         {
-            let mut db = std::mem::take(&mut self.db);
-            db.ui_manage_db_window(self, ctx);
-            self.db = db;
+            db.ui_manage_db_window(ctx);
         }
         if self.show_settings {
             let mut open = true;
             egui::Window::new("Settings")
                 .open(&mut open)
                 .show(ctx, |ui| {
-                    ui.heading("Appearance");
-                    let mut dark = self.state.settings.dark_theme;
-                    if ui.checkbox(&mut dark, "Dark theme").clicked() {
-                        self.state.settings.dark_theme = dark;
-                        if dark {
-                            ctx.set_visuals(egui::Visuals::dark());
-                        } else {
-                            ctx.set_visuals(egui::Visuals::light());
-                        }
-                        self.save_state();
-                    }
-                    ui.separator();
-                    ui.heading("Send Shortcut");
-                    let mut sc = self.state.settings.send_shortcut;
-                    if ui
-                        .radio_value(&mut sc, SendShortcut::Enter, "Enter")
-                        .clicked()
-                    {
-                        self.state.settings.send_shortcut = sc;
-                        self.save_state();
-                    }
-                    if ui
-                        .radio_value(&mut sc, SendShortcut::CmdEnter, "Cmd+Enter")
-                        .clicked()
-                    {
-                        self.state.settings.send_shortcut = sc;
-                        self.save_state();
-                    }
-                    ui.separator();
-                    ui.heading("OpenAI");
-                    let mut key = self
-                        .state
-                        .settings
-                        .openai_api_key
-                        .clone()
-                        .unwrap_or_default();
-                    if ui
-                        .add(egui::TextEdit::singleline(&mut key).hint_text("API Key"))
-                        .changed()
-                    {
-                        if key.trim().is_empty() {
-                            self.state.settings.openai_api_key = None;
-                        } else {
-                            self.state.settings.openai_api_key = Some(key.clone());
-                        }
-                        self.save_state();
-                    }
-                    ui.horizontal(|ui| {
-                        ui.label("Model");
-                        let changed = ui
-                            .text_edit_singleline(&mut self.state.settings.openai_model)
-                            .changed();
-                        if changed {
-                            self.save_state();
-                        }
-                    });
+                    // ui.heading("Appearance");
+                    // let mut dark = self.state.settings.dark_theme;
+                    // if ui.checkbox(&mut dark, "Dark theme").clicked() {
+                    //     self.state.settings.dark_theme = dark;
+                    //     if dark {
+                    //         ctx.set_visuals(egui::Visuals::dark());
+                    //     } else {
+                    //         ctx.set_visuals(egui::Visuals::light());
+                    //     }
+                    //     self.save_state();
+                    // }
+                    // ui.separator();
+                    // ui.heading("Send Shortcut");
+                    // let mut sc = self.state.settings.send_shortcut;
+                    // if ui
+                    //     .radio_value(&mut sc, SendShortcut::Enter, "Enter")
+                    //     .clicked()
+                    // {
+                    //     self.state.settings.send_shortcut = sc;
+                    //     self.save_state();
+                    // }
+                    // if ui
+                    //     .radio_value(&mut sc, SendShortcut::CmdEnter, "Cmd+Enter")
+                    //     .clicked()
+                    // {
+                    //     self.state.settings.send_shortcut = sc;
+                    //     self.save_state();
+                    // }
+                    // ui.separator();
+                    // ui.heading("OpenAI");
+                    // let mut key = self
+                    //     .state
+                    //     .settings
+                    //     .openai_api_key
+                    //     .clone()
+                    //     .unwrap_or_default();
+                    // if ui
+                    //     .add(egui::TextEdit::singleline(&mut key).hint_text("API Key"))
+                    //     .changed()
+                    // {
+                    //     if key.trim().is_empty() {
+                    //         self.state.settings.openai_api_key = None;
+                    //     } else {
+                    //         self.state.settings.openai_api_key = Some(key.clone());
+                    //     }
+                    //     self.save_state();
+                    // }
+                    // ui.horizontal(|ui| {
+                    //     ui.label("Model");
+                    //     let changed = ui
+                    //         .text_edit_singleline(&mut self.state.settings.openai_model)
+                    //         .changed();
+                    //     if changed {
+                    //         self.save_state();
+                    //     }
+                    // });
                 });
             if !open {
                 self.show_settings = false;
             }
         }
 
+        
+
         // 左栏：使用 Dock Tabs（Sessions/DB Config）
-        SidePanel::left("session_panel")
+        SidePanel::left("left_panel")
             .resizable(true)
             .min_width(220.0)
             .show(ctx, |ui| {
-                // Dock tabs on left (uses TabViewer titles with icons)
-                let mut tmp = DockState::new(Vec::new());
-                std::mem::swap(&mut self.left_tree, &mut tmp);
-                ui.push_id("left_dock", |ui| {
-                    let mut viewer = LeftViewer { app: self };
-                    DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-                });
-                std::mem::swap(&mut self.left_tree, &mut tmp);
+                let mut viewer = LeftViewer { };
+                    DockArea::new(left_tree).show_inside(ui, &mut viewer);
+                
             });
 
-        // 中栏：上下分别为 Dock tabs（SQL / Results）
-        CentralPanel::default().show(ctx, |ui| {
-            StripBuilder::new(ui)
-                .size(Size::relative(0.55)) // editor area
-                .size(Size::remainder()) // results
-                .vertical(|mut strip| {
-                    strip.cell(|ui| {
-                        let mut tmp = DockState::new(Vec::new());
-                        std::mem::swap(&mut self.center_top_tree, &mut tmp);
-                        ui.push_id("center_top_dock", |ui| {
-                            let mut viewer = CenterTopViewer { app: self };
-                            DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-                        });
-                        std::mem::swap(&mut self.center_top_tree, &mut tmp);
-                    });
-                    strip.cell(|ui| {
-                        let mut tmp = DockState::new(Vec::new());
-                        std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
-                        ui.push_id("center_bottom_dock", |ui| {
-                            let mut viewer = CenterBottomViewer { app: self };
-                            DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-                        });
-                        std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
-                    });
-                });
-        });
+        // // 中栏：上下分别为 Dock tabs（SQL / Results）
+        // CentralPanel::default().show(ctx, |ui| {
+        //     StripBuilder::new(ui)
+        //         .size(Size::relative(0.55)) // editor area
+        //         .size(Size::remainder()) // results
+        //         .vertical(|mut strip| {
+        //             strip.cell(|ui| {
+        //                 let mut tmp = DockState::new(Vec::new());
+        //                 std::mem::swap(&mut self.center_top_tree, &mut tmp);
+        //                 ui.push_id("center_top_dock", |ui| {
+        //                     let mut viewer = CenterTopViewer { app: self };
+        //                     DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
+        //                 });
+        //                 std::mem::swap(&mut self.center_top_tree, &mut tmp);
+        //             });
+        //             strip.cell(|ui| {
+        //                 let mut tmp = DockState::new(Vec::new());
+        //                 std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
+        //                 ui.push_id("center_bottom_dock", |ui| {
+        //                     let mut viewer = CenterBottomViewer { app: self };
+        //                     DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
+        //                 });
+        //                 std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
+        //             });
+        //         });
+        // });
 
         // 右栏：Dock tabs（Chat）
-        SidePanel::right("chat_panel")
+        SidePanel::right("right_panel")
             .resizable(true)
             .min_width(260.0)
             .show(ctx, |ui| {
                 let mut viewer = RightViewer { preview: self.preview.clone(), chat: ChatPanel::default(), state: self.state.clone() };
-                DockArea::new(&mut self.right_tree).show_inside(ui, &mut viewer);
-                // self.right_tree.push_to_first_leaf(RightTab::Chat);
-                // self.right_tree.
-                // let mut tmp = DockState::new(Vec::new());
-                // ui.push_id("right_dock", |ui| {
-                //     let mut viewer = RightViewer { preview: self.preview.clone(), chat: ChatPanel::default(), state: self.state.clone() };
-                //     DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-                // });
+                DockArea::new(right_tree).show_inside(ui, &mut viewer);
             });
 
         // Image preview window
