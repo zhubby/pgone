@@ -13,14 +13,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod models;
 use models::*;
+mod layout;
 mod markdown;
 mod mcp_client;
 mod openai_client;
 mod sql;
-mod layout;
-use layout::tabs::{
-    CenterBottomTab, CenterBottomViewer, CenterTopTab, CenterTopViewer,
-};
+use layout::tabs::{CenterBottomTab, CenterBottomViewer, CenterTopTab, CenterTopViewer};
 
 use layout::left::LeftTab;
 use layout::left::LeftViewer;
@@ -32,12 +30,10 @@ mod components;
 use components::{ChatCtx, ChatPanel, DbManager, PreviewManager, SessionsPanel, SqlPanel};
 mod media;
 
-
-pub struct IntelliGuiApp {
+pub struct AppFrame {
     state: PersistedState,
     show_settings: bool,
     // components
-    
     sessions: SessionsPanel,
     db: DbManager,
     sql: SqlPanel,
@@ -49,7 +45,7 @@ pub struct IntelliGuiApp {
     center_bottom_tree: DockState<CenterBottomTab>,
 }
 
-impl IntelliGuiApp {
+impl AppFrame {
     const SESSIONS_PATH: &'static str = "sessions.json";
 
     fn new() -> Self {
@@ -228,9 +224,16 @@ impl IntelliGuiApp {
     }
 }
 
-impl eframe::App for IntelliGuiApp {
+impl eframe::App for AppFrame {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
-        let Self {left_tree,right_tree,state,preview,db,..} = self ;
+        let Self {
+            left_tree,
+            right_tree,
+            state,
+            preview,
+            db,
+            ..
+        } = self;
         // fonts are initialized in run() creation context to avoid runtime deadlocks
         TopBottomPanel::top("menu_top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -240,7 +243,7 @@ impl eframe::App for IntelliGuiApp {
                             .add_filter("Images", &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
                             .pick_file()
                         {
-                            
+
                             // let settings = self.state.settings.clone();
                             // let mut ctxs = ChatCtx {
                             //     state: &mut self.state,
@@ -387,16 +390,13 @@ impl eframe::App for IntelliGuiApp {
             }
         }
 
-        
-
         // 左栏：使用 Dock Tabs（Sessions/DB Config）
         SidePanel::left("left_panel")
             .resizable(true)
             .min_width(220.0)
             .show(ctx, |ui| {
-                let mut viewer = LeftViewer { };
-                    DockArea::new(left_tree).show_inside(ui, &mut viewer);
-                
+                let mut viewer = LeftViewer {};
+                DockArea::new(left_tree).show_inside(ui, &mut viewer);
             });
 
         // // 中栏：上下分别为 Dock tabs（SQL / Results）
@@ -431,7 +431,11 @@ impl eframe::App for IntelliGuiApp {
             .resizable(true)
             .min_width(260.0)
             .show(ctx, |ui| {
-                let mut viewer = RightViewer { preview: self.preview.clone(), chat: ChatPanel::default(), state: self.state.clone() };
+                let mut viewer = RightViewer {
+                    preview: self.preview.clone(),
+                    chat: ChatPanel::default(),
+                    state: self.state.clone(),
+                };
                 DockArea::new(right_tree).show_inside(ui, &mut viewer);
             });
 
@@ -440,7 +444,7 @@ impl eframe::App for IntelliGuiApp {
     }
 }
 
-impl IntelliGuiApp {
+impl AppFrame {
     fn clear_current_session(&mut self) {
         if let Some(s) = self.state.sessions.get_mut(self.state.current_index) {
             s.messages.clear();
@@ -449,7 +453,7 @@ impl IntelliGuiApp {
     }
 }
 
-impl IntelliGuiApp {
+impl AppFrame {
     fn delete_session(&mut self, idx: usize) {
         if idx < self.state.sessions.len() {
             self.state.sessions.remove(idx);
@@ -498,7 +502,7 @@ pub fn run() -> anyhow::Result<()> {
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, PhosphorVariant::Regular);
             cc.egui_ctx.set_fonts(fonts);
-            Ok(Box::new(IntelliGuiApp::new()))
+            Ok(Box::new(AppFrame::new()))
         }),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {}", e))

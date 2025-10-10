@@ -43,7 +43,7 @@ impl McpClient {
                 let _ = writer.flush().await;
                 // Note: request is sent; response will be handled by reader
                 // nothing to do here
-                drop(id);
+                let _ = drop(id);
             }
         });
 

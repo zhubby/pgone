@@ -52,7 +52,7 @@ impl DbManager {
         }
     }
 
-    pub fn ui_db_config(&mut self, app: &mut crate::IntelliGuiApp, ui: &mut egui::Ui) {
+    pub fn ui_db_config(&mut self, app: &mut crate::AppFrame, ui: &mut egui::Ui) {
         self.ensure_storage();
         let mut to_switch: Option<String> = None;
         if let Some(storage) = &self.storage {

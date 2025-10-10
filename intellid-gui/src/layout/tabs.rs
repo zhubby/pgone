@@ -2,7 +2,7 @@ use egui::WidgetText;
 use egui_dock::TabViewer;
 
 use crate::{
-    components::{ChatCtx, ChatPanel, PreviewManager, SessionsPanel}, models::PersistedState, IntelliGuiApp
+    components::{ChatCtx, ChatPanel, PreviewManager, SessionsPanel}, models::PersistedState, AppFrame
 };
 
 #[derive(Debug, Clone)]
@@ -16,7 +16,7 @@ pub enum CenterBottomTab {
 }
 
 pub struct CenterTopViewer<'a> {
-    pub app: &'a mut IntelliGuiApp,
+    pub app: &'a mut AppFrame,
 }
 impl<'a> TabViewer for CenterTopViewer<'a> {
     type Tab = CenterTopTab;
@@ -33,7 +33,7 @@ impl<'a> TabViewer for CenterTopViewer<'a> {
 }
 
 pub struct CenterBottomViewer<'a> {
-    pub app: &'a mut IntelliGuiApp,
+    pub app: &'a mut AppFrame,
 }
 impl<'a> TabViewer for CenterBottomViewer<'a> {
     type Tab = CenterBottomTab;

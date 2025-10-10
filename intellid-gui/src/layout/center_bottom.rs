@@ -1,7 +1,7 @@
-use crate::IntelliGuiApp;
+use crate::AppFrame;
 use crate::components::SqlCtx;
 
-impl IntelliGuiApp {
+impl AppFrame {
     pub fn ui_results(&mut self, ui: &mut egui::Ui) {
         let mut sql = std::mem::take(&mut self.sql);
         // Results 仅展示数据，不需要 ctxs
