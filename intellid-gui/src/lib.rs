@@ -1,31 +1,40 @@
+use chrono::{DateTime, Utc};
 use eframe::egui::{self, CentralPanel, Context, SidePanel, TopBottomPanel};
 use egui_dock::{DockArea, DockState};
+use egui_extras::{Size, StripBuilder};
 use egui_phosphor::Variant as PhosphorVariant;
-use egui_extras::{StripBuilder, Size};
-use chrono::{Utc, DateTime};
+use icns::{IconFamily, IconType, Image};
 use serde::Deserialize;
 use std::fs;
-use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
-use icns::{IconFamily, IconType, Image};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-mod models; use models::*;
+mod models;
+use models::*;
 mod markdown;
-mod sql;
-mod openai_client;
 mod mcp_client;
+mod openai_client;
+mod sql;
 mod ui;
-use ui::tabs::{LeftTab, RightTab, CenterTopTab, CenterBottomTab, LeftViewer, RightViewer, CenterTopViewer, CenterBottomViewer};
-mod components; use components::{ChatPanel, SessionsPanel, DbManager, SqlPanel, PreviewManager, ChatCtx};
+use ui::tabs::{
+    CenterBottomTab, CenterBottomViewer, CenterTopTab, CenterTopViewer, LeftTab, LeftViewer,
+};
+
+use ui::right::RightTab;
+use ui::right::RightViewer;
+
+mod components;
+use components::{ChatCtx, ChatPanel, DbManager, PreviewManager, SessionsPanel, SqlPanel};
 mod media;
+
 
 pub struct IntelliGuiApp {
     state: PersistedState,
     show_settings: bool,
     // components
-    chat: ChatPanel,
+    
     sessions: SessionsPanel,
     db: DbManager,
     sql: SqlPanel,
@@ -37,13 +46,20 @@ pub struct IntelliGuiApp {
     center_bottom_tree: DockState<CenterBottomTab>,
 }
 
-
 impl IntelliGuiApp {
     const SESSIONS_PATH: &'static str = "sessions.json";
 
     fn new() -> Self {
         let state = Self::load_state().unwrap_or_else(|| PersistedState {
-            sessions: vec![Session { id: 1, title: "New Session".to_string(), messages: Vec::new(), db: DbConfig { engine: "postgres".to_string(), dsn: String::new() } }],
+            sessions: vec![Session {
+                id: 1,
+                title: "New Session".to_string(),
+                messages: Vec::new(),
+                db: DbConfig {
+                    engine: "postgres".to_string(),
+                    dsn: String::new(),
+                },
+            }],
             current_index: 0,
             next_session_id: 2,
             settings: Settings::default(),
@@ -57,7 +73,7 @@ impl IntelliGuiApp {
         Self {
             state,
             show_settings: false,
-            chat: Default::default(),
+            // chat: Default::default(),
             sessions: Default::default(),
             db: Default::default(),
             sql: Default::default(),
@@ -80,48 +96,133 @@ impl IntelliGuiApp {
         }
         // Fallback to legacy format (content: String)
         #[derive(Deserialize)]
-        struct LegacyMessage { role: Role, timestamp: DateTime<Utc>, content: String }
+        struct LegacyMessage {
+            role: Role,
+            timestamp: DateTime<Utc>,
+            content: String,
+        }
         #[derive(Deserialize)]
-        struct LegacySession { id: u64, title: String, messages: Vec<LegacyMessage> }
+        struct LegacySession {
+            id: u64,
+            title: String,
+            messages: Vec<LegacyMessage>,
+        }
         #[derive(Deserialize)]
-        struct LegacyState { sessions: Vec<LegacySession>, current_index: usize, next_session_id: u64 }
+        struct LegacyState {
+            sessions: Vec<LegacySession>,
+            current_index: usize,
+            next_session_id: u64,
+        }
         if let Ok(old) = serde_json::from_str::<LegacyState>(&data) {
-            let sessions = old.sessions.into_iter().map(|s| Session {
-                id: s.id,
-                title: s.title,
-                messages: s.messages.into_iter().map(|m| Message {
-                    role: m.role,
-                    timestamp: m.timestamp,
-                    content: MessageContent::Markdown(m.content),
-                }).collect(),
-                db: DbConfig::default(),
-            }).collect();
-            return Some(PersistedState { sessions, current_index: old.current_index, next_session_id: old.next_session_id, settings: Settings::default() });
+            let sessions = old
+                .sessions
+                .into_iter()
+                .map(|s| Session {
+                    id: s.id,
+                    title: s.title,
+                    messages: s
+                        .messages
+                        .into_iter()
+                        .map(|m| Message {
+                            role: m.role,
+                            timestamp: m.timestamp,
+                            content: MessageContent::Markdown(m.content),
+                        })
+                        .collect(),
+                    db: DbConfig::default(),
+                })
+                .collect();
+            return Some(PersistedState {
+                sessions,
+                current_index: old.current_index,
+                next_session_id: old.next_session_id,
+                settings: Settings::default(),
+            });
         }
         None
     }
 
-    fn save_state(&self) { let _ = fs::write(Self::SESSIONS_PATH, serde_json::to_string_pretty(&self.state).unwrap_or_default()); }
+    fn save_state(&self) {
+        let _ = fs::write(
+            Self::SESSIONS_PATH,
+            serde_json::to_string_pretty(&self.state).unwrap_or_default(),
+        );
+    }
 
     fn migrate_from_json(&mut self) -> Result<(), String> {
         self.db.ensure_storage();
-        let Some(storage) = self.db.storage.as_ref() else { return Err("storage missing".into()); };
+        let Some(storage) = self.db.storage.as_ref() else {
+            return Err("storage missing".into());
+        };
         // migrate sessions and messages
         for s in &self.state.sessions {
-            let sess = intellid_storage::models::Session { id: s.id.to_string(), title: s.title.clone(), config_id: None, created_at: 0, updated_at: 0 };
-            let _ = self.db.rt.block_on(async { storage.create_session(&sess).await });
+            let sess = intellid_storage::models::Session {
+                id: s.id.to_string(),
+                title: s.title.clone(),
+                config_id: None,
+                created_at: 0,
+                updated_at: 0,
+            };
+            let _ = self
+                .db
+                .rt
+                .block_on(async { storage.create_session(&sess).await });
             for m in &s.messages {
                 match &m.content {
-                    MessageContent::Markdown(text) => { let _ = self.db.rt.block_on(async { storage.append_markdown(&sess.id, intellid_storage::models::Role::User, text).await }); }
-                    MessageContent::Image { path, width, height } => { let _ = self.db.rt.block_on(async { storage.append_image(&sess.id, intellid_storage::models::Role::User, &path.display().to_string(), *width as i64, *height as i64).await }); }
-                    MessageContent::Video { path, duration_ms, .. } => { let _ = self.db.rt.block_on(async { storage.append_video(&sess.id, intellid_storage::models::Role::User, &path.display().to_string(), duration_ms.map(|v| v as i64)).await }); }
+                    MessageContent::Markdown(text) => {
+                        let _ = self.db.rt.block_on(async {
+                            storage
+                                .append_markdown(
+                                    &sess.id,
+                                    intellid_storage::models::Role::User,
+                                    text,
+                                )
+                                .await
+                        });
+                    }
+                    MessageContent::Image {
+                        path,
+                        width,
+                        height,
+                    } => {
+                        let _ = self.db.rt.block_on(async {
+                            storage
+                                .append_image(
+                                    &sess.id,
+                                    intellid_storage::models::Role::User,
+                                    &path.display().to_string(),
+                                    *width as i64,
+                                    *height as i64,
+                                )
+                                .await
+                        });
+                    }
+                    MessageContent::Video {
+                        path, duration_ms, ..
+                    } => {
+                        let _ = self.db.rt.block_on(async {
+                            storage
+                                .append_video(
+                                    &sess.id,
+                                    intellid_storage::models::Role::User,
+                                    &path.display().to_string(),
+                                    duration_ms.map(|v| v as i64),
+                                )
+                                .await
+                        });
+                    }
                 }
             }
         }
         Ok(())
     }
 
-    fn now_ts() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 }
+    fn now_ts() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }
 }
 
 impl eframe::App for IntelliGuiApp {
@@ -131,26 +232,39 @@ impl eframe::App for IntelliGuiApp {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Add Image...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().add_filter("Images", &[
-                            "png", "jpg", "jpeg", "gif", "bmp", "webp"
-                        ]).pick_file() {
-                            let mut chat = std::mem::take(&mut self.chat);
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Images", &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
+                            .pick_file()
+                        {
+                            
                             let settings = self.state.settings.clone();
-                            let mut ctxs = ChatCtx { state: &mut self.state, preview: &mut self.preview, send_shortcut: settings.send_shortcut, openai_api_key: settings.openai_api_key.clone(), openai_model: settings.openai_model.clone() };
-                            chat.add_image_message(&mut ctxs, path);
-                            self.chat = chat;
+                            let mut ctxs = ChatCtx {
+                                state: &mut self.state,
+                                preview: &mut self.preview,
+                                send_shortcut: settings.send_shortcut,
+                                openai_api_key: settings.openai_api_key.clone(),
+                                openai_model: settings.openai_model.clone(),
+                            };
+                            // self.chat.add_image_message(&mut ctxs, path);
                         }
                         ui.close();
                     }
                     if ui.button("Add Video...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().add_filter("Videos", &[
-                            "mp4", "mov", "m4v", "mkv", "webm"
-                        ]).pick_file() {
-                            let mut chat = std::mem::take(&mut self.chat);
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Videos", &["mp4", "mov", "m4v", "mkv", "webm"])
+                            .pick_file()
+                        {
+                            // let mut chat = std::mem::take(&mut self.chat);
                             let settings = self.state.settings.clone();
-                            let mut ctxs = ChatCtx { state: &mut self.state, preview: &mut self.preview, send_shortcut: settings.send_shortcut, openai_api_key: settings.openai_api_key.clone(), openai_model: settings.openai_model.clone() };
-                            chat.add_video_message(&mut ctxs, path);
-                            self.chat = chat;
+                            let mut ctxs = ChatCtx {
+                                state: &mut self.state,
+                                preview: &mut self.preview,
+                                send_shortcut: settings.send_shortcut,
+                                openai_api_key: settings.openai_api_key.clone(),
+                                openai_model: settings.openai_model.clone(),
+                            };
+                            // chat.add_video_message(&mut ctxs, path);
+                            // self.chat = chat;
                         }
                         ui.close();
                     }
@@ -184,7 +298,11 @@ impl eframe::App for IntelliGuiApp {
             ui.horizontal(|ui| {
                 ui.label("Ready");
                 ui.add_space(ui.available_width() - 120.0);
-                let name = self.db.active_db_config_id.clone().unwrap_or_else(|| "<no db>".to_string());
+                let name = self
+                    .db
+                    .active_db_config_id
+                    .clone()
+                    .unwrap_or_else(|| "<no db>".to_string());
                 ui.label(format!("DB: {}", name));
             });
         });
@@ -205,56 +323,91 @@ impl eframe::App for IntelliGuiApp {
         }
         if self.show_settings {
             let mut open = true;
-            egui::Window::new("Settings").open(&mut open).show(ctx, |ui| {
-                ui.heading("Appearance");
-                let mut dark = self.state.settings.dark_theme;
-                if ui.checkbox(&mut dark, "Dark theme").clicked() {
-                    self.state.settings.dark_theme = dark;
-                    if dark { ctx.set_visuals(egui::Visuals::dark()); } else { ctx.set_visuals(egui::Visuals::light()); }
-                    self.save_state();
-                }
-                ui.separator();
-                ui.heading("Send Shortcut");
-                let mut sc = self.state.settings.send_shortcut;
-                if ui.radio_value(&mut sc, SendShortcut::Enter, "Enter").clicked() {
-                    self.state.settings.send_shortcut = sc; self.save_state();
-                }
-                if ui.radio_value(&mut sc, SendShortcut::CmdEnter, "Cmd+Enter").clicked() {
-                    self.state.settings.send_shortcut = sc; self.save_state();
-                }
-                ui.separator();
-                ui.heading("OpenAI");
-                let mut key = self.state.settings.openai_api_key.clone().unwrap_or_default();
-                if ui.add(egui::TextEdit::singleline(&mut key).hint_text("API Key")).changed() {
-                    if key.trim().is_empty() { self.state.settings.openai_api_key = None; } else { self.state.settings.openai_api_key = Some(key.clone()); }
-                    self.save_state();
-                }
-                ui.horizontal(|ui| {
-                    ui.label("Model");
-                    let changed = ui.text_edit_singleline(&mut self.state.settings.openai_model).changed();
-                    if changed { self.save_state(); }
+            egui::Window::new("Settings")
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.heading("Appearance");
+                    let mut dark = self.state.settings.dark_theme;
+                    if ui.checkbox(&mut dark, "Dark theme").clicked() {
+                        self.state.settings.dark_theme = dark;
+                        if dark {
+                            ctx.set_visuals(egui::Visuals::dark());
+                        } else {
+                            ctx.set_visuals(egui::Visuals::light());
+                        }
+                        self.save_state();
+                    }
+                    ui.separator();
+                    ui.heading("Send Shortcut");
+                    let mut sc = self.state.settings.send_shortcut;
+                    if ui
+                        .radio_value(&mut sc, SendShortcut::Enter, "Enter")
+                        .clicked()
+                    {
+                        self.state.settings.send_shortcut = sc;
+                        self.save_state();
+                    }
+                    if ui
+                        .radio_value(&mut sc, SendShortcut::CmdEnter, "Cmd+Enter")
+                        .clicked()
+                    {
+                        self.state.settings.send_shortcut = sc;
+                        self.save_state();
+                    }
+                    ui.separator();
+                    ui.heading("OpenAI");
+                    let mut key = self
+                        .state
+                        .settings
+                        .openai_api_key
+                        .clone()
+                        .unwrap_or_default();
+                    if ui
+                        .add(egui::TextEdit::singleline(&mut key).hint_text("API Key"))
+                        .changed()
+                    {
+                        if key.trim().is_empty() {
+                            self.state.settings.openai_api_key = None;
+                        } else {
+                            self.state.settings.openai_api_key = Some(key.clone());
+                        }
+                        self.save_state();
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label("Model");
+                        let changed = ui
+                            .text_edit_singleline(&mut self.state.settings.openai_model)
+                            .changed();
+                        if changed {
+                            self.save_state();
+                        }
+                    });
                 });
-            });
-            if !open { self.show_settings = false; }
+            if !open {
+                self.show_settings = false;
+            }
         }
 
         // 左栏：使用 Dock Tabs（Sessions/DB Config）
-        SidePanel::left("session_panel").resizable(true).min_width(220.0).show(ctx, |ui| {
-            // Dock tabs on left (uses TabViewer titles with icons)
-            let mut tmp = DockState::new(Vec::new());
-            std::mem::swap(&mut self.left_tree, &mut tmp);
-            ui.push_id("left_dock", |ui| {
-                let mut viewer = LeftViewer { app: self };
-                DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
+        SidePanel::left("session_panel")
+            .resizable(true)
+            .min_width(220.0)
+            .show(ctx, |ui| {
+                // Dock tabs on left (uses TabViewer titles with icons)
+                let mut tmp = DockState::new(Vec::new());
+                std::mem::swap(&mut self.left_tree, &mut tmp);
+                ui.push_id("left_dock", |ui| {
+                    let mut viewer = LeftViewer { app: self };
+                    DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
+                });
+                std::mem::swap(&mut self.left_tree, &mut tmp);
             });
-            std::mem::swap(&mut self.left_tree, &mut tmp);
-        });
 
         // 中栏：上下分别为 Dock tabs（SQL / Results）
         CentralPanel::default().show(ctx, |ui| {
             StripBuilder::new(ui)
                 .size(Size::relative(0.55)) // editor area
-                .size(Size::remainder())     // results
+                .size(Size::remainder()) // results
                 .vertical(|mut strip| {
                     strip.cell(|ui| {
                         let mut tmp = DockState::new(Vec::new());
@@ -278,15 +431,20 @@ impl eframe::App for IntelliGuiApp {
         });
 
         // 右栏：Dock tabs（Chat）
-        SidePanel::right("chat_panel").resizable(true).min_width(260.0).show(ctx, |ui| {
-            let mut tmp = DockState::new(Vec::new());
-            std::mem::swap(&mut self.right_tree, &mut tmp);
-            ui.push_id("right_dock", |ui| {
-                let mut viewer = RightViewer { app: self };
-                DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
+        SidePanel::right("chat_panel")
+            .resizable(true)
+            .min_width(260.0)
+            .show(ctx, |ui| {
+                let mut viewer = RightViewer { preview: self.preview.clone(), chat: ChatPanel::default(), state: self.state.clone() };
+                DockArea::new(&mut self.right_tree).show_inside(ui, &mut viewer);
+                // self.right_tree.push_to_first_leaf(RightTab::Chat);
+                // self.right_tree.
+                // let mut tmp = DockState::new(Vec::new());
+                // ui.push_id("right_dock", |ui| {
+                //     let mut viewer = RightViewer { preview: self.preview.clone(), chat: ChatPanel::default(), state: self.state.clone() };
+                //     DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
+                // });
             });
-            std::mem::swap(&mut self.right_tree, &mut tmp);
-        });
 
         // Image preview window
         self.preview.ui_window(ctx);
@@ -300,7 +458,6 @@ impl IntelliGuiApp {
             self.save_state();
         }
     }
-
 }
 
 impl IntelliGuiApp {
@@ -312,7 +469,10 @@ impl IntelliGuiApp {
                     id: self.state.next_session_id,
                     title: "New Session".to_string(),
                     messages: Vec::new(),
-                    db: DbConfig { engine: "postgres".to_string(), dsn: String::new() }
+                    db: DbConfig {
+                        engine: "postgres".to_string(),
+                        dsn: String::new(),
+                    },
                 });
                 self.state.next_session_id += 1;
             }
@@ -324,18 +484,21 @@ impl IntelliGuiApp {
     }
 }
 
-
 pub fn run() -> anyhow::Result<()> {
-
     let file = BufReader::new(File::open("assets/icon.icns").unwrap());
     let icon_family = IconFamily::read(file).unwrap();
-    let image = icon_family.get_icon_with_type(IconType::RGBA32_512x512_2x).unwrap();
+    let image = icon_family
+        .get_icon_with_type(IconType::RGBA32_512x512_2x)
+        .unwrap();
     let mut buf = Vec::new();
     image.write_png(&mut buf)?;
     let icon = eframe::icon_data::from_png_bytes(&buf).expect("Failed to load icon");
     let title = "Intelligent Database";
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_maximized(true).with_icon(icon).with_title_shown(false),
+        viewport: egui::ViewportBuilder::default()
+            .with_maximized(true)
+            .with_icon(icon)
+            .with_title_shown(false),
         ..Default::default()
     };
     eframe::run_native(
@@ -348,5 +511,6 @@ pub fn run() -> anyhow::Result<()> {
             cc.egui_ctx.set_fonts(fonts);
             Ok(Box::new(IntelliGuiApp::new()))
         }),
-    ).map_err(|e| anyhow::anyhow!("eframe error: {}", e))
+    )
+    .map_err(|e| anyhow::anyhow!("eframe error: {}", e))
 }

@@ -2,13 +2,14 @@ use crate::models::{Message, MessageContent, Role};
 use crate::components::ChatCtx;
 use chrono::Utc;
 
+#[derive(Clone)]
 pub struct ChatPanel {
     pub input: String,
-    pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    // pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
 }
 
 impl Default for ChatPanel {
-    fn default() -> Self { Self { input: String::new(), pending: None } }
+    fn default() -> Self { Self { input: String::new()} }
 }
 
 impl ChatPanel {
@@ -63,14 +64,14 @@ impl ChatPanel {
                     } else { false };
                     if ui.button("Ask").clicked() || send_via_shortcut { self.send_openai_with_tools(ctxs); }
                     // poll pending result
-                    if let Some(rx) = &self.pending {
-                        if let Ok(Ok(text)) = rx.try_recv() {
-                            if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-                                sess.messages.push(Message { role: Role::Assistant, timestamp: Utc::now(), content: MessageContent::Markdown(text) });
-                            }
-                            self.pending = None;
-                        }
-                    }
+                    // if let Some(rx) = &self.pending {
+                    //     if let Ok(Ok(text)) = rx.try_recv() {
+                    //         if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                    //             sess.messages.push(Message { role: Role::Assistant, timestamp: Utc::now(), content: MessageContent::Markdown(text) });
+                    //         }
+                    //         self.pending = None;
+                    //     }
+                    // }
                 });
             });
     }
@@ -160,7 +161,7 @@ impl ChatPanel {
             let ret = rt.block_on(async move { crate::openai_client::chat_with_tools(key, model, prompt).await });
             let _ = tx.send(ret);
         });
-        self.pending = Some(rx);
+        // self.pending = Some(rx);
     }
 }
 

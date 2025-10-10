@@ -1,6 +1,7 @@
 use crate::models::{Session, DbConfig};
 use crate::components::SessionsCtx;
 
+#[derive(Clone)]
 pub struct SessionsPanel {
     pub renaming_index: Option<usize>,
     pub rename_buffer: String,

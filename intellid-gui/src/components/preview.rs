@@ -4,6 +4,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct PreviewState { pub path: PathBuf, pub zoom: f32 }
 
+#[derive(Clone)]
 pub struct PreviewManager {
     pub media: MediaCache,
     pub preview: Option<PreviewState>,

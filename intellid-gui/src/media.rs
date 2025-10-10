@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use eframe::egui::TextureHandle;
 use eframe::epaint::ColorImage;
 
+#[derive(Clone)]
 pub struct MediaCache {
     pub textures: HashMap<PathBuf, TextureHandle>,
 }

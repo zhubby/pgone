@@ -45,7 +45,7 @@ pub struct Session {
     pub db: DbConfig,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct PersistedState {
     pub sessions: Vec<Session>,
     pub current_index: usize,
