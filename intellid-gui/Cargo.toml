@@ -33,3 +33,5 @@ urlencoding = "2"
 icns = "0.3.1"
 anyhow = { workspace = true }
 strum = { workspace = true }
+reqwest = { workspace = true }
+intellid-apiserver = { path = "../intellid-apiserver" }

@@ -25,6 +25,8 @@ mod components;
 use components::{DbManager, PreviewManager, SqlPanel};
 mod media;
 use layout::tabs::Tab;
+use std::thread;
+use std::net::SocketAddr;
 
 pub struct AppFrame {
     #[allow(dead_code)]
@@ -38,6 +40,9 @@ pub struct AppFrame {
     #[allow(dead_code)]
     open_tabs: HashSet<Tab>,
     context: layout::context::Context,
+    // auth
+    show_login: bool,
+    logged_in: bool,
 }
 
 impl AppFrame {
@@ -104,6 +109,8 @@ impl AppFrame {
             tabs_tree: dock_state,
             open_tabs,
             context: Default::default(),
+            show_login: true,
+            logged_in: Self::initial_logged_in(),
         }
     }
 
@@ -428,6 +435,33 @@ impl eframe::App for AppFrame {
 
         // Image preview window
         self.preview.ui_window(ctx);
+
+        // auth login window
+        if self.show_login && !self.logged_in {
+            let mut open = true;
+            egui::Window::new("Login")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.vertical(|ui| {
+                        ui.heading("需要登录");
+                        if ui.button("通过 GitHub 登录").clicked() {
+                            // start oauth in background
+                            self.start_github_oauth();
+                        }
+                        // poll auth status
+                        if Self::poll_logged_in() {
+                            self.logged_in = true;
+                            self.show_login = false;
+                        }
+                    });
+                });
+            if !open {
+                // 用户关闭窗口则下次仍可显示
+            }
+        }
     }
 }
 
@@ -442,6 +476,16 @@ impl AppFrame {
 }
 
 impl AppFrame {
+    fn initial_logged_in() -> bool {
+        // attempt to read auth status at startup
+        let rt = match tokio::runtime::Runtime::new() { Ok(rt) => rt, Err(_) => return false };
+        rt.block_on(async move {
+            match reqwest::get("http://127.0.0.1:8765/auth/me").await {
+                Ok(r) => r.status().is_success(),
+                Err(_) => false,
+            }
+        })
+    }
     #[allow(dead_code)]
     fn delete_session(&mut self, idx: usize) {
         if idx < self.state.sessions.len() {
@@ -483,6 +527,15 @@ pub fn run() -> anyhow::Result<()> {
             .with_title_shown(false),
         ..Default::default()
     };
+    // start apiserver in background
+    thread::spawn(|| {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let addr: SocketAddr = "127.0.0.1:8765".parse().unwrap();
+            let _ = intellid_apiserver::serve(addr).await;
+        });
+    });
+
     eframe::run_native(
         title,
         native_options,
@@ -495,4 +548,36 @@ pub fn run() -> anyhow::Result<()> {
         }),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {}", e))
+}
+
+impl AppFrame {
+    fn start_github_oauth(&self) {
+        // request authorize url then open browser
+        let _ = std::thread::spawn(|| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let client = reqwest::Client::new();
+                if let Ok(resp) = client.post("http://127.0.0.1:8765/oauth/github/start").json(&serde_json::json!({})).send().await {
+                    if let Ok(v) = resp.json::<serde_json::Value>().await {
+                        if let Some(url) = v.get("authorize_url").and_then(|x| x.as_str()) {
+                            let _ = open::that(url);
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    fn poll_logged_in() -> bool {
+        // quick poll once per frame; server is local
+        let rt = match tokio::runtime::Runtime::new() { Ok(rt) => rt, Err(_) => return false };
+        let ok = rt.block_on(async move {
+            let resp = reqwest::get("http://127.0.0.1:8765/auth/me").await;
+            match resp {
+                Ok(r) => r.status().is_success(),
+                Err(_) => false,
+            }
+        });
+        ok
+    }
 }

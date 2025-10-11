@@ -48,3 +48,25 @@ pub struct Message {
     pub video_path: Option<String>,
     pub video_duration_ms: Option<i64>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthUser {
+    pub id: String,
+    pub login: String,
+    pub name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub email: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthToken {
+    pub id: String,
+    pub user_id: String,
+    pub provider: String,
+    pub access_token: String,
+    pub scope: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}

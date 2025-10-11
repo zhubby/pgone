@@ -11,6 +11,12 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+intellid-storage = { workspace = true }
+base64 = "0.22"
+sha2 = "0.10"
+urlencoding = "2"
 
 # Prometheus metrics
 prometheus-client = { workspace = true }

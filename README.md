@@ -96,6 +96,15 @@ cargo run -p intellid
 - `INTELLID_PG_DSN`：一键自省的 DSN（Postgres 示例）
 - `RUST_LOG`：日志过滤（基于 `tracing` / `tracing-subscriber`）
 
+#### GitHub OAuth（GUI 登录，回环 + PKCE）
+- 新建 GitHub OAuth App：
+  - Authorization callback URL: `http://127.0.0.1:8765/oauth/github/callback`
+- 设置环境变量：
+  - `GITHUB_CLIENT_ID=<your_client_id>`
+  - `GITHUB_CLIENT_SECRET=<your_client_secret>`
+  - `OAUTH_REDIRECT=http://127.0.0.1:8765/oauth/github/callback`
+- 运行 GUI：`cargo run -p intellid-gui`；首次启动会弹出 GitHub 登录窗口，授权成功后写入本地 `intellid.db` 的 `auth_users`/`auth_tokens` 表；后续启动若检测到已登录用户则不再弹窗。
+
 ---
 
 ### 开发指南

@@ -65,5 +65,38 @@ pub async fn migrate(conn: &mut Connection) -> Result<()> {
     )
     .await?;
 
+    // auth tables
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS auth_users (
+            id TEXT PRIMARY KEY,
+            login TEXT NOT NULL,
+            name TEXT,
+            avatar_url TEXT,
+            email TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS auth_tokens (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            access_token TEXT NOT NULL,
+            scope TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_auth_tokens_updated_at ON auth_tokens(updated_at)",
+        (),
+    )
+    .await?;
+
     Ok(())
 }

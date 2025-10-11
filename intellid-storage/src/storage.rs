@@ -213,6 +213,68 @@ pub async fn list_messages(
     Ok(out)
 }
 
+// =====================
+// Auth storage helpers
+// =====================
+
+pub async fn upsert_auth_user(conn: &mut Connection, u: &AuthUser) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO auth_users (id, login, name, avatar_url, email, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT created_at FROM auth_users WHERE id=?1), ?6), ?7)",
+        params![
+            u.id.as_str(),
+            u.login.as_str(),
+            u.name.as_deref(),
+            u.avatar_url.as_deref(),
+            u.email.as_deref(),
+            u.created_at,
+            u.updated_at,
+        ],
+    ).await?;
+    Ok(())
+}
+
+pub async fn insert_auth_token(conn: &mut Connection, t: &AuthToken) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO auth_tokens (id, user_id, provider, access_token, scope, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT created_at FROM auth_tokens WHERE id=?1), ?6), ?7)",
+        params![
+            t.id.as_str(),
+            t.user_id.as_str(),
+            t.provider.as_str(),
+            t.access_token.as_str(),
+            t.scope.as_deref(),
+            t.created_at,
+            t.updated_at,
+        ],
+    ).await?;
+    Ok(())
+}
+
+pub async fn get_current_user(conn: &mut Connection) -> Result<Option<AuthUser>> {
+    let mut rows = conn.query(
+        "SELECT u.id, u.login, u.name, u.avatar_url, u.email, u.created_at, u.updated_at
+         FROM auth_users u
+         JOIN auth_tokens t ON t.user_id = u.id
+         ORDER BY t.updated_at DESC
+         LIMIT 1",
+        params![],
+    ).await?;
+    if let Some(r) = rows.next().await? {
+        Ok(Some(AuthUser {
+            id: r.get::<String>(0)?,
+            login: r.get::<String>(1)?,
+            name: r.get::<Option<String>>(2)?,
+            avatar_url: r.get::<Option<String>>(3)?,
+            email: r.get::<Option<String>>(4)?,
+            created_at: r.get::<i64>(5)?,
+            updated_at: r.get::<i64>(6)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
 fn uuid() -> String {
     use std::time::SystemTime;
     let t = SystemTime::now()

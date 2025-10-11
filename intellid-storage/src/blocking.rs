@@ -84,4 +84,20 @@ impl StorageBlocking {
         let mut conn = self.inner.conn().await?;
         crate::storage::list_messages(&mut conn, session_id, limit).await
     }
+
+    // Auth helpers
+    pub async fn upsert_auth_user(&self, u: &AuthUser) -> Result<()> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::upsert_auth_user(&mut conn, u).await
+    }
+
+    pub async fn insert_auth_token(&self, t: &AuthToken) -> Result<()> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::insert_auth_token(&mut conn, t).await
+    }
+
+    pub async fn get_current_user(&self) -> Result<Option<AuthUser>> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::get_current_user(&mut conn).await
+    }
 }
