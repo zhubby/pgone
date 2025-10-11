@@ -17,7 +17,8 @@ pub async fn migrate(conn: &mut Connection) -> Result<()> {
             updated_at INTEGER NOT NULL
         )",
         (),
-    ).await?;
+    )
+    .await?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sessions (
@@ -28,9 +29,18 @@ pub async fn migrate(conn: &mut Connection) -> Result<()> {
             updated_at INTEGER NOT NULL
         )",
         (),
-    ).await?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_config_id ON sessions(config_id)", ()).await?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at)", ()).await?;
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_config_id ON sessions(config_id)",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at)",
+        (),
+    )
+    .await?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (
@@ -47,10 +57,13 @@ pub async fn migrate(conn: &mut Connection) -> Result<()> {
             video_duration_ms INTEGER
         )",
         (),
-    ).await?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_session_time ON messages(session_id, timestamp)", ()).await?;
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_session_time ON messages(session_id, timestamp)",
+        (),
+    )
+    .await?;
 
     Ok(())
 }
-
-

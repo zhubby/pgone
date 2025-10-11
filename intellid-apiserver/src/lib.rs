@@ -1,25 +1,25 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use axum::{Router, routing::get, response::IntoResponse};
+use axum::{Router, response::IntoResponse, routing::get};
 use http::StatusCode;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tower::{ServiceBuilder, Layer};
-use tower_http::trace::{TraceLayer, DefaultOnResponse};
-use tracing::{info, Level};
+use tower::{Layer, ServiceBuilder};
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
+use tracing::{Level, info};
 
-use prometheus_client::encoding::text::encode;
+use once_cell::sync::{Lazy, OnceCell};
 use prometheus_client::encoding::EncodeLabelSet;
+use prometheus_client::encoding::text::encode;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::histogram::{Histogram, exponential_buckets};
 use prometheus_client::registry::Registry;
 use std::sync::Arc;
-use once_cell::sync::{Lazy, OnceCell};
 
-use utoipa::OpenApi;
 use axum::response::Html;
+use utoipa::OpenApi;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 struct Labels {
@@ -29,7 +29,9 @@ struct Labels {
 }
 
 #[utoipa::path(get, path = "/health", responses((status = 200, description = "OK")))]
-async fn health() -> impl IntoResponse { (StatusCode::OK, "ok") }
+async fn health() -> impl IntoResponse {
+    (StatusCode::OK, "ok")
+}
 
 #[utoipa::path(get, path = "/metrics", responses((status = 200, description = "Prometheus metrics")))]
 async fn metrics() -> impl IntoResponse {
@@ -50,7 +52,8 @@ async fn metrics() -> impl IntoResponse {
 struct ApiDoc;
 
 async fn docs_html() -> Html<&'static str> {
-    Html(r#"<!DOCTYPE html>
+    Html(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -71,7 +74,8 @@ async fn docs_html() -> Html<&'static str> {
     });
   </script>
 </body>
-</html>"#)
+</html>"#,
+    )
 }
 
 pub async fn serve(addr: SocketAddr) -> Result<()> {
@@ -94,19 +98,24 @@ pub async fn serve(addr: SocketAddr) -> Result<()> {
     let _ = REGISTRY.set(registry);
 
     // middleware: tracing + simple metrics
-    let trace_layer = TraceLayer::new_for_http()
-        .on_response(DefaultOnResponse::new().level(Level::INFO));
+    let trace_layer =
+        TraceLayer::new_for_http().on_response(DefaultOnResponse::new().level(Level::INFO));
 
     let metrics_layer = MetricsLayer;
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/metrics", get(metrics))
-        .route("/api-docs/openapi.json", get(|| async { axum::Json(ApiDoc::openapi()) }))
+        .route(
+            "/api-docs/openapi.json",
+            get(|| async { axum::Json(ApiDoc::openapi()) }),
+        )
         .route("/docs", get(docs_html))
-        .layer(ServiceBuilder::new()
-            .layer(trace_layer)
-            .layer(metrics_layer));
+        .layer(
+            ServiceBuilder::new()
+                .layer(trace_layer)
+                .layer(metrics_layer),
+        );
 
     let listener = TcpListener::bind(addr).await?;
     info!("listening on {}", addr);
@@ -115,7 +124,9 @@ pub async fn serve(addr: SocketAddr) -> Result<()> {
         let _ = signal::ctrl_c().await;
     };
 
-    axum::serve(listener, app).with_graceful_shutdown(shutdown).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await?;
     Ok(())
 }
 
@@ -124,24 +135,36 @@ struct MetricsLayer;
 
 impl<S> Layer<S> for MetricsLayer {
     type Service = MetricsService<S>;
-    fn layer(&self, inner: S) -> Self::Service { MetricsService { inner } }
+    fn layer(&self, inner: S) -> Self::Service {
+        MetricsService { inner }
+    }
 }
 
 #[derive(Clone)]
-struct MetricsService<S> { inner: S }
+struct MetricsService<S> {
+    inner: S,
+}
 
 impl<ReqBody, S> tower::Service<axum::http::Request<ReqBody>> for MetricsService<S>
 where
-    S: tower::Service<axum::http::Request<ReqBody>, Response = axum::response::Response> + Clone + Send + 'static,
+    S: tower::Service<axum::http::Request<ReqBody>, Response = axum::response::Response>
+        + Clone
+        + Send
+        + 'static,
     S::Future: Send + 'static,
     S::Error: Send + 'static,
     ReqBody: Send + 'static,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
 
-    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
     }
 
@@ -153,10 +176,16 @@ where
         Box::pin(async move {
             let res = svc.call(req).await?;
             let status = res.status().as_u16().to_string();
-            let labels = Labels { method, path, status };
+            let labels = Labels {
+                method,
+                path,
+                status,
+            };
             HTTP_REQUESTS_TOTAL.get_or_create(&labels).inc();
             let elapsed = start.elapsed();
-            HTTP_REQUEST_DURATION.get_or_create(&labels).observe(elapsed.as_secs_f64());
+            HTTP_REQUEST_DURATION
+                .get_or_create(&labels)
+                .observe(elapsed.as_secs_f64());
             Ok(res)
         })
     }
@@ -167,7 +196,6 @@ fn default_histogram() -> Histogram {
 }
 
 static REGISTRY: OnceCell<Arc<Registry>> = OnceCell::new();
-static HTTP_REQUESTS_TOTAL: Lazy<Family<Labels, Counter>> = Lazy::new(|| Family::default());
-static HTTP_REQUEST_DURATION: Lazy<Family<Labels, Histogram>> = Lazy::new(|| Family::new_with_constructor(default_histogram));
-
-
+static HTTP_REQUESTS_TOTAL: Lazy<Family<Labels, Counter>> = Lazy::new(Family::default);
+static HTTP_REQUEST_DURATION: Lazy<Family<Labels, Histogram>> =
+    Lazy::new(|| Family::new_with_constructor(default_histogram));

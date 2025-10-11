@@ -1,19 +1,10 @@
 use crate::components::SessionsCtx;
 use crate::models::{DbConfig, Session};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SessionsPanel {
     pub renaming_index: Option<usize>,
     pub rename_buffer: String,
-}
-
-impl Default for SessionsPanel {
-    fn default() -> Self {
-        Self {
-            renaming_index: None,
-            rename_buffer: String::new(),
-        }
-    }
 }
 
 impl SessionsPanel {

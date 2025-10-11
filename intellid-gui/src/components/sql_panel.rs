@@ -2,6 +2,7 @@ use crate::components::SqlCtx;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
 
+#[derive(Default)]
 pub struct SqlPanel {
     pub sql_input: String,
     pub sql_error: Option<String>,
@@ -9,16 +10,7 @@ pub struct SqlPanel {
     pub query_rows: Vec<Vec<String>>,
 }
 
-impl Default for SqlPanel {
-    fn default() -> Self {
-        Self {
-            sql_input: String::new(),
-            sql_error: None,
-            query_columns: vec![],
-            query_rows: vec![],
-        }
-    }
-}
+// Default is derived
 
 impl SqlPanel {
     pub fn ui_editor(&mut self, ctxs: &mut SqlCtx, ui: &mut egui::Ui) {
@@ -158,7 +150,7 @@ impl SqlPanel {
                 .map_err(|e| e.to_string())?;
             let mut cols: Vec<String> = Vec::new();
             let mut data: Vec<Vec<String>> = Vec::new();
-            if let Some(first) = rows.get(0) {
+            if let Some(first) = rows.first() {
                 for c in first.columns() {
                     cols.push(c.name().to_string());
                 }
@@ -192,18 +184,19 @@ impl SqlPanel {
         if self.query_columns.is_empty() {
             return;
         }
-        if let Some(path) = rfd::FileDialog::new()
+        if rfd::FileDialog::new()
             .set_title("Save CSV")
             .add_filter("CSV", &["csv"])
             .save_file()
-        {
-            if let Ok(mut wtr) = csv::Writer::from_path(&path) {
+            .and_then(|path| csv::Writer::from_path(&path).ok())
+            .map(|mut wtr| {
                 let _ = wtr.write_record(&self.query_columns);
                 for row in &self.query_rows {
                     let _ = wtr.write_record(row);
                 }
                 let _ = wtr.flush();
-            }
-        }
+            })
+            .is_some()
+        {}
     }
 }

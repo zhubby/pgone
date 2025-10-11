@@ -2,7 +2,9 @@ use crate::registry::{ConnectionConfig, DatabaseEngine};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-pub struct ConnectionsFile { pub connections: Vec<FileConn> }
+pub struct ConnectionsFile {
+    pub connections: Vec<FileConn>,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct FileConn {
@@ -16,10 +18,17 @@ pub fn load_connections_from_path(path: &str) -> anyhow::Result<Vec<ConnectionCo
     let cfg: ConnectionsFile = serde_yaml::from_str(&text)?;
     let mut out = Vec::new();
     for c in cfg.connections {
-        let engine = match c.engine.as_str() { "postgres" | "pg" | "postgresql" => DatabaseEngine::Postgres, _ => anyhow::bail!("Unsupported engine: {}", c.engine) };
-        out.push(ConnectionConfig { id: c.id, engine, dsn: c.dsn, default_schemas: None, include_system: Some(false) });
+        let engine = match c.engine.as_str() {
+            "postgres" | "pg" | "postgresql" => DatabaseEngine::Postgres,
+            _ => anyhow::bail!("Unsupported engine: {}", c.engine),
+        };
+        out.push(ConnectionConfig {
+            id: c.id,
+            engine,
+            dsn: c.dsn,
+            default_schemas: None,
+            include_system: Some(false),
+        });
     }
     Ok(out)
 }
-
-

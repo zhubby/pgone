@@ -1,19 +1,21 @@
+use moka::future::Cache;
+use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres};
-use moka::future::Cache;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum DatabaseEngine { Postgres }
+pub enum DatabaseEngine {
+    Postgres,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
     pub id: String,
     pub engine: DatabaseEngine,
     pub dsn: String,
-    pub default_schemas: Option<Vec<String>>, 
+    pub default_schemas: Option<Vec<String>>,
     pub include_system: Option<bool>,
 }
 
@@ -30,7 +32,9 @@ pub struct ConnectionRegistry {
 }
 
 impl ConnectionRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub async fn register(&self, cfg: ConnectionConfig) -> anyhow::Result<()> {
         match cfg.engine {
@@ -39,8 +43,14 @@ impl ConnectionRegistry {
                     .max_connections(10)
                     .connect(&cfg.dsn)
                     .await?;
-                let cache = Cache::builder().time_to_live(std::time::Duration::from_secs(300)).build();
-                let handle = ConnectionHandle { engine: cfg.engine, pool, cache };
+                let cache = Cache::builder()
+                    .time_to_live(std::time::Duration::from_secs(300))
+                    .build();
+                let handle = ConnectionHandle {
+                    engine: cfg.engine,
+                    pool,
+                    cache,
+                };
                 self.inner.write().await.insert(cfg.id, handle);
                 Ok(())
             }
@@ -52,12 +62,15 @@ impl ConnectionRegistry {
     }
 
     pub async fn list(&self) -> Vec<(String, DatabaseEngine)> {
-        self.inner.read().await.iter().map(|(k, v)| (k.clone(), v.engine)).collect()
+        self.inner
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| (k.clone(), v.engine))
+            .collect()
     }
 
     pub async fn remove(&self, id: &str) -> bool {
         self.inner.write().await.remove(id).is_some()
     }
 }
-
-

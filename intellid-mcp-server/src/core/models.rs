@@ -74,14 +74,18 @@ pub struct TriggerDetail {
     pub name: String,
     pub table_schema: String,
     pub table_name: String,
-    pub timing: String, // BEFORE | AFTER | INSTEAD OF
+    pub timing: String,      // BEFORE | AFTER | INSTEAD OF
     pub events: Vec<String>, // INSERT/UPDATE/DELETE/TRUNCATE
     pub function_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum RoutineKind { Function, Procedure, Aggregate }
+pub enum RoutineKind {
+    Function,
+    Procedure,
+    Aggregate,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutineParam {
@@ -104,11 +108,22 @@ pub struct RoutineDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ParamMode { In, Out, InOut, Variadic, Table }
+pub enum ParamMode {
+    In,
+    Out,
+    InOut,
+    Variadic,
+    Table,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum TypeKind { Enum, Domain, Composite, Base }
+pub enum TypeKind {
+    Enum,
+    Domain,
+    Composite,
+    Base,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeDetail {
@@ -123,7 +138,7 @@ pub struct TypeDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntrospectOptions {
-    pub schemas: Option<Vec<String>>, 
+    pub schemas: Option<Vec<String>>,
     pub with_indexes: bool,
     pub with_routines: bool,
     pub with_types: bool,
@@ -131,5 +146,3 @@ pub struct IntrospectOptions {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }
-
-

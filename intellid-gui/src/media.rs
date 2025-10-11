@@ -3,18 +3,11 @@ use eframe::epaint::ColorImage;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MediaCache {
     pub textures: HashMap<PathBuf, TextureHandle>,
 }
-
-impl Default for MediaCache {
-    fn default() -> Self {
-        Self {
-            textures: HashMap::new(),
-        }
-    }
-}
+// Default is derived
 
 impl MediaCache {
     pub fn ensure_texture(&mut self, ctx: &egui::Context, path: &PathBuf) -> Option<TextureHandle> {

@@ -16,7 +16,12 @@ pub fn render_er(db: &DatabaseSchema) -> String {
         for t in &sch.tables {
             for fk in &t.foreign_keys {
                 // 显示为 多对一 关系
-                s.push_str(&format!("  {}_{} }}o--|| {} : FK\n", sch.name, t.name, fk.ref_table.replace('.', "_")));
+                s.push_str(&format!(
+                    "  {}_{} }}o--|| {} : FK\n",
+                    sch.name,
+                    t.name,
+                    fk.ref_table.replace('.', "_")
+                ));
             }
         }
     }

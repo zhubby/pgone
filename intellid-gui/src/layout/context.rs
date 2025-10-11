@@ -9,6 +9,7 @@ use crate::{
     models::{DbConfig, PersistedState},
 };
 
+#[derive(Default)]
 pub struct Context {
     pub preview: PreviewManager,
     pub chat: ChatPanel,
@@ -19,21 +20,9 @@ pub struct Context {
     pub style: Option<Style>,
 }
 
-impl Default for Context {
-    fn default() -> Self {
-        Self {
-            preview: PreviewManager::default(),
-            chat: ChatPanel::default(),
-            state: PersistedState::default(),
-            style: None,
-            sql: SqlPanel::default(),
-            sessions: SessionsPanel::default(),
-            db_config: DbConfig::default(),
-        }
-    }
-}
+// Default is derived
 
-impl<'a> TabViewer for Context {
+impl TabViewer for Context {
     type Tab = Tab;
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         let settings = self.state.settings.clone();

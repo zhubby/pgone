@@ -1,15 +1,15 @@
 use chrono::{DateTime, Utc};
-use eframe::egui::{self, CentralPanel, Context, SidePanel, TopBottomPanel};
+use eframe::egui::{self, CentralPanel, Context, TopBottomPanel};
 use egui::Frame;
 use egui_dock::{AllowedSplits, DockArea, DockState, NodeIndex, Style, SurfaceIndex};
-use egui_extras::{Size, StripBuilder};
+// use egui_extras::StripBuilder; // not used here; used in components
 use egui_phosphor::Variant as PhosphorVariant;
-use icns::{IconFamily, IconType, Image};
+use icns::{IconFamily, IconType};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::io::BufReader;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,17 +22,20 @@ mod openai_client;
 mod sql;
 
 mod components;
-use components::{ChatCtx, ChatPanel, DbManager, PreviewManager, SessionsPanel, SqlPanel};
+use components::{DbManager, PreviewManager, SqlPanel};
 mod media;
 use layout::tabs::Tab;
 
 pub struct AppFrame {
+    #[allow(dead_code)]
     state: PersistedState,
     show_settings: bool,
     db: DbManager,
+    #[allow(dead_code)]
     sql: SqlPanel,
     preview: PreviewManager,
     tabs_tree: DockState<Tab>,
+    #[allow(dead_code)]
     open_tabs: HashSet<Tab>,
     context: layout::context::Context,
 }
@@ -161,6 +164,7 @@ impl AppFrame {
         None
     }
 
+    #[allow(dead_code)]
     fn save_state(&self) {
         let _ = fs::write(
             Self::SESSIONS_PATH,
@@ -168,6 +172,7 @@ impl AppFrame {
         );
     }
 
+    #[allow(dead_code)]
     fn migrate_from_json(&mut self) -> Result<(), String> {
         self.db.ensure_storage();
         let Some(storage) = self.db.storage.as_ref() else {
@@ -236,6 +241,7 @@ impl AppFrame {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn now_ts() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -246,20 +252,13 @@ impl AppFrame {
 
 impl eframe::App for AppFrame {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
-        let Self {
-            state,
-            preview,
-            db,
-            tabs_tree,
-            open_tabs,
-            ..
-        } = self;
+        let Self { db, .. } = self;
         // fonts are initialized in run() creation context to avoid runtime deadlocks
         TopBottomPanel::top("menu_top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Add Image...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
+                        if let Some(_path) = rfd::FileDialog::new()
                             .add_filter("Images", &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
                             .pick_file()
                         {
@@ -277,7 +276,7 @@ impl eframe::App for AppFrame {
                         ui.close();
                     }
                     if ui.button("Add Video...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
+                        if let Some(_path) = rfd::FileDialog::new()
                             .add_filter("Videos", &["mp4", "mov", "m4v", "mkv", "webm"])
                             .pick_file()
                         {
@@ -341,7 +340,7 @@ impl eframe::App for AppFrame {
             let mut open = true;
             egui::Window::new("Settings")
                 .open(&mut open)
-                .show(ctx, |ui| {
+                .show(ctx, |_ui| {
                     // ui.heading("Appearance");
                     // let mut dark = self.state.settings.dark_theme;
                     // if ui.checkbox(&mut dark, "Dark theme").clicked() {
@@ -433,6 +432,7 @@ impl eframe::App for AppFrame {
 }
 
 impl AppFrame {
+    #[allow(dead_code)]
     fn clear_current_session(&mut self) {
         if let Some(s) = self.state.sessions.get_mut(self.state.current_index) {
             s.messages.clear();
@@ -442,6 +442,7 @@ impl AppFrame {
 }
 
 impl AppFrame {
+    #[allow(dead_code)]
     fn delete_session(&mut self, idx: usize) {
         if idx < self.state.sessions.len() {
             self.state.sessions.remove(idx);

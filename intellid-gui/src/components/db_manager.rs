@@ -52,7 +52,8 @@ impl DbManager {
         }
     }
 
-    pub fn ui_db_config(&mut self, app: &mut crate::AppFrame, ui: &mut egui::Ui) {
+    #[allow(dead_code)]
+    pub fn ui_db_config(&mut self, _app: &mut crate::AppFrame, ui: &mut egui::Ui) {
         self.ensure_storage();
         let mut to_switch: Option<String> = None;
         if let Some(storage) = &self.storage {
@@ -161,7 +162,7 @@ impl DbManager {
                             .unwrap_or_default();
                         for cfg in list {
                             ui.horizontal(|ui| {
-                                ui.label(format!("{}", cfg.id));
+                                ui.label(cfg.id.to_string());
                                 ui.small(format!("[{}]", cfg.engine));
                                 if ui.small_button("Delete").clicked() {
                                     let _ = self.rt.block_on(async {

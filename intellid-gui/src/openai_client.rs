@@ -6,6 +6,7 @@ use async_openai::types::{
 };
 use serde_json::json;
 
+#[allow(dead_code)]
 pub async fn chat_once(api_key: String, model: String, prompt: String) -> Result<String, String> {
     let client =
         OpenAiClient::with_config(async_openai::config::OpenAIConfig::new().with_api_key(api_key));
@@ -52,7 +53,7 @@ pub async fn chat_once(api_key: String, model: String, prompt: String) -> Result
     let resp = client.chat().create(req).await.map_err(|e| e.to_string())?;
     let text = resp
         .choices
-        .get(0)
+        .first()
         .and_then(|c| c.message.content.clone())
         .unwrap_or_default();
     Ok(text)
@@ -106,10 +107,10 @@ pub async fn chat_with_tools(
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client.chat().create(req).await.map_err(|e| e.to_string())?;
-    if let Some(choice) = resp.choices.get(0) {
+    if let Some(choice) = resp.choices.first() {
         if let Some(tcalls) = &choice.message.tool_calls {
             // Execute first supported tool call via MCP
-            if let Some(tc) = tcalls.get(0) {
+            if let Some(tc) = tcalls.first() {
                 let function = &tc.function;
                 if function.name == "introspect_all" {
                     let args_str = function.arguments.clone();

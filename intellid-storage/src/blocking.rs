@@ -1,6 +1,6 @@
-use anyhow::Result;
-use crate::{Storage};
+use crate::Storage;
 use crate::models::*;
+use anyhow::Result;
 
 pub struct StorageBlocking {
     inner: Storage,
@@ -57,12 +57,25 @@ impl StorageBlocking {
         crate::storage::append_markdown(&mut conn, session_id, role, md).await
     }
 
-    pub async fn append_image(&self, session_id: &str, role: Role, path: &str, w: i64, h: i64) -> Result<String> {
+    pub async fn append_image(
+        &self,
+        session_id: &str,
+        role: Role,
+        path: &str,
+        w: i64,
+        h: i64,
+    ) -> Result<String> {
         let mut conn = self.inner.conn().await?;
         crate::storage::append_image(&mut conn, session_id, role, path, w, h).await
     }
 
-    pub async fn append_video(&self, session_id: &str, role: Role, path: &str, dur_ms: Option<i64>) -> Result<String> {
+    pub async fn append_video(
+        &self,
+        session_id: &str,
+        role: Role,
+        path: &str,
+        dur_ms: Option<i64>,
+    ) -> Result<String> {
         let mut conn = self.inner.conn().await?;
         crate::storage::append_video(&mut conn, session_id, role, path, dur_ms).await
     }
@@ -72,5 +85,3 @@ impl StorageBlocking {
         crate::storage::list_messages(&mut conn, session_id, limit).await
     }
 }
-
-

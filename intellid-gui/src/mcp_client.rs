@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 use tokio::sync::{mpsc, oneshot};
 
 pub struct McpClient {
+    #[allow(dead_code)]
     child: Child,
     tx: mpsc::Sender<(u64, String)>,
     waiters: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
@@ -43,7 +44,7 @@ impl McpClient {
                 let _ = writer.flush().await;
                 // Note: request is sent; response will be handled by reader
                 // nothing to do here
-                let _ = drop(id);
+                let _ = id;
             }
         });
 
@@ -53,12 +54,11 @@ impl McpClient {
             while let Ok(Some(line)) = reader.next_line().await {
                 if let Ok(v) = serde_json::from_str::<Value>(&line) {
                     let id_opt = v.get("id").cloned();
-                    if let Some(idv) = id_opt {
-                        if let Some(id) = idv.as_i64().or_else(|| idv.as_u64().map(|u| u as i64)) {
-                            if let Some(tx) = waiters_reader.lock().await.remove(&(id as u64)) {
-                                let _ = tx.send(v);
-                            }
-                        }
+                    if let Some(idv) = id_opt
+                        && let Some(id) = idv.as_i64().or_else(|| idv.as_u64().map(|u| u as i64))
+                        && let Some(tx) = waiters_reader.lock().await.remove(&(id as u64))
+                    {
+                        let _ = tx.send(v);
                     }
                 }
             }

@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DbConfig {
@@ -21,10 +21,18 @@ pub struct Session {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Role { User, Assistant, System }
+pub enum Role {
+    User,
+    Assistant,
+    System,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MessageKind { Markdown, Image, Video }
+pub enum MessageKind {
+    Markdown,
+    Image,
+    Video,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -40,5 +48,3 @@ pub struct Message {
     pub video_path: Option<String>,
     pub video_duration_ms: Option<i64>,
 }
-
-
