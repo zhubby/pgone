@@ -20,7 +20,13 @@ pub struct ChatCtx<'a> {
     pub openai_model: String,
 }
 
-pub struct SqlCtx<'a> {
-    pub state: &'a mut PersistedState,
-    pub db: &'a mut crate::components::DbManager,
+pub struct SqlCtx{
+    pub state: PersistedState,
+    pub db: crate::components::DbManager,
+}
+
+impl Default for SqlCtx {
+    fn default() -> Self {
+        Self { state: PersistedState::default(), db: DbManager::default() }
+    }
 }

@@ -32,3 +32,4 @@ intellid-storage = { workspace = true }
 urlencoding = "2"
 icns = "0.3.1"
 anyhow = { workspace = true }
+strum = { workspace = true }

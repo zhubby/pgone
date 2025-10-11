@@ -39,6 +39,15 @@ pub struct DbConfig {
     pub dsn: String,
 }
 
+impl DbConfig {
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("Engine");
+            ui.text_edit_singleline(&mut self.engine);
+        });
+    }
+}
+
 impl Default for DbConfig {
     fn default() -> Self {
         Self {

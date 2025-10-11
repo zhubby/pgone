@@ -40,6 +40,7 @@ moka = { version = "0.12", features = ["future"] }
 sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
 prometheus-client = "0.23.1"
 prometheus-client-derive-encode = { version = "0.4.2" }
+strum = { version = "0.27", features = ["derive"] }
 
 # Turso/libsql for local embedded storage
 libsql = { version = "0.4" }

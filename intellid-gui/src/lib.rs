@@ -1,10 +1,12 @@
 use chrono::{DateTime, Utc};
 use eframe::egui::{self, CentralPanel, Context, SidePanel, TopBottomPanel};
-use egui_dock::{DockArea, DockState};
+use egui::Frame;
+use egui_dock::{AllowedSplits, DockArea, DockState, NodeIndex, Style, SurfaceIndex};
 use egui_extras::{Size, StripBuilder};
 use egui_phosphor::Variant as PhosphorVariant;
 use icns::{IconFamily, IconType, Image};
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -18,17 +20,11 @@ mod markdown;
 mod mcp_client;
 mod openai_client;
 mod sql;
-use layout::tabs::{CenterBottomTab, CenterBottomViewer, CenterTopTab, CenterTopViewer};
-
-use layout::left::LeftTab;
-use layout::left::LeftViewer;
-
-use layout::right::RightTab;
-use layout::right::RightViewer;
 
 mod components;
 use components::{ChatCtx, ChatPanel, DbManager, PreviewManager, SessionsPanel, SqlPanel};
 mod media;
+use layout::tabs::Tab;
 
 pub struct AppFrame {
     state: PersistedState,
@@ -36,10 +32,9 @@ pub struct AppFrame {
     db: DbManager,
     sql: SqlPanel,
     preview: PreviewManager,
-    left_tree: DockState<LeftTab>,
-    right_tree: DockState<RightTab>,
-    center_top_tree: DockState<CenterTopTab>,
-    center_bottom_tree: DockState<CenterBottomTab>,
+    tabs_tree: DockState<Tab>,
+    open_tabs: HashSet<Tab>,
+    context: layout::context::Context,
 }
 
 impl AppFrame {
@@ -56,15 +51,46 @@ impl AppFrame {
                     dsn: String::new(),
                 },
             }],
+
             current_index: 0,
             next_session_id: 2,
             settings: Settings::default(),
         });
-        // initialize dock trees
-        let left_tree = DockState::new(vec![LeftTab::Sessions, LeftTab::DbConfig]);
-        let right_tree = DockState::new(vec![RightTab::Chat]);
-        let center_top_tree = DockState::new(vec![CenterTopTab::SqlEditor]);
-        let center_bottom_tree = DockState::new(vec![CenterBottomTab::Results]);
+
+        let mut dock_state = DockState::new(vec![
+            Tab::SqlEditor,
+            Tab::Results,
+            Tab::Sessions,
+            Tab::DbConfig,
+            Tab::Chat,
+        ]);
+
+        let [a, b] = dock_state.main_surface_mut().split_left(
+            NodeIndex::root(),
+            0.3,
+            vec![Tab::Sessions, Tab::DbConfig],
+        );
+
+        let [_, _] = dock_state
+            .main_surface_mut()
+            .split_right(b, 0.5, vec![Tab::Chat]);
+
+        let [_, _] = dock_state
+            .main_surface_mut()
+            .split_below(a, 0.7, vec![Tab::SqlEditor]);
+        let [_, _] = dock_state
+            .main_surface_mut()
+            .split_below(b, 0.5, vec![Tab::Results]);
+
+        let mut open_tabs = HashSet::new();
+
+        for node in dock_state[SurfaceIndex::main()].iter() {
+            if let Some(tabs) = node.tabs() {
+                for tab in tabs {
+                    open_tabs.insert(tab.clone());
+                }
+            }
+        }
 
         Self {
             state,
@@ -72,10 +98,9 @@ impl AppFrame {
             db: Default::default(),
             sql: Default::default(),
             preview: Default::default(),
-            left_tree,
-            right_tree,
-            center_top_tree,
-            center_bottom_tree,
+            tabs_tree: dock_state,
+            open_tabs,
+            context: Default::default(),
         }
     }
 
@@ -222,11 +247,11 @@ impl AppFrame {
 impl eframe::App for AppFrame {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
         let Self {
-            left_tree,
-            right_tree,
             state,
             preview,
             db,
+            tabs_tree,
+            open_tabs,
             ..
         } = self;
         // fonts are initialized in run() creation context to avoid runtime deadlocks
@@ -310,14 +335,8 @@ impl eframe::App for AppFrame {
 
         // fixed three-column layout; no edge toggle buttons
 
-        // Settings window
-        {
-            db.ui_add_db_window(ctx);
-        }
-
-        {
-            db.ui_manage_db_window(ctx);
-        }
+        db.ui_add_db_window(ctx);
+        db.ui_manage_db_window(ctx);
         if self.show_settings {
             let mut open = true;
             egui::Window::new("Settings")
@@ -384,54 +403,28 @@ impl eframe::App for AppFrame {
                 self.show_settings = false;
             }
         }
-
-        // 左栏：使用 Dock Tabs（Sessions/DB Config）
-        SidePanel::left("left_panel")
-            .resizable(true)
-            .min_width(220.0)
+        CentralPanel::default()
+            .frame(Frame::central_panel(&ctx.style()).inner_margin(0.))
             .show(ctx, |ui| {
-                let mut viewer = LeftViewer {};
-                DockArea::new(left_tree).show_inside(ui, &mut viewer);
-            });
+                let style = self
+                    .context
+                    .style
+                    .get_or_insert(Style::from_egui(ui.style()))
+                    .clone();
 
-        // // 中栏：上下分别为 Dock tabs（SQL / Results）
-        // CentralPanel::default().show(ctx, |ui| {
-        //     StripBuilder::new(ui)
-        //         .size(Size::relative(0.55)) // editor area
-        //         .size(Size::remainder()) // results
-        //         .vertical(|mut strip| {
-        //             strip.cell(|ui| {
-        //                 let mut tmp = DockState::new(Vec::new());
-        //                 std::mem::swap(&mut self.center_top_tree, &mut tmp);
-        //                 ui.push_id("center_top_dock", |ui| {
-        //                     let mut viewer = CenterTopViewer { app: self };
-        //                     DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-        //                 });
-        //                 std::mem::swap(&mut self.center_top_tree, &mut tmp);
-        //             });
-        //             strip.cell(|ui| {
-        //                 let mut tmp = DockState::new(Vec::new());
-        //                 std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
-        //                 ui.push_id("center_bottom_dock", |ui| {
-        //                     let mut viewer = CenterBottomViewer { app: self };
-        //                     DockArea::new(&mut tmp).show_inside(ui, &mut viewer);
-        //                 });
-        //                 std::mem::swap(&mut self.center_bottom_tree, &mut tmp);
-        //             });
-        //         });
-        // });
-
-        // 右栏：Dock tabs（Chat）
-        SidePanel::right("right_panel")
-            .resizable(true)
-            .min_width(260.0)
-            .show(ctx, |ui| {
-                let mut viewer = RightViewer {
-                    preview: self.preview.clone(),
-                    chat: ChatPanel::default(),
-                    state: self.state.clone(),
-                };
-                DockArea::new(right_tree).show_inside(ui, &mut viewer);
+                DockArea::new(&mut self.tabs_tree)
+                    .style(style)
+                    .show_close_buttons(true)
+                    .show_add_buttons(true)
+                    .draggable_tabs(true)
+                    .show_tab_name_on_hover(true)
+                    .allowed_splits(AllowedSplits::All)
+                    .show_leaf_close_all_buttons(true)
+                    .show_leaf_collapse_buttons(true)
+                    .show_secondary_button_hint(true)
+                    .secondary_button_on_modifier(true)
+                    .secondary_button_context_menu(true)
+                    .show_inside(ui, &mut self.context);
             });
 
         // Image preview window
