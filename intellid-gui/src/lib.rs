@@ -259,7 +259,7 @@ impl AppFrame {
 
 impl eframe::App for AppFrame {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
-        let Self { db, .. } = self;
+        let Self { db, tabs_tree, .. } = self;
         // fonts are initialized in run() creation context to avoid runtime deadlocks
         TopBottomPanel::top("menu_top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -417,6 +417,8 @@ impl eframe::App for AppFrame {
                     .style
                     .get_or_insert(Style::from_egui(ui.style()))
                     .clone();
+
+                    
 
                 DockArea::new(&mut self.tabs_tree)
                     .style(style)
