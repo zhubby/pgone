@@ -1,5 +1,5 @@
 /target
-intellid.db
-intellid.db-wal
+pgone.db
+pgone.db-wal
 .DS_Store
 sessions.json

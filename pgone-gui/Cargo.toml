@@ -34,4 +34,8 @@ icns = "0.3.1"
 anyhow = { workspace = true }
 strum = { workspace = true }
 reqwest = { workspace = true }
-pgone-apiserver = { path = "../pgone-apiserver" }
+tracing-subscriber = { workspace = true }
+
+pgone-apiserver = { workspace = true }
+pgone-mcp-server = { workspace = true }
+

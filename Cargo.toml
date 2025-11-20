@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "pgone",
     "pgone-a2a",
     "pgone-apiserver",
     "pgone-gui",
@@ -54,3 +53,4 @@ pgone-mcp-server = { path = "pgone-mcp-server" }
 pgone-gui = { path = "pgone-gui" }
 pgone-protocol = { path = "pgone-protocol" }
 pgone-storage = { path = "pgone-storage" }
+pgone-apiserver = { path = "pgone-apiserver" }
