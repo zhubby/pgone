@@ -1,0 +1,22 @@
+[package]
+name = "pgone-proxy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pgwire = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+sqlparser = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio-postgres = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+pgone-util = { path = "../pgone-util" }
+
+[[bin]]
+name = "pgone-proxy"
+path = "src/main.rs"

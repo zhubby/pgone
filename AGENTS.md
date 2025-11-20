@@ -4,7 +4,7 @@
 - `pgone-mcp-server/` — core MCP server, DB adapters, formatters, examples (`examples/`).
 - `pgone/` — CLI entry for quick runs and STDIO mode.
 - `pgone-gui/` — desktop GUI (egui/eframe).
-- `pgone-a2a/`, `pgone-apiserver/`, `pgone-protocol/` — scaffolding and shared crates.
+- `pgone-a2a/`, `pgone-apiserver/`, `pgone-proxy/` — scaffolding and shared crates.
 - Workspace manifest: `Cargo.toml`; build artifacts in `target/`.
 
 ## Build, Test, and Development Commands
