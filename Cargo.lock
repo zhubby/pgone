@@ -4778,8 +4778,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "clap",
  "moka",
  "once_cell",
+ "pgone-util",
  "serde",
  "serde_json",
  "serde_yaml",

@@ -5,7 +5,8 @@ members = [
     "pgone-gui",
     "pgone-storage",
     "pgone-mcp-server",
-    "pgone-proxy", "pgone-util",
+    "pgone-proxy", 
+    "pgone-util",
 ]
 
 resolver = "2"
@@ -57,3 +58,4 @@ pgone-gui = { path = "pgone-gui" }
 pgone-proxy = { path = "pgone-proxy" }
 pgone-storage = { path = "pgone-storage" }
 pgone-apiserver = { path = "pgone-apiserver" }
+pgone-util= { path = "pgone-util" }
