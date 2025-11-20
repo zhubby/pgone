@@ -22,9 +22,9 @@ impl McpClient {
     pub async fn spawn_with_default() -> anyhow::Result<Self> {
         // 默认通过 cargo 运行本地 mcp-server（开发环境）
         let mut cmd = Command::new("cargo");
-        cmd.arg("run").arg("-p").arg("intellid-mcp-server");
-        cmd.env("INTELLID_MCP_STDIO", "1");
-        cmd.env("INTELLID_CONNECTIONS_PATH", "examples/connections.yaml");
+        cmd.arg("run").arg("-p").arg("pgone-mcp-server");
+        cmd.env("PGONE_MCP_STDIO", "1");
+        cmd.env("PGONE_CONNECTIONS_PATH", "examples/connections.yaml");
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

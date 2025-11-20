@@ -1,8 +1,8 @@
-use intellid_mcp_server::adapters::postgres::PostgresIntrospector;
-use intellid_mcp_server::config;
-use intellid_mcp_server::core::introspector::DatabaseIntrospector;
-use intellid_mcp_server::mcp;
-use intellid_mcp_server::registry::{ConnectionConfig, ConnectionRegistry, DatabaseEngine};
+use pgone_mcp_server::adapters::postgres::PostgresIntrospector;
+use pgone_mcp_server::config;
+use pgone_mcp_server::core::introspector::DatabaseIntrospector;
+use pgone_mcp_server::mcp;
+use pgone_mcp_server::registry::{ConnectionConfig, ConnectionRegistry, DatabaseEngine};
 use tracing_subscriber::EnvFilter;
 
 fn main() -> anyhow::Result<()> {
@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
         rt.block_on(async move {
             let registry = ConnectionRegistry::new();
 
-            if let Ok(path) = std::env::var("INTELLID_CONNECTIONS_PATH")
+            if let Ok(path) = std::env::var("PGONE_CONNECTIONS_PATH")
                 && let Ok(conns) = config::load_connections_from_path(&path)
             {
                 for c in conns {
@@ -30,9 +30,9 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            if std::env::var("INTELLID_MCP_STDIO").is_ok() {
+            if std::env::var("PGONE_MCP_STDIO").is_ok() {
                 let _ = mcp::run_stdio(registry).await;
-            } else if let Ok(dsn) = std::env::var("INTELLID_PG_DSN") {
+            } else if let Ok(dsn) = std::env::var("PGONE_PG_DSN") {
                 if let Err(e) = registry
                     .register(ConnectionConfig {
                         id: "default".to_string(),
@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
                 if let Some(handle) = registry.get("default").await {
                     let pg = PostgresIntrospector::new(handle.pool.clone());
                     match pg
-                        .introspect_database(intellid_mcp_server::core::models::IntrospectOptions {
+                        .introspect_database(pgone_mcp_server::core::models::IntrospectOptions {
                             schemas: None,
                             with_indexes: true,
                             with_routines: false,
@@ -70,14 +70,14 @@ fn main() -> anyhow::Result<()> {
                 }
             } else {
                 println!(
-                    "intellid-mcp-server started. Set INTELLID_PG_DSN to run a quick introspection."
+                    "pgone-mcp-server started. Set PGONE_PG_DSN to run a quick introspection."
                 );
             }
         });
     });
 
     // 在主线程启动 GUI（macOS 需要主线程运行窗口循环）
-    if let Err(e) = intellid_gui::run() {
+    if let Err(e) = pgone_gui::run() {
         eprintln!("GUI error: {}", e);
         std::process::exit(1);
     }

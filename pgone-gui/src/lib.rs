@@ -187,7 +187,7 @@ impl AppFrame {
         };
         // migrate sessions and messages
         for s in &self.state.sessions {
-            let sess = intellid_storage::models::Session {
+            let sess = pgone_storage::models::Session {
                 id: s.id.to_string(),
                 title: s.title.clone(),
                 config_id: None,
@@ -205,7 +205,7 @@ impl AppFrame {
                             storage
                                 .append_markdown(
                                     &sess.id,
-                                    intellid_storage::models::Role::User,
+                                    pgone_storage::models::Role::User,
                                     text,
                                 )
                                 .await
@@ -220,7 +220,7 @@ impl AppFrame {
                             storage
                                 .append_image(
                                     &sess.id,
-                                    intellid_storage::models::Role::User,
+                                    pgone_storage::models::Role::User,
                                     &path.display().to_string(),
                                     *width as i64,
                                     *height as i64,
@@ -235,7 +235,7 @@ impl AppFrame {
                             storage
                                 .append_video(
                                     &sess.id,
-                                    intellid_storage::models::Role::User,
+                                    pgone_storage::models::Role::User,
                                     &path.display().to_string(),
                                     duration_ms.map(|v| v as i64),
                                 )
@@ -521,7 +521,7 @@ pub fn run() -> anyhow::Result<()> {
     let mut buf = Vec::new();
     image.write_png(&mut buf)?;
     let icon = eframe::icon_data::from_png_bytes(&buf).expect("Failed to load icon");
-    let title = "Intelligent Database";
+    let title = "PGone";
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_maximized(true)
@@ -534,7 +534,7 @@ pub fn run() -> anyhow::Result<()> {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         rt.block_on(async move {
             let addr: SocketAddr = "127.0.0.1:8765".parse().unwrap();
-            let _ = intellid_apiserver::serve(addr).await;
+            let _ = pgone_apiserver::serve(addr).await;
         });
     });
 

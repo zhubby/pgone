@@ -1,8 +1,8 @@
 use std::env;
 
-use intellid_mcp_server::config::load_connections_from_path;
-use intellid_mcp_server::mcp::run_stdio;
-use intellid_mcp_server::registry::ConnectionRegistry;
+use pgone_mcp_server::config::load_connections_from_path;
+use pgone_mcp_server::mcp::run_stdio;
+use pgone_mcp_server::registry::ConnectionRegistry;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .try_init();
 
-    // 读取 --connections <path> 或环境变量 INTELLID_CONNECTIONS
+    // 读取 --connections <path> 或环境变量 PGONE_CONNECTIONS
     let mut args = env::args().collect::<Vec<String>>();
     let mut connections_path: Option<String> = None;
     if let Some(pos) = args.iter().position(|a| a == "--connections")
@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
         args.drain(pos..=pos + 1);
     }
     if connections_path.is_none() {
-        connections_path = env::var("INTELLID_CONNECTIONS").ok();
+        connections_path = env::var("PGONE_CONNECTIONS").ok();
     }
 
     let registry = ConnectionRegistry::new();
@@ -47,6 +47,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    tracing::info!("IntelliD MCP Server 启动（stdio 模式）");
+    tracing::info!("PGone MCP Server 启动（stdio 模式）");
     run_stdio(registry).await
 }

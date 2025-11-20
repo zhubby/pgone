@@ -1,12 +1,12 @@
 [workspace]
 members = [
-    "intellid",
-    "intellid-a2a",
-    "intellid-apiserver",
-    "intellid-gui",
-    "intellid-storage",
-    "intellid-mcp-server",
-    "intellid-protocol",
+    "pgone",
+    "pgone-a2a",
+    "pgone-apiserver",
+    "pgone-gui",
+    "pgone-storage",
+    "pgone-mcp-server",
+    "pgone-protocol",
 ]
 
 resolver = "2"
@@ -46,7 +46,7 @@ strum = { version = "0.27", features = ["derive"] }
 libsql = { version = "0.4" }
 turso = { version = "0.1.5" }
 
-intellid-mcp-server = { path = "intellid-mcp-server" }
-intellid-gui = { path = "intellid-gui" }
-intellid-protocol = { path = "intellid-protocol" }
-intellid-storage = { path = "intellid-storage" }
+pgone-mcp-server = { path = "pgone-mcp-server" }
+pgone-gui = { path = "pgone-gui" }
+pgone-protocol = { path = "pgone-protocol" }
+pgone-storage = { path = "pgone-storage" }

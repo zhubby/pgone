@@ -1,12 +1,12 @@
 [package]
-name = "intellid"
+name = "pgone"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-intellid-mcp-server = { workspace = true}
-intellid-gui = { workspace = true}
-intellid-protocol = { workspace = true}
+pgone-mcp-server = { workspace = true}
+pgone-gui = { workspace = true}
+pgone-protocol = { workspace = true}
 
 
 serde_json = { workspace = true}

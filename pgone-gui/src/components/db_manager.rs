@@ -1,4 +1,4 @@
-use intellid_storage::blocking::StorageBlocking;
+use pgone_storage::blocking::StorageBlocking;
 use sqlx::postgres::PgPool;
 
 pub struct DbManager {
@@ -46,7 +46,7 @@ impl DbManager {
         }
         if let Ok(storage) = self
             .rt
-            .block_on(async { StorageBlocking::open_local("intellid.db").await })
+            .block_on(async { StorageBlocking::open_local("pgone.db").await })
         {
             self.storage = Some(storage);
         }
@@ -231,7 +231,7 @@ impl DbManager {
             }
         );
         let now = Self::now_ts();
-        let cfg = intellid_storage::models::DbConfig {
+        let cfg = pgone_storage::models::DbConfig {
             id: self.add_db_name.trim().to_string(),
             engine: self.add_db_engine.trim().to_string(),
             dsn,

@@ -1,5 +1,5 @@
 [package]
-name = "intellid-gui"
+name = "pgone-gui"
 version = "0.1.0"
 edition = "2024"
 
@@ -28,10 +28,10 @@ sqlx = { workspace = true }
 hex = "0.4"
 csv = "1"
 async-openai = "0.25"
-intellid-storage = { workspace = true }
+pgone-storage = { workspace = true }
 urlencoding = "2"
 icns = "0.3.1"
 anyhow = { workspace = true }
 strum = { workspace = true }
 reqwest = { workspace = true }
-intellid-apiserver = { path = "../intellid-apiserver" }
+pgone-apiserver = { path = "../pgone-apiserver" }

@@ -27,7 +27,7 @@ impl SessionsPanel {
             // persist via storage if available
             ctxs.db.ensure_storage();
             if let Some(storage) = &ctxs.db.storage {
-                let sess = intellid_storage::models::Session {
+                let sess = pgone_storage::models::Session {
                     id: id.to_string(),
                     title: format!("Session {}", id),
                     config_id: None,

@@ -1,5 +1,5 @@
 [package]
-name = "intellid-apiserver"
+name = "pgone-apiserver"
 version = "0.1.0"
 edition = "2024"
 
@@ -13,7 +13,7 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 reqwest = { workspace = true }
 rand = { workspace = true }
-intellid-storage = { workspace = true }
+pgone-storage = { workspace = true }
 base64 = "0.22"
 sha2 = "0.10"
 urlencoding = "2"

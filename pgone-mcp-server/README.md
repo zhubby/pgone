@@ -1,4 +1,4 @@
-# intellid-mcp-server
+# pgone-mcp-server
 
 一个基于 MCP（Model Context Protocol）的数据库自省服务。当前支持 PostgreSQL，功能：
 - 列出/描述表、视图（含物化视图）、触发器、例程（函数/过程/聚合）、类型（枚举/域/复合）
@@ -22,13 +22,13 @@ connections:
 ```
 2) 启动（在工作区根目录或本模块目录执行）
 ```bash
-INTELLID_CONNECTIONS_PATH=/path/to/connections.yaml INTELLID_MCP_STDIO=1 cargo run -p intellid-mcp-server
+PGONE_CONNECTIONS_PATH=/path/to/connections.yaml PGONE_MCP_STDIO=1 cargo run -p pgone-mcp-server
 ```
 3) 与进程通过 STDIO 交换“每行一个 JSON”的消息。
 
 ### 一次性快速自省（非 MCP）
 ```bash
-INTELLID_PG_DSN='postgres://user:pass@host:5432/dbname' cargo run -p intellid-mcp-server
+PGONE_PG_DSN='postgres://user:pass@host:5432/dbname' cargo run -p pgone-mcp-server
 ```
 运行后打印数据库结构 JSON。
 

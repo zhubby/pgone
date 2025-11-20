@@ -1,17 +1,17 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `intellid-mcp-server/` — core MCP server, DB adapters, formatters, examples (`examples/`).
-- `intellid/` — CLI entry for quick runs and STDIO mode.
-- `intellid-gui/` — desktop GUI (egui/eframe).
-- `intellid-a2a/`, `intellid-apiserver/`, `intellid-protocol/` — scaffolding and shared crates.
+- `pgone-mcp-server/` — core MCP server, DB adapters, formatters, examples (`examples/`).
+- `pgone/` — CLI entry for quick runs and STDIO mode.
+- `pgone-gui/` — desktop GUI (egui/eframe).
+- `pgone-a2a/`, `pgone-apiserver/`, `pgone-protocol/` — scaffolding and shared crates.
 - Workspace manifest: `Cargo.toml`; build artifacts in `target/`.
 
 ## Build, Test, and Development Commands
 - Build all: `cargo build --workspace`
-- Run MCP server (STDIO): `INTELLID_CONNECTIONS_PATH=examples/connections.yaml INTELLID_MCP_STDIO=1 cargo run -p intellid-mcp-server`
-- One-off introspection: `INTELLID_PG_DSN=postgres://… cargo run -p intellid`
-- GUI: `cargo run -p intellid-gui`
+- Run MCP server (STDIO): `PGONE_CONNECTIONS_PATH=examples/connections.yaml PGONE_MCP_STDIO=1 cargo run -p pgone-mcp-server`
+- One-off introspection: `PGONE_PG_DSN=postgres://… cargo run -p pgone`
+- GUI: `cargo run -p pgone-gui`
 - Lint: `cargo clippy --workspace --all-targets -- -D warnings`
 - Format: `cargo fmt --all`
 - Tests (workspace): `cargo test --workspace`
@@ -34,7 +34,7 @@
 - PRs: clear description, linked issues (`Closes #123`), steps to validate, and screenshots for GUI changes. Update docs/examples when behavior changes.
 
 ## Security & Configuration Tips
-- Do not commit secrets. Provide DSNs via env (`INTELLID_PG_DSN`) or local YAML (`examples/connections.yaml`) kept out of VCS.
+- Do not commit secrets. Provide DSNs via env (`PGONE_PG_DSN`) or local YAML (`examples/connections.yaml`) kept out of VCS.
 - Avoid logging credentials; scrub values in errors.
-- Long-running processes: prefer STDIO mode for agent integrations (`INTELLID_MCP_STDIO=1`).
+- Long-running processes: prefer STDIO mode for agent integrations (`PGONE_MCP_STDIO=1`).
 

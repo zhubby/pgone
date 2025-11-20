@@ -29,7 +29,7 @@ use sha2::{Digest, Sha256};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use std::env;
-use intellid_storage::blocking::StorageBlocking;
+use pgone_storage::blocking::StorageBlocking;
 
 static OAUTH_STATE: OnceCell<Arc<Mutex<HashMap<String, String>>>> = OnceCell::new();
 static STORAGE: OnceCell<Arc<StorageBlocking>> = OnceCell::new();
@@ -59,7 +59,7 @@ async fn metrics() -> impl IntoResponse {
 #[openapi(
     paths(health, metrics, oauth_github_start, oauth_github_callback, auth_me),
     tags(
-        (name = "intellid-apiserver", description = "HTTP APIs for intellid"),
+        (name = "pgone-apiserver", description = "HTTP APIs for pgone"),
     )
 )]
 struct ApiDoc;
@@ -117,7 +117,7 @@ pub async fn serve(addr: SocketAddr) -> Result<()> {
     let metrics_layer = MetricsLayer;
 
     // set storage
-    let storage = StorageBlocking::open_local("intellid.db").await?;
+    let storage = StorageBlocking::open_local("pgone.db").await?;
     let _ = STORAGE.set(Arc::new(storage));
 
     // init oauth state map
@@ -291,7 +291,7 @@ async fn oauth_github_callback(axum::extract::Query(params): axum::extract::Quer
     // fetch user info
     let user_resp = client.get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {}", access_token))
-        .header("User-Agent", "intellid")
+        .header("User-Agent", "pgone")
         .send().await;
     let Ok(user_json) = user_resp else { return (StatusCode::BAD_GATEWAY, "user request failed").into_response(); };
     let Ok(user_json) = user_json.json::<serde_json::Value>().await else { return (StatusCode::BAD_GATEWAY, "user parse failed").into_response(); };
@@ -305,7 +305,7 @@ async fn oauth_github_callback(axum::extract::Query(params): axum::extract::Quer
     let email = if email.is_none() {
         let emails_resp = client.get("https://api.github.com/user/emails")
             .header("Authorization", format!("Bearer {}", access_token))
-            .header("User-Agent", "intellid")
+            .header("User-Agent", "pgone")
             .send().await;
         if let Ok(emails_resp) = emails_resp {
             if let Ok(v) = emails_resp.json::<serde_json::Value>().await {
@@ -315,8 +315,8 @@ async fn oauth_github_callback(axum::extract::Query(params): axum::extract::Quer
     } else { email };
 
     let now = now_ts();
-    let user = intellid_storage::models::AuthUser { id: id.clone(), login, name, avatar_url, email, created_at: now, updated_at: now };
-    let token = intellid_storage::models::AuthToken { id: uuid(), user_id: id.clone(), provider: "github".to_string(), access_token: access_token.clone(), scope, created_at: now, updated_at: now };
+    let user = pgone_storage::models::AuthUser { id: id.clone(), login, name, avatar_url, email, created_at: now, updated_at: now };
+    let token = pgone_storage::models::AuthToken { id: uuid(), user_id: id.clone(), provider: "github".to_string(), access_token: access_token.clone(), scope, created_at: now, updated_at: now };
     if let Some(st) = STORAGE.get() {
         let _ = st.upsert_auth_user(&user).await;
         let _ = st.insert_auth_token(&token).await;
