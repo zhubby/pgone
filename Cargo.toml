@@ -1,3 +1,27 @@
+[workspace.metadata]
+version = "0.1.0"
+edition = "2024"
+author = "zhubby <yanvalue@gmail.com>"
+description = "PGone is a suite of tools for PostgreSQL"
+repository = "https://github.com/zhubby/pgone"
+license = "MIT"
+homepage = "https://pgone.io"
+documentation = "https://pgone.io/docs"
+keywords = ["postgresql", "database", "tools", "mcp", "gui"]
+categories = ["database", "tools", "mcp", "gui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["zhubby <yanvalue@gmail.com>"]
+description = "PGone is a suite of tools for PostgreSQL"
+repository = "https://github.com/zhubby/pgone"
+license = "MIT"
+homepage = "https://pgone.io"
+documentation = "https://pgone.io/docs"
+keywords = ["postgresql", "database", "tools", "mcp", "gui"]
+categories = ["database", "tools", "mcp", "gui"]
+
 [workspace]
 members = [
     "pgone-a2a",
@@ -5,7 +29,7 @@ members = [
     "pgone-gui",
     "pgone-storage",
     "pgone-mcp-server",
-    "pgone-proxy", 
+    "pgone-auditor", 
     "pgone-util",
 ]
 
@@ -55,7 +79,7 @@ turso = { version = "0.1.5" }
 
 pgone-mcp-server = { path = "pgone-mcp-server" }
 pgone-gui = { path = "pgone-gui" }
-pgone-proxy = { path = "pgone-proxy" }
+pgone-auditor = { path = "pgone-auditor" }
 pgone-storage = { path = "pgone-storage" }
 pgone-apiserver = { path = "pgone-apiserver" }
 pgone-util= { path = "pgone-util" }

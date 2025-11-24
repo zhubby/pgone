@@ -1,11 +1,12 @@
-use egui::WidgetText;
+use egui::{WidgetText};
 use egui_dock::{Style, TabViewer};
+use std::collections::HashSet;
 
 use crate::{
     components::{
         ChatCtx, ChatPanel, PreviewManager, SessionsCtx, SessionsPanel, SqlCtx, SqlPanel,
     },
-    layout::tabs::Tab,
+    layout::Tab,
     models::{DbConfig, PersistedState},
 };
 
@@ -18,6 +19,7 @@ pub struct Context {
     pub db_config: DbConfig,
     pub state: PersistedState,
     pub style: Option<Style>,
+    pub open_tabs: HashSet<Tab>,
 }
 
 // Default is derived
@@ -40,6 +42,7 @@ impl TabViewer for Context {
             Tab::Sessions => self.sessions.ui(&mut SessionsCtx::default(), ui),
             Tab::DbConfig => self.db_config.ui(ui),
         }
+        // ui.heading("My egui Application");
     }
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
         match tab {
@@ -66,7 +69,8 @@ impl TabViewer for Context {
 
     fn on_tab_button(&mut self, _tab: &mut Self::Tab, _response: &egui::Response) {}
 
-    fn on_close(&mut self, _tab: &mut Self::Tab) -> egui_dock::tab_viewer::OnCloseResponse {
+    fn on_close(&mut self, tab: &mut Self::Tab) -> egui_dock::tab_viewer::OnCloseResponse {
+        self.open_tabs.remove(tab);
         egui_dock::tab_viewer::OnCloseResponse::Close
     }
 

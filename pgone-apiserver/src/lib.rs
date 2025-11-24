@@ -1,10 +1,13 @@
+mod auditor;
+pub mod grpc;
+mod http;
+
 use std::net::SocketAddr;
 
 use anyhow::Result;
 use axum::{Router, response::IntoResponse, routing::{get, post}};
-use http::StatusCode;
+use axum::http::StatusCode;
 use tokio::net::TcpListener;
-use tokio::signal;
 use tower::{Layer, ServiceBuilder};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tracing::{Level, info};
@@ -57,9 +60,10 @@ async fn metrics() -> impl IntoResponse {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, metrics, oauth_github_start, oauth_github_callback, auth_me),
+    paths(health, metrics, oauth_github_start, oauth_github_callback, auth_me, http::execute_audit),
     tags(
         (name = "pgone-apiserver", description = "HTTP APIs for pgone"),
+        (name = "auditor", description = "SQL audit APIs"),
     )
 )]
 struct ApiDoc;
@@ -91,7 +95,7 @@ async fn docs_html() -> Html<&'static str> {
     )
 }
 
-pub async fn serve(addr: SocketAddr) -> Result<()> {
+pub async fn serve(addr: SocketAddr, shutdown: impl std::future::Future<Output = ()> + Send + 'static) -> Result<()> {
     // metrics registry
     let mut registry = Registry::default();
 
@@ -134,6 +138,7 @@ pub async fn serve(addr: SocketAddr) -> Result<()> {
         .route("/oauth/github/start", post(oauth_github_start))
         .route("/oauth/github/callback", get(oauth_github_callback))
         .route("/auth/me", get(auth_me))
+        .merge(http::router())
         .layer(
             ServiceBuilder::new()
                 .layer(trace_layer)
@@ -142,10 +147,6 @@ pub async fn serve(addr: SocketAddr) -> Result<()> {
 
     let listener = TcpListener::bind(addr).await?;
     info!("listening on {}", addr);
-
-    let shutdown = async move {
-        let _ = signal::ctrl_c().await;
-    };
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)

@@ -1,5 +1,5 @@
 use clap::Parser;
-use pgone_proxy::server;
+use pgone_auditor::server;
 use pgone_util::log;
 use std::str::FromStr;
 

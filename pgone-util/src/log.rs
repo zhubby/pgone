@@ -2,9 +2,6 @@ use anyhow::Result;
 use std::str::FromStr;
 use tracing::Level;
 use tracing_subscriber::fmt::time::ChronoUtc;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{EnvFilter, Layer};
 
 /// 日志级别枚举
 #[derive(Debug, Clone, Copy)]
@@ -91,26 +88,24 @@ pub fn init_log(config: LogConfig) -> Result<()> {
         LogLevel::Error => "error",
     };
 
-    // 创建环境过滤器
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level_str));
+    // 将 LogLevel 转换为 tracing::Level
+    let level: Level = config.level.into();
 
-    // 构建基础层
-    let registry = tracing_subscriber::registry().with(env_filter);
-
-    // 根据配置选择格式化层
-    let fmt_layer = if config.json_format {
+    // 根据配置选择格式化层，使用 with_max_level 设置日志级别
+    if config.json_format {
         // JSON 格式（用于生产环境）
-        tracing_subscriber::fmt::layer()
+        tracing_subscriber::fmt()
+            .with_max_level(level)
             .json()
             .with_timer(ChronoUtc::rfc_3339())
             .with_target(true)
             .with_file(true)
             .with_line_number(true)
-            .boxed()
+            .init();
     } else {
         // 美观的彩色格式（用于开发环境）
-        tracing_subscriber::fmt::layer()
+        tracing_subscriber::fmt()
+            .with_max_level(level)
             .with_timer(ChronoUtc::rfc_3339())
             .with_target(true)
             .with_file(true)
@@ -118,26 +113,18 @@ pub fn init_log(config: LogConfig) -> Result<()> {
             .with_ansi(true)
             .with_level(true)
             .pretty()
-            .boxed()
-    };
+            .init();
+    }
 
     // 如果启用 OpenTelemetry，添加追踪层
     // 注意：OpenTelemetry 0.31 版本的 API 可能需要根据实际 exporter 配置
     // 这里提供一个基础框架，实际使用时需要配置合适的 exporter
     if config.enable_otel {
-        // 使用 tracing-opentelemetry 的便捷方法
-        // 实际使用时需要配置 OpenTelemetry SDK 和相应的 exporter
-        // 例如：OTLP、Jaeger、Zipkin 等
         tracing::warn!(
             service_name = config.service_name.as_deref().unwrap_or("pgone-service"),
             "OpenTelemetry 功能已启用，但需要配置 exporter 才能正常工作"
         );
-        
-        // 暂时只使用基础日志功能
         // TODO: 实现完整的 OpenTelemetry 集成
-        registry.with(fmt_layer).init();
-    } else {
-        registry.with(fmt_layer).init();
     }
 
     tracing::info!(

@@ -1,9 +1,14 @@
 pub mod dsn_extractor;
+pub mod extractor;
 pub mod processor;
+pub mod replay;
 pub mod row_converter;
 pub mod server;
+pub mod session;
 pub mod sql_parser;
 pub mod type_converter;
+
+
 
 #[cfg(test)]
 mod tests {
@@ -68,8 +73,6 @@ mod tests {
         use tokio_postgres::types::Type;
 
         // 测试未知类型应该回退到 TEXT
-        // 注意：这里我们测试一个可能不存在的类型，实际中会使用 _ => TEXT
-        // 由于无法直接创建任意 Type，我们测试已知的默认行为
         let unknown_type = Type::TEXT; // 使用已知类型作为示例
         let result = type_converter::convert_pg_type(&unknown_type);
         assert_eq!(result, PgWireType::TEXT);
@@ -77,20 +80,14 @@ mod tests {
 
     #[test]
     fn test_sql_parser_valid_select() {
-        // 注意：这个测试需要初始化 tracing，否则会失败
-        // 在实际测试中，可以初始化一个测试用的 tracing subscriber
         let sql = "SELECT id, name FROM users WHERE id = 1";
-        // 由于 parse_and_log_sql 只是记录日志，我们主要测试它不会 panic
         sql_parser::parse_and_log_sql(sql);
-        // 如果函数执行到这里没有 panic，说明基本功能正常
     }
 
     #[test]
     fn test_sql_parser_invalid_sql() {
-        // 测试无效的 SQL 不应该 panic
         let sql = "INVALID SQL SYNTAX !!!";
         sql_parser::parse_and_log_sql(sql);
-        // 函数应该处理错误并记录警告，而不是 panic
     }
 
     #[test]
@@ -112,7 +109,5 @@ mod tests {
         if let Some((_, actual_sql)) = &dsn_result {
             sql_parser::parse_and_log_sql(actual_sql);
         }
-        
-        // 如果执行到这里没有 panic，说明集成正常
     }
 }
