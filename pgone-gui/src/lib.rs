@@ -1,12 +1,9 @@
 use chrono::{DateTime, Utc};
-use eframe::egui::{self, CentralPanel, Context, TopBottomPanel};
+use eframe::egui::{self, CentralPanel, Context, SidePanel, TopBottomPanel};
 use egui::Frame;
-use egui_dock::{AllowedSplits, DockArea, DockState, NodeIndex, Style, SurfaceIndex};
-// use egui_extras::StripBuilder; // not used here; used in components
 use egui_phosphor::Variant as PhosphorVariant;
 use icns::{IconFamily, IconType};
 use serde::Deserialize;
-use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
@@ -15,7 +12,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod models;
 use models::*;
-mod layout;
 mod markdown;
 mod mcp_client;
 mod openai_client;
@@ -23,9 +19,8 @@ mod notify;
 mod sql;
 
 mod components;
-use components::{DbManager, PreviewManager, SqlPanel};
+use components::{ChatPanel, DbManager, DbTree, PreviewManager, SqlPanel};
 mod media;
-use layout::Tab;
 use std::thread;
 use std::net::SocketAddr;
 
@@ -33,12 +28,16 @@ pub struct AppFrame {
     #[allow(dead_code)]
     state: PersistedState,
     show_settings: bool,
+    show_sql_editor: bool,
     db: DbManager,
-    #[allow(dead_code)]
     sql: SqlPanel,
     preview: PreviewManager,
-    tabs_tree: DockState<Tab>,
-    context: layout::context::Context,
+    chat: ChatPanel,
+    db_tree: DbTree,
+    left_panel_visible: bool,
+    right_panel_visible: bool,
+    left_panel_width: f32,
+    right_panel_width: f32,
 }
 
 impl AppFrame {
@@ -61,53 +60,19 @@ impl AppFrame {
             settings: Settings::default(),
         });
 
-        let mut dock_state = DockState::new(vec![
-            Tab::SqlEditor,
-            Tab::Results,
-            Tab::Sessions,
-            Tab::DbConfig,
-            Tab::Chat,
-        ]);
-
-        let [a, b] = dock_state.main_surface_mut().split_left(
-            NodeIndex::root(),
-            0.3,
-            vec![Tab::Sessions, Tab::DbConfig],
-        );
-
-        let [_, _] = dock_state
-            .main_surface_mut()
-            .split_right(b, 0.5, vec![Tab::Chat]);
-
-        let [_, _] = dock_state
-            .main_surface_mut()
-            .split_below(a, 0.7, vec![Tab::SqlEditor]);
-        let [_, _] = dock_state
-            .main_surface_mut()
-            .split_below(b, 0.5, vec![Tab::Results]);
-
-        let mut open_tabs = HashSet::new();
-
-        for node in dock_state[SurfaceIndex::main()].iter() {
-            if let Some(tabs) = node.tabs() {
-                for tab in tabs {
-                    open_tabs.insert(tab.clone());
-                }
-            }
-        }
-
-        let mut context = layout::context::Context::default();
-
-        context.open_tabs = open_tabs;
-
         Self {
             state,
             show_settings: false,
+            show_sql_editor: false,
             db: Default::default(),
             sql: Default::default(),
             preview: Default::default(),
-            tabs_tree: dock_state,
-            context: context,
+            chat: Default::default(),
+            db_tree: Default::default(),
+            left_panel_visible: true,
+            right_panel_visible: true,
+            left_panel_width: 250.0,
+            right_panel_width: 300.0,
         }
     }
 
@@ -261,43 +226,6 @@ impl eframe::App for AppFrame {
         TopBottomPanel::top("menu_top").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("Add Image...").clicked() {
-                        if let Some(_path) = rfd::FileDialog::new()
-                            .add_filter("Images", &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
-                            .pick_file()
-                        {
-
-                            // let settings = self.state.settings.clone();
-                            // let mut ctxs = ChatCtx {
-                            //     state: &mut self.state,
-                            //     preview: &mut self.preview,
-                            //     send_shortcut: settings.send_shortcut,
-                            //     openai_api_key: settings.openai_api_key.clone(),
-                            //     openai_model: settings.openai_model.clone(),
-                            // };
-                            // self.chat.add_image_message(&mut ctxs, path);
-                        }
-                        ui.close();
-                    }
-                    if ui.button("Add Video...").clicked() {
-                        if let Some(_path) = rfd::FileDialog::new()
-                            .add_filter("Videos", &["mp4", "mov", "m4v", "mkv", "webm"])
-                            .pick_file()
-                        {
-                            // let mut chat = std::mem::take(&mut self.chat);
-                            // let settings = self.state.settings.clone();
-                            // let mut ctxs = ChatCtx {
-                            //     state: &mut self.state,
-                            //     preview: &mut self.preview,
-                            //     send_shortcut: settings.send_shortcut,
-                            //     openai_api_key: settings.openai_api_key.clone(),
-                            //     openai_model: settings.openai_model.clone(),
-                            // };
-                            // chat.add_video_message(&mut ctxs, path);
-                            // self.chat = chat;
-                        }
-                        ui.close();
-                    }
                     if ui.button("New Database...").clicked() {
                         db.show_add_db = true;
                         ui.close();
@@ -306,8 +234,19 @@ impl eframe::App for AppFrame {
                         db.show_manage_db = true;
                         ui.close();
                     }
+                    if ui.button("SQL Editor...").clicked() {
+                        self.show_sql_editor = true;
+                        ui.close();
+                    }
                 });
                 ui.menu_button("View", |ui| {
+                    if ui.checkbox(&mut self.left_panel_visible, "Left Panel").changed() {
+                        // Panel visibility toggled
+                    }
+                    if ui.checkbox(&mut self.right_panel_visible, "Right Panel").changed() {
+                        // Panel visibility toggled
+                    }
+                    ui.separator();
                     if ui.button("Clear Current Session").clicked() {
                         // self.clear_current_session();
                         ui.close();
@@ -327,107 +266,93 @@ impl eframe::App for AppFrame {
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Ready");
-                ui.add_space(ui.available_width() - 120.0);
-                let name = db
-                    .active_db_config_id
-                    .clone()
-                    .unwrap_or_else(|| "<no db>".to_string());
-                ui.label(format!("DB: {}", name));
+                ui.add_space(ui.available_width() - 200.0);
+                
+                // Database selection button and display
+                ui.horizontal(|ui| {
+                    if ui.button("Select Database").clicked() {
+                        db.show_manage_db = true;
+                    }
+                    ui.separator();
+                    let active_id = db.active_db_config_id.clone();
+                    let db_name = if let Some(id) = active_id {
+                        db.get_db_name(&id).unwrap_or_else(|| id)
+                    } else {
+                        "<no db>".to_string()
+                    };
+                    ui.label(format!("DB: {}", db_name));
+                });
             });
         });
 
-        // fixed three-column layout; no edge toggle buttons
-
         db.ui_add_db_window(ctx);
         db.ui_manage_db_window(ctx);
+        db.ui_edit_db_window(ctx);
+        
+        // SQL Editor window
+        if self.show_sql_editor {
+            let mut open = true;
+            egui::Window::new("SQL Editor")
+                .open(&mut open)
+                .default_size(egui::vec2(800.0, 600.0))
+                .show(ctx, |ui| {
+                    let mut sql_ctx = components::SqlCtx {
+                        state: self.state.clone(),
+                        db: crate::components::DbManager {
+                            pools: self.db.pools.clone(),
+                            ..Default::default()
+                        },
+                    };
+                    self.sql.ui_editor(&mut sql_ctx, ui);
+                });
+            if !open {
+                self.show_sql_editor = false;
+            }
+        }
+        
         if self.show_settings {
             let mut open = true;
             egui::Window::new("Settings")
                 .open(&mut open)
-                .show(ctx, |_ui| {
-                    // ui.heading("Appearance");
-                    // let mut dark = self.state.settings.dark_theme;
-                    // if ui.checkbox(&mut dark, "Dark theme").clicked() {
-                    //     self.state.settings.dark_theme = dark;
-                    //     if dark {
-                    //         ctx.set_visuals(egui::Visuals::dark());
-                    //     } else {
-                    //         ctx.set_visuals(egui::Visuals::light());
-                    //     }
-                    //     self.save_state();
-                    // }
-                    // ui.separator();
-                    // ui.heading("Send Shortcut");
-                    // let mut sc = self.state.settings.send_shortcut;
-                    // if ui
-                    //     .radio_value(&mut sc, SendShortcut::Enter, "Enter")
-                    //     .clicked()
-                    // {
-                    //     self.state.settings.send_shortcut = sc;
-                    //     self.save_state();
-                    // }
-                    // if ui
-                    //     .radio_value(&mut sc, SendShortcut::CmdEnter, "Cmd+Enter")
-                    //     .clicked()
-                    // {
-                    //     self.state.settings.send_shortcut = sc;
-                    //     self.save_state();
-                    // }
-                    // ui.separator();
-                    // ui.heading("OpenAI");
-                    // let mut key = self
-                    //     .state
-                    //     .settings
-                    //     .openai_api_key
-                    //     .clone()
-                    //     .unwrap_or_default();
-                    // if ui
-                    //     .add(egui::TextEdit::singleline(&mut key).hint_text("API Key"))
-                    //     .changed()
-                    // {
-                    //     if key.trim().is_empty() {
-                    //         self.state.settings.openai_api_key = None;
-                    //     } else {
-                    //         self.state.settings.openai_api_key = Some(key.clone());
-                    //     }
-                    //     self.save_state();
-                    // }
-                    // ui.horizontal(|ui| {
-                    //     ui.label("Model");
-                    //     let changed = ui
-                    //         .text_edit_singleline(&mut self.state.settings.openai_model)
-                    //         .changed();
-                    //     if changed {
-                    //         self.save_state();
-                    //     }
-                    // });
-                });
+                .show(ctx, |_ui| {});
             if !open {
                 self.show_settings = false;
             }
         }
+        
+        // Left panel - Database structure tree
+        SidePanel::left("left_panel")
+            .resizable(true)
+            .default_width(self.left_panel_width)
+            .min_width(100.0)
+            .max_width(500.0)
+            .show_animated(ctx, self.left_panel_visible, |ui| {
+                self.db_tree.ui(ui, &mut self.db);
+            });
+        
+        // Right panel - Chat
+        SidePanel::right("right_panel")
+            .resizable(true)
+            .default_width(self.right_panel_width)
+            .min_width(100.0)
+            .max_width(500.0)
+            .show_animated(ctx, self.right_panel_visible, |ui| {
+                let settings = self.state.settings.clone();
+                let mut chat_ctx = components::ChatCtx {
+                    state: &mut self.state,
+                    preview: &mut self.preview,
+                    send_shortcut: settings.send_shortcut,
+                    openai_api_key: settings.openai_api_key.clone(),
+                    openai_model: settings.openai_model.clone(),
+                };
+                self.chat.ui(&mut chat_ctx, ui);
+            });
+        
+        // Center panel - Results table
         CentralPanel::default()
             .frame(Frame::central_panel(&ctx.style()).inner_margin(0.))
             .show(ctx, |ui| {
-                let style = self
-                    .context
-                    .style
-                    .get_or_insert(Style::from_egui(ui.style()))
-                    .clone();
-
-                DockArea::new(&mut self.tabs_tree)
-                    .style(style)
-                    .show_close_buttons(true)
-                    .show_add_buttons(true)
-                    .draggable_tabs(true)
-                    .show_tab_name_on_hover(true)
-                    .allowed_splits(AllowedSplits::All)
-                    .show_leaf_close_all_buttons(true)
-                    .show_leaf_collapse_buttons(true)
-                    .show_secondary_button_hint(true)
-                    .secondary_button_on_modifier(true)
-                    .secondary_button_context_menu(true)
-                    .show_inside(ui, &mut self.context);
+                self.sql.ui_results(ui);
             });
 
         // Image preview window

@@ -1,4 +1,4 @@
-use crate::components::SqlCtx;
+use crate::components::{SqlCtx, ResultsTable};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
 
@@ -8,6 +8,7 @@ pub struct SqlPanel {
     pub sql_error: Option<String>,
     pub query_columns: Vec<String>,
     pub query_rows: Vec<Vec<String>>,
+    pub results_table: ResultsTable,
 }
 
 // Default is derived
@@ -59,47 +60,7 @@ impl SqlPanel {
     }
 
     pub fn ui_results(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Results");
-        ui.separator();
-        if self.query_columns.is_empty() {
-            ui.label("No results");
-            return;
-        }
-        if ui.button("Export CSV...").clicked() {
-            self.export_csv();
-        }
-        let available_height = ui.available_height() - 40.0;
-        let row_height = 20.0;
-        let max_visible_rows = (available_height / row_height).floor() as usize;
-        egui::ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            .show(ui, |ui| {
-                egui::Grid::new("results_table")
-                    .striped(true)
-                    .spacing([8.0, 4.0])
-                    .show(ui, |ui| {
-                        for col in &self.query_columns {
-                            ui.strong(col);
-                        }
-                        ui.end_row();
-                        for row in &self.query_rows {
-                            for cell in row {
-                                ui.label(cell);
-                            }
-                            ui.end_row();
-                        }
-                        let data_rows = self.query_rows.len();
-                        if data_rows < max_visible_rows {
-                            let empty_rows_needed = max_visible_rows - data_rows;
-                            for _ in 0..empty_rows_needed {
-                                for _ in &self.query_columns {
-                                    ui.add_space(0.0);
-                                }
-                                ui.end_row();
-                            }
-                        }
-                    });
-            });
+        self.results_table.ui(ui, &self.query_columns, &self.query_rows);
     }
 
     pub fn check_sql(&mut self) {
@@ -180,23 +141,4 @@ impl SqlPanel {
         }
     }
 
-    pub fn export_csv(&mut self) {
-        if self.query_columns.is_empty() {
-            return;
-        }
-        if rfd::FileDialog::new()
-            .set_title("Save CSV")
-            .add_filter("CSV", &["csv"])
-            .save_file()
-            .and_then(|path| csv::Writer::from_path(&path).ok())
-            .map(|mut wtr| {
-                let _ = wtr.write_record(&self.query_columns);
-                for row in &self.query_rows {
-                    let _ = wtr.write_record(row);
-                }
-                let _ = wtr.flush();
-            })
-            .is_some()
-        {}
-    }
 }

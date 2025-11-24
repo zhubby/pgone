@@ -19,7 +19,6 @@ emath = { version = "0.32.3", default-features = false }
 ecolor = { version = "0.32.3", default-features = false }
 epaint = { version = "0.32.3", default-features = false }
 epaint_default_fonts = { version = "0.32.3" }
-egui_dock = "0.17"
 egui_table = "0.4.0"
 egui-phosphor = "0.10"
 egui-notify = "0.20"
@@ -42,6 +41,7 @@ csv = "1"
 async-openai = "0.25"
 pgone-storage = { workspace = true }
 urlencoding = "2"
+url = "2.5"
 icns = "0.3.1"
 anyhow = { workspace = true }
 strum = { workspace = true }
@@ -50,4 +50,5 @@ tracing-subscriber = { workspace = true }
 
 pgone-apiserver = { workspace = true }
 pgone-mcp-server = { workspace = true }
+pgone-a2a = { workspace = true }
 
