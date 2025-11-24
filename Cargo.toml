@@ -30,7 +30,8 @@ members = [
     "pgone-storage",
     "pgone-mcp-server",
     "pgone-auditor", 
-    "pgone-util",
+    "pgone-util", 
+    "pgone-sql",
 ]
 
 resolver = "2"
@@ -84,3 +85,4 @@ pgone-storage = { path = "pgone-storage" }
 pgone-apiserver = { path = "pgone-apiserver" }
 pgone-a2a = { path = "pgone-a2a" }
 pgone-util= { path = "pgone-util" }
+pgone-sql = { path = "pgone-sql" }
