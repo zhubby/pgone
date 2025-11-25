@@ -37,8 +37,20 @@ impl TabViewer for Context {
         };
         match tab {
             Tab::Chat => self.chat.ui(&mut ctxs, ui),
-            Tab::SqlEditor => self.sql.ui_editor(&mut SqlCtx::default(), ui),
-            Tab::Results => self.sql.ui_results(ui),
+            Tab::SqlEditor => {
+                let mut sql_ctx = SqlCtx {
+                    state: self.state.clone(),
+                    db: crate::components::DbManager::default(),
+                };
+                self.sql.ui_editor(&mut sql_ctx, ui);
+            }
+            Tab::Results => {
+                let mut sql_ctx = SqlCtx {
+                    state: self.state.clone(),
+                    db: crate::components::DbManager::default(),
+                };
+                self.sql.ui_results(ui, Some(&mut sql_ctx));
+            }
             Tab::Sessions => self.sessions.ui(&mut SessionsCtx::default(), ui),
             Tab::DbConfig => self.db_config.ui(ui),
         }

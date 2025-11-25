@@ -61,13 +61,23 @@ impl SqlPanel {
         }
     }
 
-    pub fn ui_results(&mut self, ui: &mut egui::Ui) {
+    pub fn ui_results(&mut self, ui: &mut egui::Ui, mut ctxs: Option<&mut SqlCtx>) {
+        let show_refresh = ctxs.is_some();
+        
+        // Check if refresh was requested
+        if self.results_table.refresh_requested {
+            self.results_table.refresh_requested = false;
+            if let Some(ctxs) = ctxs.as_mut() {
+                self.run_sql(ctxs);
+            }
+        }
+        
         let pk_cols = if self.primary_key_columns.is_empty() {
             None
         } else {
             Some(&self.primary_key_columns)
         };
-        self.results_table.ui(ui, &self.query_columns, &self.query_rows, pk_cols);
+        self.results_table.ui(ui, &self.query_columns, &self.query_rows, pk_cols, show_refresh, Some(&self.sql_input));
     }
 
     pub fn check_sql(&mut self) {

@@ -1,0 +1,50 @@
+name: Build Binaries
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: Build Release Binaries
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build all binaries
+        run: cargo build --workspace --release --bins
+
+      - name: Upload binaries as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: |
+            target/release/pgone-gui
+            target/release/pgone-mcp-server
+            target/release/pgone-apiserver
+            target/release/pgone-auditor
+            target/release/pgone-a2a
+          retention-days: 7
+          if-no-files-found: warn
+

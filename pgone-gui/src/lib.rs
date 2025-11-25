@@ -8,6 +8,7 @@ use std::fs;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod futures;
@@ -365,7 +366,16 @@ impl eframe::App for AppFrame {
         CentralPanel::default()
             .frame(Frame::central_panel(&ctx.style()).inner_margin(0.))
             .show(ctx, |ui| {
-                self.sql.ui_results(ui);
+                let mut sql_ctx = components::SqlCtx {
+                    state: self.state.clone(),
+                    db: crate::components::DbManager {
+                        pools: self.db.pools.clone(),
+                        ..Default::default()
+                    },
+                };
+                self.sql.ui_results(ui, Some(&mut sql_ctx));
+                // Update pools back if they were modified
+                self.db.pools = sql_ctx.db.pools;
             });
 
         // Image preview window
@@ -436,6 +446,25 @@ pub fn run() -> anyhow::Result<()> {
             // Inject phosphor font once at creation to avoid runtime deadlocks
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, PhosphorVariant::Regular);
+            
+            // Load custom font: LXGWWenKai-Regular.ttf
+            if let Ok(font_data) = std::fs::read("assets/fonts/LXGWWenKai-Regular.ttf") {
+                fonts.font_data.insert(
+                    "LXGWWenKai".to_owned(),
+                    Arc::new(egui::FontData::from_owned(font_data)),
+                );
+                
+                // Add to proportional font family for Chinese text support
+                fonts.families.get_mut(&egui::FontFamily::Proportional)
+                    .unwrap()
+                    .insert(0, "LXGWWenKai".to_owned());
+                
+                // Also add to monospace family if needed
+                fonts.families.get_mut(&egui::FontFamily::Monospace)
+                    .unwrap()
+                    .push("LXGWWenKai".to_owned());
+            }
+            
             cc.egui_ctx.set_fonts(fonts);
             Ok(Box::new(AppFrame::new()))
         }),
