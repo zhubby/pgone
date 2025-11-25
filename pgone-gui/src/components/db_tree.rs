@@ -2,7 +2,7 @@ use pgone_sql::{DatabaseInfo, SchemaInfo, Session, TableInfo};
 use std::collections::{HashMap, HashSet};
 use poll_promise::Promise;
 
-use crate::components::SqlPanel;
+use crate::components::ResultsTable;
 use crate::futures;
 
 #[derive(Clone, Debug)]
@@ -70,7 +70,7 @@ impl DbTree {
         value
     }
     
-    pub fn ui(&mut self, ui: &mut egui::Ui, db_manager: &mut crate::components::DbManager, sql_panel: &mut SqlPanel) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable) {
         // Show database information if one is selected
         let db_id_opt = db_manager.active_db_config_id.clone();
         if let Some(db_id) = db_id_opt {
@@ -141,7 +141,7 @@ impl DbTree {
 
         // Handle pending query table action
         if let Some((database, schema, table)) = self.pending_query_table.take() {
-            self.query_table_data(db_manager, sql_panel, &database, &schema, &table);
+            self.query_table_data(db_manager, results_table, &database, &schema, &table);
         }
 
         // Render tree
@@ -619,7 +619,7 @@ impl DbTree {
         });
     }
 
-    fn query_table_data(&mut self, db_manager: &mut crate::components::DbManager, sql_panel: &mut SqlPanel, database: &str, schema: &str, table: &str) {
+    fn query_table_data(&mut self, db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable, database: &str, schema: &str, table: &str) {
         let Some(db_id) = db_manager.active_db_config_id.clone() else {
             return;
         };
@@ -667,8 +667,10 @@ impl DbTree {
         
         match result {
             Ok((columns, rows)) => {
-                sql_panel.query_columns = columns;
-                sql_panel.query_rows = rows;
+                results_table.query_columns = columns;
+                results_table.query_rows = rows;
+                // Reset to first page after new query
+                results_table.current_page = 1;
             }
             Err(e) => {
                 self.error = Some(e);

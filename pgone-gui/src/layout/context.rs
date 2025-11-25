@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::{
     components::{
-        ChatCtx, ChatPanel, PreviewManager, SessionsCtx, SessionsPanel, SqlCtx, SqlPanel,
+        ChatCtx, ChatPanel, PreviewManager, ResultsTable, SessionsCtx, SessionsPanel, SqlCtx,
     },
     layout::Tab,
     models::{DbConfig, PersistedState},
@@ -14,7 +14,7 @@ use crate::{
 pub struct Context {
     pub preview: PreviewManager,
     pub chat: ChatPanel,
-    pub sql: SqlPanel,
+    pub results_table: ResultsTable,
     pub sessions: SessionsPanel,
     pub db_config: DbConfig,
     pub state: PersistedState,
@@ -37,19 +37,12 @@ impl TabViewer for Context {
         };
         match tab {
             Tab::Chat => self.chat.ui(&mut ctxs, ui),
-            Tab::SqlEditor => {
+            Tab::SqlEditor | Tab::Results => {
                 let mut sql_ctx = SqlCtx {
                     state: self.state.clone(),
                     db: crate::components::DbManager::default(),
                 };
-                self.sql.ui_editor(&mut sql_ctx, ui);
-            }
-            Tab::Results => {
-                let mut sql_ctx = SqlCtx {
-                    state: self.state.clone(),
-                    db: crate::components::DbManager::default(),
-                };
-                self.sql.ui_results(ui, Some(&mut sql_ctx));
+                self.results_table.ui(ui, Some(&mut sql_ctx));
             }
             Tab::Sessions => self.sessions.ui(&mut SessionsCtx::default(), ui),
             Tab::DbConfig => self.db_config.ui(ui),

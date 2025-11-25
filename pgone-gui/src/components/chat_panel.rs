@@ -29,6 +29,8 @@ impl Clone for ChatPanel {
 
 impl ChatPanel {
     pub fn ui(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
+        ui.heading(format!("{} Chat", egui_phosphor::regular::CHATS));
+        ui.separator();
         egui_extras::StripBuilder::new(ui)
             .size(egui_extras::Size::remainder())
             .size(egui_extras::Size::exact(120.0))

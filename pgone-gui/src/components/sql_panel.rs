@@ -62,22 +62,29 @@ impl SqlPanel {
     }
 
     pub fn ui_results(&mut self, ui: &mut egui::Ui, mut ctxs: Option<&mut SqlCtx>) {
-        let show_refresh = ctxs.is_some();
+        // Sync data to results_table
+        self.results_table.query_columns = self.query_columns.clone();
+        self.results_table.query_rows = self.query_rows.clone();
+        self.results_table.primary_key_columns = self.primary_key_columns.clone();
+        self.results_table.sql_input = self.sql_input.clone();
         
         // Check if refresh was requested
         if self.results_table.refresh_requested {
             self.results_table.refresh_requested = false;
             if let Some(ctxs) = ctxs.as_mut() {
                 self.run_sql(ctxs);
+                // Sync back after execution
+                self.query_columns = self.results_table.query_columns.clone();
+                self.query_rows = self.results_table.query_rows.clone();
+                self.primary_key_columns = self.results_table.primary_key_columns.clone();
             }
         }
         
-        let pk_cols = if self.primary_key_columns.is_empty() {
-            None
-        } else {
-            Some(&self.primary_key_columns)
-        };
-        self.results_table.ui(ui, &self.query_columns, &self.query_rows, pk_cols, show_refresh, Some(&self.sql_input));
+        // Use new unified UI
+        self.results_table.ui(ui, ctxs);
+        
+        // Sync back SQL input
+        self.sql_input = self.results_table.sql_input.clone();
     }
 
     pub fn check_sql(&mut self) {

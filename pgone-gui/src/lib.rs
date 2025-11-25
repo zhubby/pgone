@@ -19,16 +19,15 @@ mod notify;
 mod sql;
 
 mod components;
-use components::{ChatPanel, DbManager, DbTree, PreviewManager, SqlPanel};
+use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable};
 mod media;
 
 pub struct AppFrame {
     #[allow(dead_code)]
     state: PersistedState,
     show_settings: bool,
-    show_sql_editor: bool,
     db: DbManager,
-    sql: SqlPanel,
+    results_table: ResultsTable,
     preview: PreviewManager,
     chat: ChatPanel,
     db_tree: DbTree,
@@ -66,9 +65,8 @@ impl AppFrame {
         Self {
             state,
             show_settings: false,
-            show_sql_editor: false,
             db: Default::default(),
-            sql: Default::default(),
+            results_table: Default::default(),
             preview: Default::default(),
             chat: Default::default(),
             db_tree: Default::default(),
@@ -244,10 +242,6 @@ impl eframe::App for AppFrame {
                         db.show_manage_db = true;
                         ui.close();
                     }
-                    if ui.button("SQL Editor...").clicked() {
-                        self.show_sql_editor = true;
-                        ui.close();
-                    }
                 });
                 ui.menu_button("View", |ui| {
                     if ui.checkbox(&mut self.left_panel_visible, "Left Panel").changed() {
@@ -299,29 +293,6 @@ impl eframe::App for AppFrame {
         db.ui_manage_db_window(ctx);
         db.ui_edit_db_window(ctx);
         
-        // SQL Editor window
-        if self.show_sql_editor {
-            let mut open = true;
-            egui::Window::new("SQL Editor")
-                .open(&mut open)
-                .default_size(egui::vec2(800.0, 600.0))
-                .default_pos(Self::screen_center(ctx))
-                .pivot(egui::Align2::CENTER_CENTER)
-                .show(ctx, |ui| {
-                    let mut sql_ctx = components::SqlCtx {
-                        state: self.state.clone(),
-                        db: crate::components::DbManager {
-                            pools: self.db.pools.clone(),
-                            ..Default::default()
-                        },
-                    };
-                    self.sql.ui_editor(&mut sql_ctx, ui);
-                });
-            if !open {
-                self.show_sql_editor = false;
-            }
-        }
-        
         if self.show_settings {
             let mut open = true;
             egui::Window::new("Settings")
@@ -341,7 +312,7 @@ impl eframe::App for AppFrame {
             .min_width(100.0)
             .max_width(500.0)
             .show_animated(ctx, self.left_panel_visible, |ui| {
-                self.db_tree.ui(ui, &mut self.db, &mut self.sql);
+                self.db_tree.ui(ui, &mut self.db, &mut self.results_table);
             });
         
         // Right panel - Chat
@@ -362,18 +333,26 @@ impl eframe::App for AppFrame {
                 self.chat.ui(&mut chat_ctx, ui);
             });
         
-        // Center panel - Results table
+        // Center panel - Results table with SQL editor
         CentralPanel::default()
             .frame(Frame::central_panel(&ctx.style()).inner_margin(0.))
             .show(ctx, |ui| {
+                // Ensure storage is initialized before creating SqlCtx
+                self.db.ensure_storage();
                 let mut sql_ctx = components::SqlCtx {
                     state: self.state.clone(),
                     db: crate::components::DbManager {
+                        active_db_config_id: self.db.active_db_config_id.clone(),
                         pools: self.db.pools.clone(),
+                        storage: None, // Will be initialized in run_sql via ensure_storage()
                         ..Default::default()
                     },
                 };
-                self.sql.ui_results(ui, Some(&mut sql_ctx));
+                // Initialize storage in SqlCtx by ensuring it's available
+                if self.db.storage.is_some() {
+                    sql_ctx.db.ensure_storage();
+                }
+                self.results_table.ui(ui, Some(&mut sql_ctx));
                 // Update pools back if they were modified
                 self.db.pools = sql_ctx.db.pools;
             });
