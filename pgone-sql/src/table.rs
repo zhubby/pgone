@@ -257,47 +257,138 @@ fn format_cell(row: &tokio_postgres::Row, idx: usize) -> String {
     
     let col_type = row.columns().get(idx).map(|c| c.type_());
     
-    // Try different types based on column type
-    if let Some(t) = col_type {
-        if *t == Type::TEXT || *t == Type::VARCHAR {
-            if let Ok(v) = row.try_get::<_, String>(idx) {
-                return v;
+    match col_type {
+        Some(t) => match *t {
+            Type::TEXT | Type::VARCHAR => {
+                row.try_get::<_, String>(idx).unwrap_or_default()
             }
-        } else if *t == Type::INT4 {
-            if let Ok(v) = row.try_get::<_, i32>(idx) {
-                return v.to_string();
+            Type::INT4 => {
+                row.try_get::<_, i32>(idx)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
             }
-        } else if *t == Type::INT8 {
-            if let Ok(v) = row.try_get::<_, i64>(idx) {
-                return v.to_string();
+            Type::INT8 => {
+                row.try_get::<_, i64>(idx)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
             }
-        } else if *t == Type::FLOAT4 {
-            if let Ok(v) = row.try_get::<_, f32>(idx) {
-                return v.to_string();
+            Type::FLOAT4 => {
+                row.try_get::<_, f32>(idx)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
             }
-        } else if *t == Type::FLOAT8 {
-            if let Ok(v) = row.try_get::<_, f64>(idx) {
-                return v.to_string();
+            Type::FLOAT8 => {
+                row.try_get::<_, f64>(idx)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
             }
-        } else if *t == Type::BOOL {
-            if let Ok(v) = row.try_get::<_, bool>(idx) {
-                return v.to_string();
+            Type::BOOL => {
+                row.try_get::<_, bool>(idx)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
             }
+            Type::JSON | Type::JSONB => {
+                format_json_value(row, idx)
+            }
+            Type::TIMESTAMPTZ => {
+                format_timestamptz(row, idx)
+            }
+            Type::TIMESTAMP => {
+                format_timestamp(row, idx)
+            }
+            Type::DATE => {
+                format_date(row, idx)
+            }
+            Type::TIME => {
+                format_time(row, idx)
+            }
+            _ => {
+                // Fallback: try as string
+                row.try_get::<_, String>(idx)
+                    .unwrap_or_else(|_| format_bytes_fallback(row, idx))
+            }
+        },
+        None => {
+            // No type info, try common fallbacks
+            row.try_get::<_, String>(idx)
+                .unwrap_or_else(|_| format_bytes_fallback(row, idx))
         }
     }
-    
-    // Try as string as fallback
+}
+
+/// Format JSON/JSONB value with pretty printing
+fn format_json_value(row: &tokio_postgres::Row, idx: usize) -> String {
+    row.try_get::<_, String>(idx)
+        .map(|v| {
+            serde_json::from_str::<serde_json::Value>(&v)
+                .ok()
+                .and_then(|json_val| serde_json::to_string_pretty(&json_val).ok())
+                .unwrap_or(v)
+        })
+        .unwrap_or_else(|_| "<unformatted>".to_string())
+}
+
+/// Format TIMESTAMPTZ value
+fn format_timestamptz(row: &tokio_postgres::Row, idx: usize) -> String {
     if let Ok(v) = row.try_get::<_, String>(idx) {
-        return v;
+        chrono::DateTime::parse_from_rfc3339(&v)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string())
+            .or_else(|_| {
+                chrono::NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f")
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f").to_string())
+            })
+            .unwrap_or(v)
+    } else {
+        "<unformatted>".to_string()
     }
-    
-    // Try as bytes (for binary data) - format as hex without external dependency
-    if let Ok(v) = row.try_get::<_, Vec<u8>>(idx) {
-        return format!("\\x{}", v.iter().map(|b| format!("{:02x}", b)).collect::<String>());
+}
+
+/// Format TIMESTAMP value
+fn format_timestamp(row: &tokio_postgres::Row, idx: usize) -> String {
+    if let Ok(v) = row.try_get::<_, String>(idx) {
+        chrono::NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f")
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f").to_string())
+            .or_else(|_| {
+                chrono::NaiveDateTime::parse_from_str(&v, "%Y-%m-%dT%H:%M:%S%.f")
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f").to_string())
+            })
+            .unwrap_or(v)
+    } else {
+        "<unformatted>".to_string()
     }
-    
-    // Last resort: return placeholder for unhandled types
-    "<unformatted>".to_string()
+}
+
+/// Format DATE value
+fn format_date(row: &tokio_postgres::Row, idx: usize) -> String {
+    if let Ok(v) = row.try_get::<_, String>(idx) {
+        chrono::NaiveDate::parse_from_str(&v, "%Y-%m-%d")
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or(v)
+    } else {
+        "<unformatted>".to_string()
+    }
+}
+
+/// Format TIME value
+fn format_time(row: &tokio_postgres::Row, idx: usize) -> String {
+    if let Ok(v) = row.try_get::<_, String>(idx) {
+        chrono::NaiveTime::parse_from_str(&v, "%H:%M:%S%.f")
+            .map(|t| t.format("%H:%M:%S%.f").to_string())
+            .or_else(|_| {
+                chrono::NaiveTime::parse_from_str(&v, "%H:%M:%S")
+                    .map(|t| t.format("%H:%M:%S").to_string())
+            })
+            .unwrap_or(v)
+    } else {
+        "<unformatted>".to_string()
+    }
+}
+
+/// Fallback: try to format as bytes (hex)
+fn format_bytes_fallback(row: &tokio_postgres::Row, idx: usize) -> String {
+    row.try_get::<_, Vec<u8>>(idx)
+        .map(|v| format!("\\x{}", v.iter().map(|b| format!("{:02x}", b)).collect::<String>()))
+        .unwrap_or_else(|_| "<unformatted>".to_string())
 }
 
 /// Quote an identifier for use in SQL

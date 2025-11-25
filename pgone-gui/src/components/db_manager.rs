@@ -188,10 +188,13 @@ impl DbManager {
         }
         if let Some(target) = to_switch {
             let mut open = true;
+            let center = ui.ctx().screen_rect().center();
             egui::Window::new("Switch Database Config")
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(false)
+                .default_pos(center)
+                .pivot(egui::Align2::CENTER_CENTER)
                 .show(ui.ctx(), |ui| {
                     ui.label(format!("Switch active DB config to '{}' ?", target));
                     ui.horizontal(|ui| {
@@ -207,8 +210,11 @@ impl DbManager {
     pub fn ui_add_db_window(&mut self, ctx: &egui::Context) {
         if self.show_add_db {
             let mut open = true;
+            let center = ctx.screen_rect().center();
             egui::Window::new("New Database")
                 .open(&mut open)
+                .default_pos(center)
+                .pivot(egui::Align2::CENTER_CENTER)
                 .show(ctx, |ui| {
                     // 使用固定宽度的标签来对齐文本框
                     let label_width = 80.0;
@@ -333,8 +339,11 @@ impl DbManager {
     pub fn ui_edit_db_window(&mut self, ctx: &egui::Context) {
         if self.show_edit_db {
             let mut open = true;
+            let center = ctx.screen_rect().center();
             egui::Window::new("Edit Database")
                 .open(&mut open)
+                .default_pos(center)
+                .pivot(egui::Align2::CENTER_CENTER)
                 .show(ctx, |ui| {
                     let label_width = 80.0;
                     
@@ -456,9 +465,12 @@ impl DbManager {
     pub fn ui_manage_db_window(&mut self, ctx: &egui::Context) {
         if self.show_manage_db {
             let mut open = true;
+            let center = ctx.screen_rect().center();
             egui::Window::new("Databases")
                 .open(&mut open)
                 .default_size(egui::vec2(600.0, 400.0))
+                .default_pos(center)
+                .pivot(egui::Align2::CENTER_CENTER)
                 .show(ctx, |ui| {
                     self.ensure_storage();
                     if let Some(storage) = &self.storage {

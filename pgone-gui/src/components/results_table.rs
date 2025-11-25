@@ -94,7 +94,7 @@ impl ResultsTable {
                             let empty_rows_needed = max_visible_rows - data_rows;
                             for _ in 0..empty_rows_needed {
                                 for _ in columns {
-                                    ui.add_space(0.0);
+                                    ui.label("");
                                 }
                                 ui.end_row();
                             }

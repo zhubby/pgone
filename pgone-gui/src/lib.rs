@@ -40,6 +40,11 @@ pub struct AppFrame {
 impl AppFrame {
     const SESSIONS_PATH: &'static str = "sessions.json";
 
+    /// Get the center position of the screen for window placement
+    fn screen_center(ctx: &egui::Context) -> egui::Pos2 {
+        ctx.screen_rect().center()
+    }
+
     fn new() -> Self {
         let state = Self::load_state().unwrap_or_else(|| PersistedState {
             sessions: vec![Session {
@@ -299,6 +304,8 @@ impl eframe::App for AppFrame {
             egui::Window::new("SQL Editor")
                 .open(&mut open)
                 .default_size(egui::vec2(800.0, 600.0))
+                .default_pos(Self::screen_center(ctx))
+                .pivot(egui::Align2::CENTER_CENTER)
                 .show(ctx, |ui| {
                     let mut sql_ctx = components::SqlCtx {
                         state: self.state.clone(),
@@ -318,6 +325,8 @@ impl eframe::App for AppFrame {
             let mut open = true;
             egui::Window::new("Settings")
                 .open(&mut open)
+                .default_pos(Self::screen_center(ctx))
+                .pivot(egui::Align2::CENTER_CENTER)
                 .show(ctx, |_ui| {});
             if !open {
                 self.show_settings = false;

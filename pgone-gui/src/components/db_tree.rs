@@ -107,7 +107,7 @@ impl DbTree {
             }
         }
         
-        ui.heading("Database Structure");
+        ui.heading(format!("{} Database Structure", egui_phosphor::regular::TREE_STRUCTURE));
         ui.separator();
 
         // Check if database config changed
@@ -688,8 +688,11 @@ impl DbTree {
             let mut should_rename = false;
             let mut delete_cascade = self.dialog_cascade;
             
+            let center = ui.ctx().screen_rect().center();
             egui::Window::new(title)
                 .open(&mut open)
+                .default_pos(center)
+                .pivot(egui::Align2::CENTER_CENTER)
                 .show(ui.ctx(), |ui| {
                     let dialog_input_ref = &mut self.dialog_input;
                     let dialog_ddl_ref = &mut self.dialog_ddl;

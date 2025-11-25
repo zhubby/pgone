@@ -35,8 +35,11 @@ impl PreviewManager {
             (p.path.clone(), p.zoom)
         };
         let mut open = true;
+        let center = ctx.screen_rect().center();
         egui::Window::new("Image Preview")
             .open(&mut open)
+            .default_pos(center)
+            .pivot(egui::Align2::CENTER_CENTER)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!("{}", path.display()));
