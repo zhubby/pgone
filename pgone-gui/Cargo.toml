@@ -55,3 +55,15 @@ pgone-util = { workspace = true }
 poll-promise = "0.3"
 once_cell = { workspace = true }
 etl = { workspace = true }
+
+
+# 添加以下配置
+[package.metadata.bundle]
+name = "PGone"
+identifier = "com.github.zhubby"
+icon = ["assets/icon.icns"]
+version = "0.1.0"
+copyright = "Copyright 2025 zhubby"
+category = "Developer Tool"
+short_description = "PGone is a suite of tools for PostgreSQL"
+resources = ["assets/icon.icns", "assets/fonts/*.ttf","pgone.db"]
