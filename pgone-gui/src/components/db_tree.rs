@@ -143,7 +143,11 @@ impl DbTree {
                 .show(ui, |ui| {
                 // Database level
                 if !self.loaded_databases {
-                    ui.label("Loading databases...");
+                    // let available_size = ui.available_size();
+                    // ui.allocate_space(available_size);
+                    ui.centered_and_justified(|ui| {
+                        ui.label("Please select a database to view the structure");
+                    });
                     return;
                 }
 
