@@ -35,6 +35,7 @@ open = "5"
 pulldown-cmark = "0.12"
 sqlparser = "0.48"
 tokio = { workspace = true }
+tokio-postgres = { workspace = true }
 sqlx = { workspace = true }
 hex = "0.4"
 csv = "1"
@@ -47,8 +48,11 @@ anyhow = { workspace = true }
 strum = { workspace = true }
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
-
+tracing = { workspace = true }
 pgone-apiserver = { workspace = true }
 pgone-mcp-server = { workspace = true }
 pgone-a2a = { workspace = true }
+pgone-sql = { workspace = true }
+poll-promise = "0.3"
+once_cell = { workspace = true }
 

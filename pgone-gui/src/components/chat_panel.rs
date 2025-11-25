@@ -1,11 +1,32 @@
 use crate::components::ChatCtx;
 use crate::models::{Message, MessageContent, Role};
 use chrono::Utc;
+use poll_promise::Promise;
 
-#[derive(Clone, Default)]
 pub struct ChatPanel {
     pub input: String,
-    // pending: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
+    mcp_promise: Option<Promise<Result<String, String>>>,
+    openai_promise: Option<Promise<Result<String, String>>>,
+}
+
+impl Default for ChatPanel {
+    fn default() -> Self {
+        Self {
+            input: String::new(),
+            mcp_promise: None,
+            openai_promise: None,
+        }
+    }
+}
+
+impl Clone for ChatPanel {
+    fn clone(&self) -> Self {
+        Self {
+            input: self.input.clone(),
+            mcp_promise: None, // Promises cannot be cloned, reset on clone
+            openai_promise: None,
+        }
+    }
 }
 // Default is derived
 
@@ -99,14 +120,44 @@ impl ChatPanel {
                         self.send_openai_with_tools(ctxs);
                     }
                     // poll pending result
-                    // if let Some(rx) = &self.pending {
-                    //     if let Ok(Ok(text)) = rx.try_recv() {
-                    //         if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-                    //             sess.messages.push(Message { role: Role::Assistant, timestamp: Utc::now(), content: MessageContent::Markdown(text) });
-                    //         }
-                    //         self.pending = None;
-                    //     }
-                    // }
+                    if let Some(ref promise) = self.openai_promise {
+                        if let Some(result) = promise.ready() {
+                            match result {
+                                Ok(text) => {
+                                    if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                                        sess.messages.push(Message {
+                                            role: Role::Assistant,
+                                            timestamp: Utc::now(),
+                                            content: MessageContent::Markdown(text.clone()),
+                                        });
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("OpenAI error: {}", e);
+                                }
+                            }
+                            self.openai_promise = None;
+                        }
+                    }
+                    if let Some(ref promise) = self.mcp_promise {
+                        if let Some(result) = promise.ready() {
+                            match result {
+                                Ok(text) => {
+                                    if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                                        sess.messages.push(Message {
+                                            role: Role::Assistant,
+                                            timestamp: Utc::now(),
+                                            content: MessageContent::Markdown(text.clone()),
+                                        });
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("MCP error: {}", e);
+                                }
+                            }
+                            self.mcp_promise = None;
+                        }
+                    }
                 });
             });
     }
@@ -174,14 +225,11 @@ impl ChatPanel {
         if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
             session_id = Some(sess.id);
         }
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(_) => {
-                return;
-            }
-        };
-        let res: Result<String, String> =
-            rt.block_on(async move { crate::openai_client::chat_once(key, model, prompt).await });
+        let res: Result<String, String> = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                crate::openai_client::chat_once(key, model, prompt).await
+            })
+        });
         match res {
             Ok(answer) => {
                 if let Some(id) = session_id
@@ -199,18 +247,10 @@ impl ChatPanel {
     }
 
     #[allow(dead_code)]
-    pub fn send_mcp(&mut self, ctxs: &mut ChatCtx) {
+    pub fn send_mcp(&mut self, _ctxs: &mut ChatCtx) {
         // 简单示例：请求 introspect_all 并把 markdown/结果消息追加到当前会话
-        let _conn_id = ctxs
-            .state
-            .sessions
-            .get(ctxs.state.current_index)
-            .map(|s| s.db.dsn.clone())
-            .filter(|s| !s.is_empty());
-        let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let ret: Result<String, String> = rt.block_on(async move {
+        self.mcp_promise = Some(Promise::spawn_thread("mcp_request", move || {
+            tokio::runtime::Handle::current().block_on(async move {
                 let cli = match crate::mcp_client::McpClient::spawn_with_default().await {
                     Ok(c) => c,
                     Err(e) => return Err(e.to_string()),
@@ -226,18 +266,8 @@ impl ChatPanel {
                     }
                     Err(e) => Err(e.to_string()),
                 }
-            });
-            let _ = tx.send(ret);
-        });
-        if let Ok(Ok(text)) = rx.recv()
-            && let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index)
-        {
-            sess.messages.push(Message {
-                role: Role::Assistant,
-                timestamp: Utc::now(),
-                content: MessageContent::Markdown(text),
-            });
-        }
+            })
+        }));
     }
 
     pub fn send_openai_with_tools(&mut self, ctxs: &mut ChatCtx) {
@@ -258,14 +288,13 @@ impl ChatPanel {
             });
         }
         self.input.clear();
-        let (tx, _rx) = std::sync::mpsc::channel::<Result<String, String>>();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let ret = rt.block_on(async move {
-                crate::openai_client::chat_with_tools(key, model, prompt).await
-            });
-            let _ = tx.send(ret);
-        });
-        // self.pending = Some(rx);
+        let key_clone = key.clone();
+        let model_clone = model.clone();
+        let prompt_clone = prompt.clone();
+        self.openai_promise = Some(Promise::spawn_thread("openai_request", move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                crate::openai_client::chat_with_tools(key_clone, model_clone, prompt_clone).await
+            })
+        }));
     }
 }

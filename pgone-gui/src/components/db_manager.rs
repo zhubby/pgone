@@ -30,32 +30,50 @@ pub struct ParsedDsn {
     pub user: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct DbFormData {
+    pub engine: DbEngine,
+    pub name: String,
+    pub host: String,
+    pub port: String,
+    pub database: String,
+    pub user: String,
+    pub password: String,
+    pub error: Option<String>,
+    pub test_status: Option<bool>, // None = not tested, Some(true) = success, Some(false) = failed
+}
+
+impl Default for DbFormData {
+    fn default() -> Self {
+        Self {
+            engine: DbEngine::Postgresql,
+            name: String::new(),
+            host: "localhost".to_string(),
+            port: "5432".to_string(),
+            database: String::new(),
+            user: String::new(),
+            password: String::new(),
+            error: None,
+            test_status: None,
+        }
+    }
+}
+
+impl DbFormData {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 pub struct DbManager {
     pub active_db_config_id: Option<String>,
     pub show_add_db: bool,
-    pub add_db_engine: DbEngine,
-    pub add_db_name: String,
-    pub add_db_host: String,
-    pub add_db_port: String,
-    pub add_db_database: String,
-    pub add_db_user: String,
-    pub add_db_password: String,
-    pub add_db_error: Option<String>,
-    pub add_db_test_status: Option<bool>, // None = 未测试, Some(true) = 成功, Some(false) = 失败
+    pub add_db_form: DbFormData,
     pub show_manage_db: bool,
     pub show_edit_db: bool,
     pub edit_db_id: Option<String>,
-    pub edit_db_engine: DbEngine,
-    pub edit_db_name: String,
-    pub edit_db_host: String,
-    pub edit_db_port: String,
-    pub edit_db_database: String,
-    pub edit_db_user: String,
-    pub edit_db_password: String,
-    pub edit_db_error: Option<String>,
-    pub edit_db_test_status: Option<bool>,
+    pub edit_db_form: DbFormData,
     pub storage: Option<StorageBlocking>,
-    pub rt: tokio::runtime::Runtime,
     pub pools: std::collections::HashMap<u64, PgPool>,
 }
 
@@ -64,29 +82,12 @@ impl Default for DbManager {
         Self {
             active_db_config_id: None,
             show_add_db: false,
-            add_db_engine: DbEngine::Postgresql,
-            add_db_name: String::new(),
-            add_db_host: "localhost".to_string(),
-            add_db_port: "5432".to_string(),
-            add_db_database: String::new(),
-            add_db_user: String::new(),
-            add_db_password: String::new(),
-            add_db_error: None,
-            add_db_test_status: None,
+            add_db_form: DbFormData::default(),
             show_manage_db: false,
             show_edit_db: false,
             edit_db_id: None,
-            edit_db_engine: DbEngine::Postgresql,
-            edit_db_name: String::new(),
-            edit_db_host: "localhost".to_string(),
-            edit_db_port: "5432".to_string(),
-            edit_db_database: String::new(),
-            edit_db_user: String::new(),
-            edit_db_password: String::new(),
-            edit_db_error: None,
-            edit_db_test_status: None,
+            edit_db_form: DbFormData::default(),
             storage: None,
-            rt: tokio::runtime::Runtime::new().expect("tokio runtime"),
             pools: Default::default(),
         }
     }
@@ -124,8 +125,11 @@ impl DbManager {
     pub fn get_db_name(&mut self, id: &str) -> Option<String> {
         self.ensure_storage();
         if let Some(ref storage) = self.storage {
-            if let Ok(Some(cfg)) = self.rt.block_on(async {
-                storage.get_db_config(id).await
+            // Use tokio::task::block_in_place for synchronous access from async context
+            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    storage.get_db_config(id).await
+                })
             }) {
                 return Some(cfg.id);
             }
@@ -135,39 +139,24 @@ impl DbManager {
 
     /// Reset add database form fields to default values
     pub fn reset_add_db_form(&mut self) {
-        self.add_db_engine = DbEngine::Postgresql;
-        self.add_db_name = String::new();
-        self.add_db_host = "localhost".to_string();
-        self.add_db_port = "5432".to_string();
-        self.add_db_database = String::new();
-        self.add_db_user = String::new();
-        self.add_db_password = String::new();
-        self.add_db_error = None;
-        self.add_db_test_status = None;
+        self.add_db_form.reset();
     }
 
     /// Reset edit database form fields
     pub fn reset_edit_db_form(&mut self) {
         self.edit_db_id = None;
-        self.edit_db_engine = DbEngine::Postgresql;
-        self.edit_db_name = String::new();
-        self.edit_db_host = "localhost".to_string();
-        self.edit_db_port = "5432".to_string();
-        self.edit_db_database = String::new();
-        self.edit_db_user = String::new();
-        self.edit_db_password = String::new();
-        self.edit_db_error = None;
-        self.edit_db_test_status = None;
+        self.edit_db_form.reset();
     }
 
     pub fn ensure_storage(&mut self) {
         if self.storage.is_some() {
             return;
         }
-        if let Ok(storage) = self
-            .rt
-            .block_on(async { StorageBlocking::open_local("pgone.db").await })
-        {
+        if let Ok(storage) = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                StorageBlocking::open_local("pgone.db").await
+            })
+        }) {
             self.storage = Some(storage);
         }
     }
@@ -177,10 +166,11 @@ impl DbManager {
         self.ensure_storage();
         let mut to_switch: Option<String> = None;
         if let Some(storage) = &self.storage {
-            let list = self
-                .rt
-                .block_on(async { storage.list_db_configs(None).await })
-                .unwrap_or_default();
+            let list = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    storage.list_db_configs(None).await
+                })
+            }).unwrap_or_default();
             for cfg in list {
                 let icon = egui_phosphor::regular::DATABASE;
                 let label = if Some(cfg.id.clone()) == self.active_db_config_id {
@@ -229,11 +219,11 @@ impl DbManager {
                             ui.label("Type");
                         });
                         egui::ComboBox::from_id_salt("db_engine")
-                            .selected_text(self.add_db_engine.as_str())
+                            .selected_text(self.add_db_form.engine.as_str())
                             .show_ui(ui, |ui| {
                                 for engine in DbEngine::all() {
                                     ui.selectable_value(
-                                        &mut self.add_db_engine,
+                                        &mut self.add_db_form.engine,
                                         *engine,
                                         engine.as_str(),
                                     );
@@ -245,35 +235,35 @@ impl DbManager {
                             ui.set_width(label_width);
                             ui.label("Name");
                         });
-                        ui.text_edit_singleline(&mut self.add_db_name);
+                        ui.text_edit_singleline(&mut self.add_db_form.name);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
                             ui.label("Host");
                         });
-                        ui.text_edit_singleline(&mut self.add_db_host);
+                        ui.text_edit_singleline(&mut self.add_db_form.host);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
                             ui.label("Port");
                         });
-                        ui.text_edit_singleline(&mut self.add_db_port);
+                        ui.text_edit_singleline(&mut self.add_db_form.port);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
                             ui.label("Database");
                         });
-                        ui.text_edit_singleline(&mut self.add_db_database);
+                        ui.text_edit_singleline(&mut self.add_db_form.database);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
                             ui.label("User");
                         });
-                        ui.text_edit_singleline(&mut self.add_db_user);
+                        ui.text_edit_singleline(&mut self.add_db_form.user);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -281,11 +271,11 @@ impl DbManager {
                             ui.label("Password");
                         });
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.add_db_password).password(true),
+                            egui::TextEdit::singleline(&mut self.add_db_form.password).password(true),
                         );
                     });
                     
-                    if let Some(err) = &self.add_db_error {
+                    if let Some(err) = &self.add_db_form.error {
                         ui.colored_label(egui::Color32::RED, err);
                     }
                     
@@ -302,7 +292,7 @@ impl DbManager {
                             }
                             
                             // 显示测试结果标记
-                            if let Some(success) = self.add_db_test_status {
+                            if let Some(success) = self.add_db_form.test_status {
                                 if success {
                                     ui.colored_label(egui::Color32::GREEN, "✓");
                                 } else {
@@ -315,13 +305,13 @@ impl DbManager {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Save").clicked() {
                                 if let Err(e) = self.save_new_database() {
-                                    self.add_db_error = Some(e.clone());
+                                    self.add_db_form.error = Some(e.clone());
                                     notify::db_save_error(&e);
                                 } else {
-                                    let db_name = self.add_db_name.trim().to_string();
+                                    let db_name = self.add_db_form.name.trim().to_string();
                                     self.show_add_db = false;
-                                    self.add_db_error = None;
-                                    self.add_db_test_status = None;
+                                    self.add_db_form.error = None;
+                                    self.add_db_form.test_status = None;
                                     self.reset_add_db_form();
                                     notify::db_save_success(&db_name);
                                 }
@@ -354,11 +344,11 @@ impl DbManager {
                             ui.label("Type");
                         });
                         egui::ComboBox::from_id_salt("edit_db_engine")
-                            .selected_text(self.edit_db_engine.as_str())
+                            .selected_text(self.edit_db_form.engine.as_str())
                             .show_ui(ui, |ui| {
                                 for engine in DbEngine::all() {
                                     ui.selectable_value(
-                                        &mut self.edit_db_engine,
+                                        &mut self.edit_db_form.engine,
                                         *engine,
                                         engine.as_str(),
                                     );
@@ -370,35 +360,35 @@ impl DbManager {
                             ui.set_width(label_width);
                             ui.label("Name");
                         });
-                        ui.text_edit_singleline(&mut self.edit_db_name);
+                        ui.text_edit_singleline(&mut self.edit_db_form.name);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
                             ui.label("Host");
                         });
-                        ui.text_edit_singleline(&mut self.edit_db_host);
+                        ui.text_edit_singleline(&mut self.edit_db_form.host);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
                             ui.label("Port");
                         });
-                        ui.text_edit_singleline(&mut self.edit_db_port);
+                        ui.text_edit_singleline(&mut self.edit_db_form.port);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
                             ui.label("Database");
                         });
-                        ui.text_edit_singleline(&mut self.edit_db_database);
+                        ui.text_edit_singleline(&mut self.edit_db_form.database);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
                             ui.label("User");
                         });
-                        ui.text_edit_singleline(&mut self.edit_db_user);
+                        ui.text_edit_singleline(&mut self.edit_db_form.user);
                     });
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -406,13 +396,13 @@ impl DbManager {
                             ui.label("Password");
                         });
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.edit_db_password)
+                            egui::TextEdit::singleline(&mut self.edit_db_form.password)
                                 .password(true)
                                 .hint_text("Leave empty to keep existing"),
                         );
                     });
                     
-                    if let Some(err) = &self.edit_db_error {
+                    if let Some(err) = &self.edit_db_form.error {
                         ui.colored_label(egui::Color32::RED, err);
                     }
                     
@@ -426,7 +416,7 @@ impl DbManager {
                                 self.test_edit_connection();
                             }
                             
-                            if let Some(success) = self.edit_db_test_status {
+                            if let Some(success) = self.edit_db_form.test_status {
                                 if success {
                                     ui.colored_label(egui::Color32::GREEN, "✓");
                                 } else {
@@ -438,13 +428,13 @@ impl DbManager {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Save").clicked() {
                                 if let Err(e) = self.update_db_config() {
-                                    self.edit_db_error = Some(e.clone());
+                                    self.edit_db_form.error = Some(e.clone());
                                     notify::db_save_error(&e);
                                 } else {
-                                    let db_name = self.edit_db_name.trim().to_string();
+                                    let db_name = self.edit_db_form.name.trim().to_string();
                                     self.show_edit_db = false;
-                                    self.edit_db_error = None;
-                                    self.edit_db_test_status = None;
+                                    self.edit_db_form.error = None;
+                                    self.edit_db_form.test_status = None;
                                     self.reset_edit_db_form();
                                     notify::db_save_success(&db_name);
                                 }
@@ -472,10 +462,11 @@ impl DbManager {
                 .show(ctx, |ui| {
                     self.ensure_storage();
                     if let Some(storage) = &self.storage {
-                        let list = self
-                            .rt
-                            .block_on(async { storage.list_db_configs(None).await })
-                            .unwrap_or_default();
+                        let list = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                storage.list_db_configs(None).await
+                            })
+                        }).unwrap_or_default();
                         
                         if list.is_empty() {
                             ui.label("No databases configured");
@@ -495,7 +486,7 @@ impl DbManager {
                                             
                                             // Database name and engine
                                             ui.horizontal(|ui| {
-                                                ui.heading(&cfg.id);
+                                                ui.heading(format!("{} {}", egui_phosphor::regular::DATABASE, cfg.id));
                                                 ui.label(format!("[{}]", cfg.engine));
                                                 if Some(cfg.id.clone()) == active_id {
                                                     ui.colored_label(
@@ -526,6 +517,8 @@ impl DbManager {
                                                     ui.label(&p.user);
                                                 });
                                             }
+
+                                            ui.separator();
                                             
                                             // Action buttons
                                             ui.horizontal(|ui| {
@@ -540,7 +533,6 @@ impl DbManager {
                                                 }
                                             });
                                             
-                                            ui.separator();
                                         });
                                     }
                                 });
@@ -559,8 +551,10 @@ impl DbManager {
                             }
                             for id in to_delete {
                                 if let Some(ref storage) = self.storage {
-                                    let _ = self.rt.block_on(async {
-                                        storage.delete_db_config(&id).await
+                                    let _ = tokio::task::block_in_place(|| {
+                                        tokio::runtime::Handle::current().block_on(async {
+                                            storage.delete_db_config(&id).await
+                                        })
                                     });
                                     // Clear active if deleted
                                     if self.active_db_config_id.as_ref() == Some(&id) {
@@ -589,33 +583,33 @@ impl DbManager {
 
     pub fn test_connection(&mut self) {
         // 验证必填字段
-        if self.add_db_host.trim().is_empty() {
-            self.add_db_test_status = Some(false);
-            self.add_db_error = Some("Host is required".into());
+        if self.add_db_form.host.trim().is_empty() {
+            self.add_db_form.test_status = Some(false);
+            self.add_db_form.error = Some("Host is required".into());
             notify::db_connection_error(
-                &self.add_db_name.trim().to_string(),
+                &self.add_db_form.name.trim().to_string(),
                 "Host is required"
             );
             return;
         }
-        if self.add_db_user.trim().is_empty() {
-            self.add_db_test_status = Some(false);
-            self.add_db_error = Some("User is required".into());
+        if self.add_db_form.user.trim().is_empty() {
+            self.add_db_form.test_status = Some(false);
+            self.add_db_form.error = Some("User is required".into());
             notify::db_connection_error(
-                &self.add_db_name.trim().to_string(),
+                &self.add_db_form.name.trim().to_string(),
                 "User is required"
             );
             return;
         }
         
         // 解析端口
-        let port: u16 = match self.add_db_port.parse() {
+        let port: u16 = match self.add_db_form.port.parse() {
             Ok(p) if p > 0 => p,
             _ => {
-                self.add_db_test_status = Some(false);
-                self.add_db_error = Some("Port must be a valid number > 0".into());
+                self.add_db_form.test_status = Some(false);
+                self.add_db_form.error = Some("Port must be a valid number > 0".into());
                 notify::db_connection_error(
-                    &self.add_db_name.trim().to_string(),
+                    &self.add_db_form.name.trim().to_string(),
                     "Port must be a valid number > 0"
                 );
                 return;
@@ -623,17 +617,17 @@ impl DbManager {
         };
         
         // 构建 DSN
-        let dbname = if self.add_db_database.trim().is_empty() {
+        let dbname = if self.add_db_form.database.trim().is_empty() {
             String::new()
         } else {
-            self.add_db_database.trim().to_string()
+            self.add_db_form.database.trim().to_string()
         };
         let dsn = format!(
             "{}://{}:{}@{}:{}{}",
-            self.add_db_engine.as_str(),
-            urlencoding::encode(self.add_db_user.trim()),
-            urlencoding::encode(self.add_db_password.trim()),
-            self.add_db_host.trim(),
+            self.add_db_form.engine.as_str(),
+            urlencoding::encode(self.add_db_form.user.trim()),
+            urlencoding::encode(self.add_db_form.password.trim()),
+            self.add_db_form.host.trim(),
             port,
             if dbname.is_empty() {
                 String::new()
@@ -643,45 +637,49 @@ impl DbManager {
         );
         
         // 获取数据库名称用于通知
-        let db_name = if self.add_db_name.trim().is_empty() {
-            format!("{}@{}:{}", self.add_db_user.trim(), self.add_db_host.trim(), port)
+        let db_name = if self.add_db_form.name.trim().is_empty() {
+            format!("{}@{}:{}", self.add_db_form.user.trim(), self.add_db_form.host.trim(), port)
         } else {
-            self.add_db_name.trim().to_string()
+            self.add_db_form.name.trim().to_string()
         };
         
         // 测试连接
-        self.add_db_error = None;
-        let result = self.rt.block_on(async {
-            PgPoolOptions::new()
-                .max_connections(1)
-                .connect(&dsn)
-                .await
+        self.add_db_form.error = None;
+        let result = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(&dsn)
+                    .await
+            })
         });
         
         match result {
             Ok(pool) => {
                 // 尝试执行一个简单查询来验证连接
-                let query_result = self.rt.block_on(async {
-                    sqlx::query("SELECT 1").execute(&pool).await
+                let query_result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        sqlx::query("SELECT 1").execute(&pool).await
+                    })
                 });
                 match query_result {
                     Ok(_) => {
-                        self.add_db_test_status = Some(true);
-                        self.add_db_error = None;
+                        self.add_db_form.test_status = Some(true);
+                        self.add_db_form.error = None;
                         notify::db_connection_success(&db_name);
                     }
                     Err(e) => {
-                        self.add_db_test_status = Some(false);
+                        self.add_db_form.test_status = Some(false);
                         let error_msg = format!("Connection test failed: {}", e);
-                        self.add_db_error = Some(error_msg.clone());
+                        self.add_db_form.error = Some(error_msg.clone());
                         notify::db_connection_error(&db_name, &error_msg);
                     }
                 }
             }
             Err(e) => {
-                self.add_db_test_status = Some(false);
+                self.add_db_form.test_status = Some(false);
                 let error_msg = format!("Connection failed: {}", e);
-                self.add_db_error = Some(error_msg.clone());
+                self.add_db_form.error = Some(error_msg.clone());
                 notify::db_connection_error(&db_name, &error_msg);
             }
         }
@@ -692,33 +690,33 @@ impl DbManager {
         let Some(storage) = self.storage.as_ref() else {
             return Err("storage not ready".into());
         };
-        if self.add_db_name.trim().is_empty() {
+        if self.add_db_form.name.trim().is_empty() {
             return Err("Name is required".into());
         }
-        if self.add_db_host.trim().is_empty() {
+        if self.add_db_form.host.trim().is_empty() {
             return Err("Host is required".into());
         }
         let port: u16 = self
-            .add_db_port
+            .add_db_form.port
             .parse()
             .map_err(|_| "Port must be a number")?;
         if port == 0 {
             return Err("Port must be > 0".into());
         }
-        if self.add_db_user.trim().is_empty() {
+        if self.add_db_form.user.trim().is_empty() {
             return Err("User is required".into());
         }
-        let dbname = if self.add_db_database.trim().is_empty() {
+        let dbname = if self.add_db_form.database.trim().is_empty() {
             String::new()
         } else {
-            self.add_db_database.trim().to_string()
+            self.add_db_form.database.trim().to_string()
         };
         let dsn = format!(
             "{}://{}:{}@{}:{}{}",
-            self.add_db_engine.as_str(),
-            urlencoding::encode(self.add_db_user.trim()),
-            urlencoding::encode(self.add_db_password.trim()),
-            self.add_db_host.trim(),
+            self.add_db_form.engine.as_str(),
+            urlencoding::encode(self.add_db_form.user.trim()),
+            urlencoding::encode(self.add_db_form.password.trim()),
+            self.add_db_form.host.trim(),
             port,
             if dbname.is_empty() {
                 String::new()
@@ -728,17 +726,19 @@ impl DbManager {
         );
         let now = Self::now_ts();
         let cfg = pgone_storage::models::DbConfig {
-            id: self.add_db_name.trim().to_string(),
-            engine: self.add_db_engine.as_str().to_string(),
+            id: self.add_db_form.name.trim().to_string(),
+            engine: self.add_db_form.engine.as_str().to_string(),
             dsn,
             default_schemas: None,
             include_system: Some(false),
             created_at: now,
             updated_at: now,
         };
-        let res = self
-            .rt
-            .block_on(async { storage.upsert_db_config(&cfg).await });
+        let res = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                storage.upsert_db_config(&cfg).await
+            })
+        });
         match res {
             Ok(_) => Ok(()),
             Err(e) => Err(e.to_string()),
@@ -751,10 +751,11 @@ impl DbManager {
         let Some(storage) = self.storage.as_ref() else {
             return Err("storage not ready".into());
         };
-        let cfg = self
-            .rt
-            .block_on(async { storage.get_db_config(id).await })
-            .map_err(|e| e.to_string())?;
+        let cfg = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                storage.get_db_config(id).await
+            })
+        }).map_err(|e| e.to_string())?;
         let Some(cfg) = cfg else {
             return Err("Database config not found".into());
         };
@@ -762,18 +763,18 @@ impl DbManager {
         // Parse DSN to fill form fields
         if let Some(parsed) = Self::parse_dsn(&cfg.dsn) {
             self.edit_db_id = Some(cfg.id.clone());
-            self.edit_db_name = cfg.id.clone();
-            self.edit_db_engine = match parsed.engine.as_str() {
+            self.edit_db_form.name = cfg.id.clone();
+            self.edit_db_form.engine = match parsed.engine.as_str() {
                 "postgresql" | "postgres" => DbEngine::Postgresql,
                 "mysql" => DbEngine::Mysql,
                 _ => DbEngine::Postgresql,
             };
-            self.edit_db_host = parsed.host;
-            self.edit_db_port = parsed.port;
-            self.edit_db_database = parsed.database;
-            self.edit_db_user = parsed.user;
+            self.edit_db_form.host = parsed.host;
+            self.edit_db_form.port = parsed.port;
+            self.edit_db_form.database = parsed.database;
+            self.edit_db_form.user = parsed.user;
             // Password is not stored, leave it empty
-            self.edit_db_password = String::new();
+            self.edit_db_form.password = String::new();
         } else {
             return Err("Failed to parse DSN".into());
         }
@@ -792,33 +793,34 @@ impl DbManager {
         };
         
         // Load existing config to preserve created_at
-        let existing_cfg = self
-            .rt
-            .block_on(async { storage.get_db_config(id).await })
-            .map_err(|e| e.to_string())?;
+        let existing_cfg = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                storage.get_db_config(id).await
+            })
+        }).map_err(|e| e.to_string())?;
         let Some(existing_cfg) = existing_cfg else {
             return Err("Database config not found".into());
         };
         
-        if self.edit_db_name.trim().is_empty() {
+        if self.edit_db_form.name.trim().is_empty() {
             return Err("Name is required".into());
         }
-        if self.edit_db_host.trim().is_empty() {
+        if self.edit_db_form.host.trim().is_empty() {
             return Err("Host is required".into());
         }
         let port: u16 = self
-            .edit_db_port
+            .edit_db_form.port
             .parse()
             .map_err(|_| "Port must be a number")?;
         if port == 0 {
             return Err("Port must be > 0".into());
         }
-        if self.edit_db_user.trim().is_empty() {
+        if self.edit_db_form.user.trim().is_empty() {
             return Err("User is required".into());
         }
         
         // If password is empty, try to get it from existing DSN
-        let password = if self.edit_db_password.trim().is_empty() {
+        let password = if self.edit_db_form.password.trim().is_empty() {
             // Try to extract password from existing DSN
             if let Some(url) = url::Url::parse(&existing_cfg.dsn).ok() {
                 url.password().unwrap_or("").to_string()
@@ -826,20 +828,20 @@ impl DbManager {
                 String::new()
             }
         } else {
-            self.edit_db_password.trim().to_string()
+            self.edit_db_form.password.trim().to_string()
         };
         
-        let dbname = if self.edit_db_database.trim().is_empty() {
+        let dbname = if self.edit_db_form.database.trim().is_empty() {
             String::new()
         } else {
-            self.edit_db_database.trim().to_string()
+            self.edit_db_form.database.trim().to_string()
         };
         let dsn = format!(
             "{}://{}:{}@{}:{}{}",
-            self.edit_db_engine.as_str(),
-            urlencoding::encode(self.edit_db_user.trim()),
+            self.edit_db_form.engine.as_str(),
+            urlencoding::encode(self.edit_db_form.user.trim()),
             urlencoding::encode(&password),
-            self.edit_db_host.trim(),
+            self.edit_db_form.host.trim(),
             port,
             if dbname.is_empty() {
                 String::new()
@@ -849,8 +851,8 @@ impl DbManager {
         );
         
         let cfg = pgone_storage::models::DbConfig {
-            id: self.edit_db_name.trim().to_string(),
-            engine: self.edit_db_engine.as_str().to_string(),
+            id: self.edit_db_form.name.trim().to_string(),
+            engine: self.edit_db_form.engine.as_str().to_string(),
             dsn,
             default_schemas: existing_cfg.default_schemas.clone(),
             include_system: existing_cfg.include_system,
@@ -858,9 +860,11 @@ impl DbManager {
             updated_at: Self::now_ts(),
         };
         
-        let res = self
-            .rt
-            .block_on(async { storage.upsert_db_config(&cfg).await });
+        let res = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                storage.upsert_db_config(&cfg).await
+            })
+        });
         match res {
             Ok(_) => {
                 // Update active_db_config_id if it was the edited one
@@ -876,32 +880,34 @@ impl DbManager {
     /// Test connection for edit form
     pub fn test_edit_connection(&mut self) {
         // Validation
-        if self.edit_db_host.trim().is_empty() {
-            self.edit_db_test_status = Some(false);
-            self.edit_db_error = Some("Host is required".into());
+        if self.edit_db_form.host.trim().is_empty() {
+            self.edit_db_form.test_status = Some(false);
+            self.edit_db_form.error = Some("Host is required".into());
             return;
         }
-        if self.edit_db_user.trim().is_empty() {
-            self.edit_db_test_status = Some(false);
-            self.edit_db_error = Some("User is required".into());
+        if self.edit_db_form.user.trim().is_empty() {
+            self.edit_db_form.test_status = Some(false);
+            self.edit_db_form.error = Some("User is required".into());
             return;
         }
         
-        let port: u16 = match self.edit_db_port.parse() {
+        let port: u16 = match self.edit_db_form.port.parse() {
             Ok(p) if p > 0 => p,
             _ => {
-                self.edit_db_test_status = Some(false);
-                self.edit_db_error = Some("Port must be a valid number > 0".into());
+                self.edit_db_form.test_status = Some(false);
+                self.edit_db_form.error = Some("Port must be a valid number > 0".into());
                 return;
             }
         };
         
         // Get password from existing config if empty
-        let password = if self.edit_db_password.trim().is_empty() {
+        let password = if self.edit_db_form.password.trim().is_empty() {
             if let Some(ref id) = self.edit_db_id {
                 if let Some(storage) = &self.storage {
-                    if let Ok(Some(cfg)) = self.rt.block_on(async {
-                        storage.get_db_config(id).await
+                    if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            storage.get_db_config(id).await
+                        })
                     }) {
                         if let Some(url) = url::Url::parse(&cfg.dsn).ok() {
                             url.password().unwrap_or("").to_string()
@@ -918,20 +924,20 @@ impl DbManager {
                 String::new()
             }
         } else {
-            self.edit_db_password.trim().to_string()
+            self.edit_db_form.password.trim().to_string()
         };
         
-        let dbname = if self.edit_db_database.trim().is_empty() {
+        let dbname = if self.edit_db_form.database.trim().is_empty() {
             String::new()
         } else {
-            self.edit_db_database.trim().to_string()
+            self.edit_db_form.database.trim().to_string()
         };
         let dsn = format!(
             "{}://{}:{}@{}:{}{}",
-            self.edit_db_engine.as_str(),
-            urlencoding::encode(self.edit_db_user.trim()),
+            self.edit_db_form.engine.as_str(),
+            urlencoding::encode(self.edit_db_form.user.trim()),
             urlencoding::encode(&password),
-            self.edit_db_host.trim(),
+            self.edit_db_form.host.trim(),
             port,
             if dbname.is_empty() {
                 String::new()
@@ -940,43 +946,47 @@ impl DbManager {
             }
         );
         
-        let db_name = if self.edit_db_name.trim().is_empty() {
-            format!("{}@{}:{}", self.edit_db_user.trim(), self.edit_db_host.trim(), port)
+        let db_name = if self.edit_db_form.name.trim().is_empty() {
+            format!("{}@{}:{}", self.edit_db_form.user.trim(), self.edit_db_form.host.trim(), port)
         } else {
-            self.edit_db_name.trim().to_string()
+            self.edit_db_form.name.trim().to_string()
         };
         
-        self.edit_db_error = None;
-        let result = self.rt.block_on(async {
-            PgPoolOptions::new()
-                .max_connections(1)
-                .connect(&dsn)
-                .await
+        self.edit_db_form.error = None;
+        let result = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(&dsn)
+                    .await
+            })
         });
         
         match result {
             Ok(pool) => {
-                let query_result = self.rt.block_on(async {
-                    sqlx::query("SELECT 1").execute(&pool).await
+                let query_result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        sqlx::query("SELECT 1").execute(&pool).await
+                    })
                 });
                 match query_result {
                     Ok(_) => {
-                        self.edit_db_test_status = Some(true);
-                        self.edit_db_error = None;
+                        self.edit_db_form.test_status = Some(true);
+                        self.edit_db_form.error = None;
                         notify::db_connection_success(&db_name);
                     }
                     Err(e) => {
-                        self.edit_db_test_status = Some(false);
+                        self.edit_db_form.test_status = Some(false);
                         let error_msg = format!("Connection test failed: {}", e);
-                        self.edit_db_error = Some(error_msg.clone());
+                        self.edit_db_form.error = Some(error_msg.clone());
                         notify::db_connection_error(&db_name, &error_msg);
                     }
                 }
             }
             Err(e) => {
-                self.edit_db_test_status = Some(false);
+                self.edit_db_form.test_status = Some(false);
                 let error_msg = format!("Connection failed: {}", e);
-                self.edit_db_error = Some(error_msg.clone());
+                self.edit_db_form.error = Some(error_msg.clone());
                 notify::db_connection_error(&db_name, &error_msg);
             }
         }

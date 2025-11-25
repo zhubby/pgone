@@ -88,15 +88,9 @@ impl SqlPanel {
             return;
         }
         let sql = self.sql_input.clone();
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(e) => {
-                self.sql_error = Some(format!("runtime error: {}", e));
-                return;
-            }
-        };
         let pool_opt = ctxs.db.pools.get(&sess.id).cloned();
-        let res: Result<(Vec<String>, Vec<Vec<String>>), String> = rt.block_on(async move {
+        let res: Result<(Vec<String>, Vec<Vec<String>>), String> = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
             let pool = match pool_opt {
                 Some(p) => p,
                 None => PgPoolOptions::new()
@@ -129,6 +123,7 @@ impl SqlPanel {
                 data.push(r);
             }
             Ok((cols, data))
+            })
         });
         match res {
             Ok((cols, rows)) => {

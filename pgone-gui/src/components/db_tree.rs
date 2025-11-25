@@ -1,6 +1,9 @@
-use pgone_mcp_server::core::models::DatabaseSchema;
-use std::collections::HashMap;
-use std::sync::mpsc;
+use pgone_mcp_server::core::models::{
+    Column, DatabaseSchema, ForeignKey, Index, PrimaryKey, Schema, TableDetail, ViewDetail,
+};
+use pgone_sql::Session;
+use std::collections::{BTreeMap, HashMap};
+use poll_promise::Promise;
 
 #[derive(Default)]
 pub struct DbTree {
@@ -10,7 +13,7 @@ pub struct DbTree {
     current_db_id: Option<String>,
     loading: bool,
     error: Option<String>,
-    load_receiver: Option<mpsc::Receiver<Result<DatabaseSchema, String>>>,
+    load_promise: Option<Promise<Result<DatabaseSchema, String>>>,
 }
 
 impl DbTree {
@@ -20,9 +23,10 @@ impl DbTree {
         if let Some(db_id) = db_id_opt {
             db_manager.ensure_storage();
             if let Some(ref storage) = db_manager.storage {
-                let rt = &db_manager.rt;
-                if let Ok(Some(cfg)) = rt.block_on(async {
-                    storage.get_db_config(&db_id).await
+                if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        storage.get_db_config(&db_id).await
+                    })
                 }) {
                     // Parse DSN to get connection details
                     if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
@@ -84,20 +88,21 @@ impl DbTree {
         }
 
         // Check for async load result
-        if let Some(ref receiver) = self.load_receiver {
-            if let Ok(result) = receiver.try_recv() {
+        if let Some(ref promise) = self.load_promise {
+            if let Some(result) = promise.ready() {
                 match result {
                     Ok(schema) => {
-                        self.schema_cache = Some(schema);
+                        self.schema_cache = Some(schema.clone());
                         self.loading = false;
                         self.error = None;
                     }
                     Err(e) => {
-                        self.error = Some(e);
+                        tracing::error!("Error loading schema: {}", e);
+                        self.error = Some(e.clone());
                         self.loading = false;
                     }
                 }
-                self.load_receiver = None;
+                self.load_promise = None;
             }
         }
 
@@ -267,54 +272,288 @@ impl DbTree {
             return;
         };
         
-        let db_id_clone = db_id.clone();
-        let (tx, rx) = mpsc::channel();
-        self.load_receiver = Some(rx);
+        // Get DSN from storage in the main thread
+        db_manager.ensure_storage();
+        let dsn = if let Some(ref storage) = db_manager.storage {
+            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    storage.get_db_config(&db_id).await
+                })
+            }) {
+                cfg.dsn
+            } else {
+                self.loading = false;
+                self.error = Some("Failed to get database config".to_string());
+                return;
+            }
+        } else {
+            self.loading = false;
+            self.error = Some("Storage not available".to_string());
+            return;
+        };
         
-        // Spawn async task to load schema
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let result = rt.block_on(async {
-                // Get DSN from storage - we need to recreate storage in the thread
-                let storage = pgone_storage::blocking::StorageBlocking::open_local("pgone.db").await
-                    .map_err(|e| format!("Failed to open storage: {}", e))?;
-                let configs = storage.list_db_configs(None).await
-                    .map_err(|e| format!("Failed to list configs: {}", e))?;
-                let config = configs.iter()
-                    .find(|c| c.id == db_id_clone)
-                    .ok_or_else(|| "Config not found".to_string())?;
-                
-                // Call API server to get schema
-                let client = reqwest::Client::new();
-                let request = pgone_a2a::SchemaQueryRequest {
-                    dsn: config.dsn.clone(),
-                    schemas: None,
-                    with_indexes: true,
-                    with_routines: false,
-                    with_types: false,
-                    with_triggers: false,
-                };
-                
-                let response = client
-                    .post("http://127.0.0.1:8765/schema/query")
-                    .json(&request)
-                    .send()
+        // Spawn async task to load schema using pgone-sql
+        let dsn_clone = dsn.clone();
+        self.load_promise = Some(Promise::spawn_thread("load_schema", move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                // Use pgone-sql to connect and query schema
+                let session = Session::new(&dsn_clone)
                     .await
-                    .map_err(|e| format!("Request failed: {}", e))?;
+                    .map_err(|e| format!("Failed to create session: {}", e))?;
                 
-                let response_data: pgone_a2a::SchemaQueryResponse = response.json().await
-                    .map_err(|e| format!("Failed to parse response: {}", e))?;
+                // Get database name
+                let database = session.current_database()
+                    .await
+                    .map_err(|e| format!("Failed to get database name: {}", e))?;
                 
-                if response_data.success {
-                    response_data.schema
-                        .ok_or_else(|| "Schema is None".to_string())
-                } else {
-                    Err(response_data.error.unwrap_or_else(|| "Unknown error".to_string()))
+                // List all tables
+                let tables = session.list_tables(None)
+                    .await
+                    .map_err(|e| format!("Failed to list tables: {}", e))?;
+                
+                // List all views
+                let views = session.list_views(None)
+                    .await
+                    .map_err(|e| format!("Failed to list views: {}", e))?;
+                
+                // Group tables and views by schema
+                let mut schemas_map: BTreeMap<String, (Vec<TableDetail>, Vec<ViewDetail>)> = BTreeMap::new();
+                
+                // Process tables - get connection for each table to avoid holding it too long
+                for table_info in tables {
+                    let schema_name = table_info.schema.clone();
+                    let table_name = table_info.name.clone();
+                    
+                    // Get connection for detailed queries
+                    let conn = session.get_connection()
+                        .await
+                        .map_err(|e| format!("Failed to get connection: {}", e))?;
+                    
+                    // Get table details (columns, indexes, foreign keys)
+                    let table_detail = Self::get_table_detail(&*conn, &schema_name, &table_name)
+                        .await
+                        .map_err(|e| format!("Failed to get table details for {}.{}: {}", schema_name, table_name, e))?;
+                    
+                    schemas_map.entry(schema_name).or_insert_with(|| (Vec::new(), Vec::new())).0.push(table_detail);
                 }
-            });
+                
+                // Process views
+                for view_info in views {
+                    let view_detail = ViewDetail {
+                        schema: view_info.schema,
+                        name: view_info.name,
+                        definition: view_info.definition,
+                        comment: view_info.description,
+                    };
+                    
+                    schemas_map.entry(view_detail.schema.clone())
+                        .or_insert_with(|| (Vec::new(), Vec::new()))
+                        .1.push(view_detail);
+                }
+                
+                // Convert to Schema vec
+                let schemas: Vec<Schema> = schemas_map
+                    .into_iter()
+                    .map(|(name, (tables, views))| Schema {
+                        name,
+                        tables,
+                        views,
+                    })
+                    .collect();
+                
+                Ok(DatabaseSchema {
+                    database,
+                    schemas,
+                })
+            })
+        }));
+    }
+    
+    async fn get_table_detail(
+        conn: &tokio_postgres::Client,
+        schema: &str,
+        table: &str,
+    ) -> Result<TableDetail, String> {
+        // Get columns
+        let col_rows = conn.query(
+            "SELECT c.column_name, c.is_nullable, c.data_type, c.udt_name, \
+                    c.character_maximum_length, c.numeric_precision, c.numeric_scale, \
+                    c.column_default, pgd.description AS column_comment \
+             FROM information_schema.columns c \
+             LEFT JOIN pg_class pc ON pc.relname = c.table_name \
+             LEFT JOIN pg_namespace pn ON pn.nspname = c.table_schema AND pn.oid = pc.relnamespace \
+             LEFT JOIN pg_attribute pa ON pa.attrelid = pc.oid AND pa.attname = c.column_name \
+             LEFT JOIN pg_description pgd ON pgd.objoid = pc.oid AND pgd.objsubid = pa.attnum \
+             WHERE c.table_schema = $1 AND c.table_name = $2 \
+             ORDER BY c.ordinal_position",
+            &[&schema, &table],
+        )
+        .await
+        .map_err(|e| format!("Failed to query columns: {}", e))?;
+        
+        let columns: Vec<Column> = col_rows
+            .into_iter()
+            .map(|row| {
+                let is_nullable: String = row.get("is_nullable");
+                Column {
+                    name: row.get("column_name"),
+                    nullable: matches!(is_nullable.as_str(), "YES"),
+                    data_type: row.get("data_type"),
+                    udt_name: row.try_get("udt_name").ok(),
+                    character_maximum_length: row.try_get("character_maximum_length").ok(),
+                    numeric_precision: row.try_get("numeric_precision").ok(),
+                    numeric_scale: row.try_get("numeric_scale").ok(),
+                    default: row.try_get("column_default").ok(),
+                    comment: row.try_get("column_comment").ok(),
+                }
+            })
+            .collect();
+        
+        // Get table comment
+        let table_comment: Option<String> = conn.query_opt(
+            "SELECT obj_description(pc.oid) \
+             FROM pg_class pc \
+             JOIN pg_namespace pn ON pn.oid = pc.relnamespace \
+             WHERE pn.nspname = $1 AND pc.relname = $2",
+            &[&schema, &table],
+        )
+        .await
+        .map_err(|e| format!("Failed to query table comment: {}", e))?
+        .map(|row| row.get(0));
+        
+        // Get primary key
+        let pk_rows = conn.query(
+            "SELECT kcu.column_name \
+             FROM information_schema.table_constraints tc \
+             JOIN information_schema.key_column_usage kcu \
+               ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema \
+             WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1 AND tc.table_name = $2 \
+             ORDER BY kcu.ordinal_position",
+            &[&schema, &table],
+        )
+        .await
+        .map_err(|e| format!("Failed to query primary key: {}", e))?;
+        
+        let pk_cols: Vec<String> = pk_rows.into_iter().map(|row| row.get(0)).collect();
+        let primary_key = if pk_cols.is_empty() {
+            None
+        } else {
+            Some(PrimaryKey { columns: pk_cols })
+        };
+        
+        // Get foreign keys
+        let fk_rows = conn.query(
+            "SELECT kcu.constraint_name, kcu.column_name AS local_column, ccu.table_schema AS ref_schema, ccu.table_name AS ref_table, ccu.column_name AS ref_column, rc.update_rule, rc.delete_rule \
+             FROM information_schema.table_constraints tc \
+             JOIN information_schema.key_column_usage kcu \
+               ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema \
+             JOIN information_schema.referential_constraints rc \
+               ON rc.constraint_name = tc.constraint_name AND rc.constraint_schema = tc.table_schema \
+             JOIN information_schema.constraint_column_usage ccu \
+               ON ccu.constraint_name = rc.unique_constraint_name AND ccu.constraint_schema = rc.unique_constraint_schema \
+             WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1 AND tc.table_name = $2 \
+             ORDER BY kcu.ordinal_position",
+            &[&schema, &table],
+        )
+        .await
+        .map_err(|e| format!("Failed to query foreign keys: {}", e))?;
+        
+        // Group by constraint_name
+        let mut fk_map: BTreeMap<String, (Vec<String>, (String, Vec<String>), Option<String>, Option<String>)> = BTreeMap::new();
+        for row in fk_rows {
+            let cname: String = row.get("constraint_name");
+            let col: String = row.get("local_column");
+            let ref_schema: String = row.get("ref_schema");
+            let ref_table: String = row.get("ref_table");
+            let ref_col: String = row.get("ref_column");
+            let on_update: Option<String> = row.try_get("update_rule").ok();
+            let on_delete: Option<String> = row.try_get("delete_rule").ok();
             
-            let _ = tx.send(result);
-        });
+            let entry = fk_map.entry(cname).or_insert_with(|| {
+                (Vec::new(), (format!("{}.{}", ref_schema, ref_table), Vec::new()), None, None)
+            });
+            entry.0.push(col);
+            entry.1.1.push(ref_col);
+            if on_update.is_some() {
+                entry.2 = on_update;
+            }
+            if on_delete.is_some() {
+                entry.3 = on_delete;
+            }
+        }
+        
+        let foreign_keys: Vec<ForeignKey> = fk_map
+            .into_values()
+            .map(|(cols, (ref_table, ref_cols), on_update, on_delete)| ForeignKey {
+                columns: cols,
+                ref_table,
+                ref_columns: ref_cols,
+                on_update,
+                on_delete,
+            })
+            .collect();
+        
+        // Get indexes
+        let idx_rows = conn.query(
+            "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2",
+            &[&schema, &table],
+        )
+        .await
+        .map_err(|e| format!("Failed to query indexes: {}", e))?;
+        
+        let mut indexes: Vec<Index> = Vec::new();
+        for row in idx_rows {
+            let name: String = row.get("indexname");
+            let def: String = row.get("indexdef");
+            let upper = def.to_uppercase();
+            let unique = upper.contains(" UNIQUE ");
+            
+            // Extract columns from parentheses
+            let cols: Vec<String> = def
+                .split('(')
+                .nth(1)
+                .and_then(|s| s.split(')').next())
+                .map(|s| {
+                    s.split(',')
+                        .map(|c| c.trim().trim_matches('"').to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            
+            // Extract INCLUDE columns
+            let include: Vec<String> = if let Some(pos) = upper.find(" INCLUDE (") {
+                let rest = &def[pos..];
+                rest.split('(')
+                    .nth(1)
+                    .and_then(|s| s.split(')').next())
+                    .map(|s| {
+                        s.split(',')
+                            .map(|c| c.trim().trim_matches('"').to_string())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            
+            indexes.push(Index {
+                name,
+                unique,
+                columns: cols,
+                include,
+                definition: Some(def),
+            });
+        }
+        
+        Ok(TableDetail {
+            schema: schema.to_string(),
+            name: table.to_string(),
+            comment: table_comment,
+            columns,
+            primary_key,
+            foreign_keys,
+            indexes,
+        })
     }
 }
 

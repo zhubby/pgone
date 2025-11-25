@@ -21,7 +21,6 @@ mod sql;
 mod components;
 use components::{ChatPanel, DbManager, DbTree, PreviewManager, SqlPanel};
 mod media;
-use std::thread;
 use std::net::SocketAddr;
 
 pub struct AppFrame {
@@ -156,21 +155,24 @@ impl AppFrame {
                 created_at: 0,
                 updated_at: 0,
             };
-            let _ = self
-                .db
-                .rt
-                .block_on(async { storage.create_session(&sess).await });
+            let _ = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    storage.create_session(&sess).await
+                })
+            });
             for m in &s.messages {
                 match &m.content {
                     MessageContent::Markdown(text) => {
-                        let _ = self.db.rt.block_on(async {
-                            storage
-                                .append_markdown(
-                                    &sess.id,
-                                    pgone_storage::models::Role::User,
-                                    text,
-                                )
-                                .await
+                        let _ = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                storage
+                                    .append_markdown(
+                                        &sess.id,
+                                        pgone_storage::models::Role::User,
+                                        text,
+                                    )
+                                    .await
+                            })
                         });
                     }
                     MessageContent::Image {
@@ -178,30 +180,34 @@ impl AppFrame {
                         width,
                         height,
                     } => {
-                        let _ = self.db.rt.block_on(async {
-                            storage
-                                .append_image(
-                                    &sess.id,
-                                    pgone_storage::models::Role::User,
-                                    &path.display().to_string(),
-                                    *width as i64,
-                                    *height as i64,
-                                )
-                                .await
+                        let _ = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                storage
+                                    .append_image(
+                                        &sess.id,
+                                        pgone_storage::models::Role::User,
+                                        &path.display().to_string(),
+                                        *width as i64,
+                                        *height as i64,
+                                    )
+                                    .await
+                            })
                         });
                     }
                     MessageContent::Video {
                         path, duration_ms, ..
                     } => {
-                        let _ = self.db.rt.block_on(async {
-                            storage
-                                .append_video(
-                                    &sess.id,
-                                    pgone_storage::models::Role::User,
-                                    &path.display().to_string(),
-                                    duration_ms.map(|v| v as i64),
-                                )
-                                .await
+                        let _ = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                storage
+                                    .append_video(
+                                        &sess.id,
+                                        pgone_storage::models::Role::User,
+                                        &path.display().to_string(),
+                                        duration_ms.map(|v| v as i64),
+                                    )
+                                    .await
+                            })
                         });
                     }
                 }
@@ -416,14 +422,11 @@ pub fn run() -> anyhow::Result<()> {
         ..Default::default()
     };
     // start apiserver in background
-    thread::spawn(|| {
-        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-        rt.block_on(async move {
-            let addr: SocketAddr = "127.0.0.1:8765".parse().unwrap();
-            // 创建一个永远不会完成的 future 作为 shutdown signal
-            let shutdown = std::future::pending::<()>();
-            let _ = pgone_apiserver::serve(addr, shutdown).await;
-        });
+    tokio::spawn(async move {
+        let addr: SocketAddr = "127.0.0.1:8765".parse().unwrap();
+        // 创建一个永远不会完成的 future 作为 shutdown signal
+        let shutdown = std::future::pending::<()>();
+        let _ = pgone_apiserver::serve(addr, shutdown).await;
     });
 
     eframe::run_native(

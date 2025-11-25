@@ -34,10 +34,11 @@ impl SessionsPanel {
                     created_at: 0,
                     updated_at: 0,
                 };
-                let _ = ctxs
-                    .db
-                    .rt
-                    .block_on(async { storage.create_session(&sess).await });
+                let _ = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        storage.create_session(&sess).await
+                    })
+                });
             }
         }
         ui.separator();
