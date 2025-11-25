@@ -5,6 +5,8 @@ use pgone_sql::Session;
 use std::collections::{BTreeMap, HashMap};
 use poll_promise::Promise;
 
+use crate::futures;
+
 #[derive(Default)]
 pub struct DbTree {
     schema_cache: Option<DatabaseSchema>,
@@ -294,79 +296,84 @@ impl DbTree {
         
         // Spawn async task to load schema using pgone-sql
         let dsn_clone = dsn.clone();
-        self.load_promise = Some(Promise::spawn_thread("load_schema", move || {
-            tokio::runtime::Handle::current().block_on(async move {
-                // Use pgone-sql to connect and query schema
+        let (sender, promise) = Promise::new();
+
+        self.load_promise = Some(promise);
+
+        futures::spawn(async move {
+            let result: Result<DatabaseSchema, String> = async {
                 let session = Session::new(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
-                
-                // Get database name
-                let database = session.current_database()
-                    .await
-                    .map_err(|e| format!("Failed to get database name: {}", e))?;
-                
-                // List all tables
-                let tables = session.list_tables(None)
-                    .await
-                    .map_err(|e| format!("Failed to list tables: {}", e))?;
-                
-                // List all views
-                let views = session.list_views(None)
-                    .await
-                    .map_err(|e| format!("Failed to list views: {}", e))?;
-                
-                // Group tables and views by schema
-                let mut schemas_map: BTreeMap<String, (Vec<TableDetail>, Vec<ViewDetail>)> = BTreeMap::new();
-                
-                // Process tables - get connection for each table to avoid holding it too long
-                for table_info in tables {
-                    let schema_name = table_info.schema.clone();
-                    let table_name = table_info.name.clone();
-                    
-                    // Get connection for detailed queries
-                    let conn = session.get_connection()
                         .await
-                        .map_err(|e| format!("Failed to get connection: {}", e))?;
+                        .map_err(|e| format!("Failed to create session: {}", e))?;
                     
-                    // Get table details (columns, indexes, foreign keys)
-                    let table_detail = Self::get_table_detail(&*conn, &schema_name, &table_name)
+                    // Get database name
+                    let database = session.current_database()
                         .await
-                        .map_err(|e| format!("Failed to get table details for {}.{}: {}", schema_name, table_name, e))?;
+                        .map_err(|e| format!("Failed to get database name: {}", e))?;
                     
-                    schemas_map.entry(schema_name).or_insert_with(|| (Vec::new(), Vec::new())).0.push(table_detail);
-                }
-                
-                // Process views
-                for view_info in views {
-                    let view_detail = ViewDetail {
-                        schema: view_info.schema,
-                        name: view_info.name,
-                        definition: view_info.definition,
-                        comment: view_info.description,
-                    };
+                    // List all tables
+                    let tables = session.list_tables(None)
+                        .await
+                        .map_err(|e| format!("Failed to list tables: {}", e))?;
                     
-                    schemas_map.entry(view_detail.schema.clone())
-                        .or_insert_with(|| (Vec::new(), Vec::new()))
-                        .1.push(view_detail);
-                }
-                
-                // Convert to Schema vec
-                let schemas: Vec<Schema> = schemas_map
-                    .into_iter()
-                    .map(|(name, (tables, views))| Schema {
-                        name,
-                        tables,
-                        views,
+                    // List all views
+                    let views = session.list_views(None)
+                        .await
+                        .map_err(|e| format!("Failed to list views: {}", e))?;
+                    
+                    // Group tables and views by schema
+                    let mut schemas_map: BTreeMap<String, (Vec<TableDetail>, Vec<ViewDetail>)> = BTreeMap::new();
+                    
+                    // Process tables - get connection for each table to avoid holding it too long
+                    for table_info in tables {
+                        let schema_name = table_info.schema.clone();
+                        let table_name = table_info.name.clone();
+                        
+                        // Get connection for detailed queries
+                        let conn = session.get_connection()
+                            .await
+                            .map_err(|e| format!("Failed to get connection: {}", e))?;
+                        
+                        // Get table details (columns, indexes, foreign keys)
+                        let table_detail = Self::get_table_detail(&*conn, &schema_name, &table_name)
+                            .await
+                            .map_err(|e| format!("Failed to get table details for {}.{}: {}", schema_name, table_name, e))?;
+                        
+                        schemas_map.entry(schema_name).or_insert_with(|| (Vec::new(), Vec::new())).0.push(table_detail);
+                    }
+                    
+                    // Process views
+                    for view_info in views {
+                        let view_detail = ViewDetail {
+                            schema: view_info.schema,
+                            name: view_info.name,
+                            definition: view_info.definition,
+                            comment: view_info.description,
+                        };
+                        
+                        schemas_map.entry(view_detail.schema.clone())
+                            .or_insert_with(|| (Vec::new(), Vec::new()))
+                            .1.push(view_detail);
+                    }
+                    
+                    // Convert to Schema vec
+                    let schemas: Vec<Schema> = schemas_map
+                        .into_iter()
+                        .map(|(name, (tables, views))| Schema {
+                            name,
+                            tables,
+                            views,
+                        })
+                        .collect();
+                    
+                    Ok(DatabaseSchema {
+                        database,
+                        schemas,
                     })
-                    .collect();
-                
-                Ok(DatabaseSchema {
-                    database,
-                    schemas,
-                })
-            })
-        }));
+            }.await;
+            
+            sender.send(result);
+        });
     }
     
     async fn get_table_detail(

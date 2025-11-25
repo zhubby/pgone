@@ -5,7 +5,6 @@ use poll_promise::Promise;
 
 pub struct ChatPanel {
     pub input: String,
-    mcp_promise: Option<Promise<Result<String, String>>>,
     openai_promise: Option<Promise<Result<String, String>>>,
 }
 
@@ -13,7 +12,6 @@ impl Default for ChatPanel {
     fn default() -> Self {
         Self {
             input: String::new(),
-            mcp_promise: None,
             openai_promise: None,
         }
     }
@@ -23,8 +21,7 @@ impl Clone for ChatPanel {
     fn clone(&self) -> Self {
         Self {
             input: self.input.clone(),
-            mcp_promise: None, // Promises cannot be cloned, reset on clone
-            openai_promise: None,
+            openai_promise: None, // Promises cannot be cloned, reset on clone
         }
     }
 }
@@ -139,25 +136,6 @@ impl ChatPanel {
                             self.openai_promise = None;
                         }
                     }
-                    if let Some(ref promise) = self.mcp_promise {
-                        if let Some(result) = promise.ready() {
-                            match result {
-                                Ok(text) => {
-                                    if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-                                        sess.messages.push(Message {
-                                            role: Role::Assistant,
-                                            timestamp: Utc::now(),
-                                            content: MessageContent::Markdown(text.clone()),
-                                        });
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::error!("MCP error: {}", e);
-                                }
-                            }
-                            self.mcp_promise = None;
-                        }
-                    }
                 });
             });
     }
@@ -227,7 +205,7 @@ impl ChatPanel {
         }
         let res: Result<String, String> = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
-                crate::openai_client::chat_once(key, model, prompt).await
+                pgone_util::ai::chat_once(key, model, prompt).await
             })
         });
         match res {
@@ -246,29 +224,6 @@ impl ChatPanel {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn send_mcp(&mut self, _ctxs: &mut ChatCtx) {
-        // 简单示例：请求 introspect_all 并把 markdown/结果消息追加到当前会话
-        self.mcp_promise = Some(Promise::spawn_thread("mcp_request", move || {
-            tokio::runtime::Handle::current().block_on(async move {
-                let cli = match crate::mcp_client::McpClient::spawn_with_default().await {
-                    Ok(c) => c,
-                    Err(e) => return Err(e.to_string()),
-                };
-                let params = serde_json::json!({ "connectionId": "default", "format": "markdown" });
-                match cli.call("introspect_all", params).await {
-                    Ok(v) => {
-                        if let Some(md) = v.get("markdown").and_then(|x| x.as_str()) {
-                            Ok(md.to_string())
-                        } else {
-                            Ok(v.to_string())
-                        }
-                    }
-                    Err(e) => Err(e.to_string()),
-                }
-            })
-        }));
-    }
 
     pub fn send_openai_with_tools(&mut self, ctxs: &mut ChatCtx) {
         let Some(key) = ctxs.openai_api_key.clone() else {
@@ -293,7 +248,7 @@ impl ChatPanel {
         let prompt_clone = prompt.clone();
         self.openai_promise = Some(Promise::spawn_thread("openai_request", move || {
             tokio::runtime::Handle::current().block_on(async move {
-                crate::openai_client::chat_with_tools(key_clone, model_clone, prompt_clone).await
+                pgone_util::ai::chat_with_tools(key_clone, model_clone, prompt_clone).await
             })
         }));
     }

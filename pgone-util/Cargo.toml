@@ -10,3 +10,4 @@ opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 anyhow = { workspace = true }
+async-openai = "0.25"

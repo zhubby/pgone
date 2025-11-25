@@ -10,11 +10,10 @@ use std::io::BufReader;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod futures;
 mod models;
 use models::*;
 mod markdown;
-mod mcp_client;
-mod openai_client;
 mod notify;
 mod sql;
 

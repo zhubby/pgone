@@ -1,4 +1,5 @@
 pub mod log;
+pub mod ai;
 
 #[cfg(test)]
 mod tests {
