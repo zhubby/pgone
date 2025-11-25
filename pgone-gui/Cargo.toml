@@ -49,12 +49,9 @@ strum = { workspace = true }
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
-pgone-apiserver = { workspace = true }
 pgone-a2a = { workspace = true }
 pgone-sql = { workspace = true }
 pgone-util = { workspace = true }
-# Only used for type definitions in db_tree.rs, not for MCP server functionality
-pgone-mcp-server = { workspace = true }
 poll-promise = "0.3"
 once_cell = { workspace = true }
 

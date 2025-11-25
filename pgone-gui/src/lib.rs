@@ -20,7 +20,6 @@ mod sql;
 mod components;
 use components::{ChatPanel, DbManager, DbTree, PreviewManager, SqlPanel};
 mod media;
-use std::net::SocketAddr;
 
 pub struct AppFrame {
     #[allow(dead_code)]
@@ -332,7 +331,7 @@ impl eframe::App for AppFrame {
             .min_width(100.0)
             .max_width(500.0)
             .show_animated(ctx, self.left_panel_visible, |ui| {
-                self.db_tree.ui(ui, &mut self.db);
+                self.db_tree.ui(ui, &mut self.db, &mut self.sql);
             });
         
         // Right panel - Chat
@@ -420,13 +419,6 @@ pub fn run() -> anyhow::Result<()> {
             .with_title_shown(false),
         ..Default::default()
     };
-    // start apiserver in background
-    tokio::spawn(async move {
-        let addr: SocketAddr = "127.0.0.1:8765".parse().unwrap();
-        // 创建一个永远不会完成的 future 作为 shutdown signal
-        let shutdown = std::future::pending::<()>();
-        let _ = pgone_apiserver::serve(addr, shutdown).await;
-    });
 
     eframe::run_native(
         title,

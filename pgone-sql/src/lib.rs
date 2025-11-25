@@ -20,8 +20,11 @@ pub mod function;
 // Trigger management
 pub mod trigger;
 
+// Schema management
+pub mod schema;
+
 pub use error::{Result, SqlError};
 pub use models::{
-    DatabaseInfo, FunctionInfo, TableInfo, TriggerInfo, UserInfo, ViewInfo,
+    DatabaseInfo, FunctionInfo, SchemaInfo, TableInfo, TriggerInfo, UserInfo, ViewInfo,
 };
 pub use session::Session;

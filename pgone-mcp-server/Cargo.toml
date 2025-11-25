@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "io-std", "io-util"] }
-sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+sqlx = { workspace = true, default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -21,4 +21,4 @@ async-trait = "0.1"
 moka = { version = "0.12", features = ["future"] }
 once_cell = { workspace = true }
 clap = { workspace = true }
-pgone-util = { path = "../pgone-util" }
+pgone-util = { workspace = true }

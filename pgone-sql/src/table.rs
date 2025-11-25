@@ -194,6 +194,110 @@ impl Session {
 
         Ok(())
     }
+
+    /// Query table data
+    /// Returns (columns, rows) where rows are Vec<Vec<String>>
+    pub async fn query_table_data(
+        &self,
+        schema: &str,
+        table_name: &str,
+        limit: Option<usize>,
+    ) -> Result<(Vec<String>, Vec<Vec<String>>)> {
+        info!(
+            schema = schema,
+            table_name = table_name,
+            limit = limit,
+            "Querying table data"
+        );
+
+        let conn = self.get_connection().await?;
+        
+        // Build query
+        let mut query = format!(
+            "SELECT * FROM {}.{}",
+            quote_ident(schema),
+            quote_ident(table_name)
+        );
+        
+        if let Some(lim) = limit {
+            query.push_str(&format!(" LIMIT {}", lim));
+        }
+
+        let rows = conn.query(&query, &[])
+            .await
+            .map_err(|e| SqlError::Execution(format!("Failed to query table data: {}", e)))?;
+
+        // Get column names from first row
+        let mut columns = Vec::new();
+        let mut data = Vec::new();
+
+        if let Some(first_row) = rows.first() {
+            for col in first_row.columns() {
+                columns.push(col.name().to_string());
+            }
+
+            // Convert rows to Vec<Vec<String>>
+            for row in rows {
+                let mut row_data = Vec::new();
+                for i in 0..columns.len() {
+                    let value = format_cell(&row, i);
+                    row_data.push(value);
+                }
+                data.push(row_data);
+            }
+        }
+
+        Ok((columns, data))
+    }
+}
+
+/// Format a cell value to string
+fn format_cell(row: &tokio_postgres::Row, idx: usize) -> String {
+    use tokio_postgres::types::Type;
+    
+    let col_type = row.columns().get(idx).map(|c| c.type_());
+    
+    // Try different types based on column type
+    if let Some(t) = col_type {
+        if *t == Type::TEXT || *t == Type::VARCHAR {
+            if let Ok(v) = row.try_get::<_, String>(idx) {
+                return v;
+            }
+        } else if *t == Type::INT4 {
+            if let Ok(v) = row.try_get::<_, i32>(idx) {
+                return v.to_string();
+            }
+        } else if *t == Type::INT8 {
+            if let Ok(v) = row.try_get::<_, i64>(idx) {
+                return v.to_string();
+            }
+        } else if *t == Type::FLOAT4 {
+            if let Ok(v) = row.try_get::<_, f32>(idx) {
+                return v.to_string();
+            }
+        } else if *t == Type::FLOAT8 {
+            if let Ok(v) = row.try_get::<_, f64>(idx) {
+                return v.to_string();
+            }
+        } else if *t == Type::BOOL {
+            if let Ok(v) = row.try_get::<_, bool>(idx) {
+                return v.to_string();
+            }
+        }
+    }
+    
+    // Try as string as fallback
+    if let Ok(v) = row.try_get::<_, String>(idx) {
+        return v;
+    }
+    
+    // Try as bytes (for binary data) - format as hex without external dependency
+    if let Ok(v) = row.try_get::<_, Vec<u8>>(idx) {
+        return format!("\\x{}", v.iter().map(|b| format!("{:02x}", b)).collect::<String>());
+    }
+    
+    // Last resort: return placeholder for unhandled types
+    "<unformatted>".to_string()
 }
 
 /// Quote an identifier for use in SQL
