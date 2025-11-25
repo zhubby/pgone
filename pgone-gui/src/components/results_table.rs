@@ -540,7 +540,9 @@ impl ResultsTable {
         ui.separator();
         
         if self.query_columns.is_empty() {
-            ui.label("No results");
+            ui.centered_and_justified( |ui| {
+                ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
+            });
             return;
         }
 
@@ -748,7 +750,9 @@ impl ResultsTable {
         ui.separator();
         
         if columns.is_empty() {
-            ui.label("No results");
+            ui.centered_and_justified( |ui| {
+                ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
+            });
             return;
         }
 
