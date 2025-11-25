@@ -76,29 +76,31 @@ impl DbTree {
                 }) {
                     // Parse DSN to get connection details
                     if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                        ui.group(|ui| {
-                            ui.heading("Database Info");
-                            ui.horizontal(|ui| {
-                                ui.label(egui_phosphor::regular::DATABASE);
-                                ui.label(egui::RichText::new(&cfg.id).strong());
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Engine:");
-                                ui.label(&cfg.engine);
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Host:");
-                                ui.label(&parsed.host);
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Database:");
-                                ui.label(if parsed.database.is_empty() {
-                                    "<default>"
-                                } else {
-                                    &parsed.database
+                        egui::Frame::group(ui.style())
+                            .inner_margin(egui::Vec2::splat(8.0))
+                            .show(ui, |ui| {
+                                ui.heading("Database Info");
+                                ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::DATABASE);
+                                    ui.label(egui::RichText::new(&cfg.id).strong());
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Engine:");
+                                    ui.label(&cfg.engine);
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Host:");
+                                    ui.label(&parsed.host);
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Database:");
+                                    ui.label(if parsed.database.is_empty() {
+                                        "<default>"
+                                    } else {
+                                        &parsed.database
+                                    });
                                 });
                             });
-                        });
                         ui.add_space(10.0);
                     }
                 }
@@ -512,13 +514,16 @@ impl DbTree {
                     storage.get_db_config(&db_id).await
                 })
             }) {
-                // Replace database name in DSN
-                let mut dsn = cfg.dsn.clone();
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&dsn) {
-                    dsn = format!("{}://{}:{}@{}:{}/{}", 
-                        parsed.engine, parsed.user, "", parsed.host, parsed.port, database);
-                }
-                dsn
+                // Replace database name in DSN while preserving password
+                replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
+                    // Fallback to manual construction if URL parsing fails
+                    if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
+                        format!("{}://{}@{}:{}/{}", 
+                            parsed.engine, parsed.user, parsed.host, parsed.port, database)
+                    } else {
+                        cfg.dsn.clone()
+                    }
+                })
             } else {
                 return;
             }
@@ -562,13 +567,16 @@ impl DbTree {
                     storage.get_db_config(&db_id).await
                 })
             }) {
-                // Replace database name in DSN
-                let mut dsn = cfg.dsn.clone();
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&dsn) {
-                    dsn = format!("{}://{}:{}@{}:{}/{}", 
-                        parsed.engine, parsed.user, "", parsed.host, parsed.port, database);
-                }
-                dsn
+                // Replace database name in DSN while preserving password
+                replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
+                    // Fallback to manual construction if URL parsing fails
+                    if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
+                        format!("{}://{}@{}:{}/{}", 
+                            parsed.engine, parsed.user, parsed.host, parsed.port, database)
+                    } else {
+                        cfg.dsn.clone()
+                    }
+                })
             } else {
                 return;
             }
@@ -608,13 +616,16 @@ impl DbTree {
                     storage.get_db_config(&db_id).await
                 })
             }) {
-                // Replace database name in DSN
-                let mut dsn = cfg.dsn.clone();
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&dsn) {
-                    dsn = format!("{}://{}:{}@{}:{}/{}", 
-                        parsed.engine, parsed.user, "", parsed.host, parsed.port, database);
-                }
-                dsn
+                // Replace database name in DSN while preserving password
+                replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
+                    // Fallback to manual construction if URL parsing fails
+                    if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
+                        format!("{}://{}@{}:{}/{}", 
+                            parsed.engine, parsed.user, parsed.host, parsed.port, database)
+                    } else {
+                        cfg.dsn.clone()
+                    }
+                })
             } else {
                 return;
             }
@@ -913,12 +924,16 @@ impl DbTree {
                     storage.get_db_config(&db_id).await
                 })
             }) {
-                let mut dsn = cfg.dsn.clone();
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&dsn) {
-                    dsn = format!("{}://{}:{}@{}:{}/{}", 
-                        parsed.engine, parsed.user, "", parsed.host, parsed.port, database);
-                }
-                return Some(dsn);
+                // Replace database name in DSN while preserving password
+                return replace_database_in_dsn(&cfg.dsn, database).or_else(|| {
+                    // Fallback to manual construction if URL parsing fails
+                    if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
+                        Some(format!("{}://{}@{}:{}/{}", 
+                            parsed.engine, parsed.user, parsed.host, parsed.port, database))
+                    } else {
+                        Some(cfg.dsn.clone())
+                    }
+                });
             }
         }
         None
@@ -1240,4 +1255,33 @@ impl DbTree {
 
 fn quote_ident(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
+}
+
+/// Replace database name in DSN while preserving password and other parameters
+fn replace_database_in_dsn(dsn: &str, new_database: &str) -> Option<String> {
+    // Try to parse as URL first - this preserves password and all query parameters
+    if let Ok(mut url) = url::Url::parse(dsn) {
+        // Set the new database path (url::Url handles encoding automatically)
+        url.set_path(&format!("/{}", new_database));
+        return Some(url.to_string());
+    }
+    
+    // Fallback: try manual parsing for postgresql:// URLs
+    // This handles cases where URL parsing fails but DSN format is still valid
+    if dsn.starts_with("postgresql://") || dsn.starts_with("postgres://") {
+        // Find the last '/' before query parameters
+        if let Some(db_start) = dsn.rfind('/') {
+            if let Some(query_start) = dsn[db_start..].find('?') {
+                // Has query parameters - preserve them
+                let base = &dsn[..db_start];
+                let query = &dsn[db_start + query_start..];
+                return Some(format!("{}/{}{}", base, new_database, query));
+            } else {
+                // No query parameters
+                return Some(format!("{}/{}", &dsn[..db_start], new_database));
+            }
+        }
+    }
+    
+    None
 }

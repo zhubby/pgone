@@ -77,6 +77,7 @@ tracing-opentelemetry = "0.32"
 # Turso/libsql for local embedded storage
 libsql = { version = "0.4" }
 turso = { version = "0.1.5" }
+etl = { git = "https://github.com/supabase/etl" }
 
 pgone-mcp-server = { path = "pgone-mcp-server" }
 pgone-gui = { path = "pgone-gui" }

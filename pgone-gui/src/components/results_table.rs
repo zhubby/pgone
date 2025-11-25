@@ -1,4 +1,10 @@
 use std::collections::HashMap;
+use etl::{
+    config::{BatchConfig, PgConnectionConfig, PipelineConfig, TlsConfig},
+    destination::memory::MemoryDestination,
+    pipeline::Pipeline,
+    store::both::memory::MemoryStore,
+};
 
 #[derive(Default)]
 pub struct ResultsTable {
@@ -6,6 +12,12 @@ pub struct ResultsTable {
 }
 
 impl ResultsTable {
+
+    pub fn watch_ui(&mut self, ui: &mut egui::Ui , pipe: &mut Pipeline<MemoryStore, MemoryDestination>) {
+
+    }
+
+
     pub fn ui(&mut self, ui: &mut egui::Ui, columns: &[String], rows: &[Vec<String>]) {
         ui.horizontal(|ui| {
             ui.heading("Results");
