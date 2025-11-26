@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
-use eframe::egui::{self, CentralPanel, Context, SidePanel, TopBottomPanel};
-use egui::Frame;
+use eframe::egui::{self, Context};
 use egui_phosphor::Variant as PhosphorVariant;
 use icns::{IconFamily, IconType};
 use serde::Deserialize;
@@ -20,12 +19,14 @@ mod sql;
 
 mod components;
 use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SettingsPanel};
+mod layout;
 mod media;
 
 pub struct AppFrame {
     #[allow(dead_code)]
     state: PersistedState,
     show_settings: bool,
+    show_about: bool,
     db: DbManager,
     results_table: ResultsTable,
     preview: PreviewManager,
@@ -40,11 +41,6 @@ pub struct AppFrame {
 
 impl AppFrame {
     const SESSIONS_PATH: &'static str = "sessions.json";
-
-    /// Get the center position of the screen for window placement
-    fn screen_center(ctx: &egui::Context) -> egui::Pos2 {
-        ctx.screen_rect().center()
-    }
 
     fn new() -> Self {
         let state = Self::load_state().unwrap_or_else(|| PersistedState {
@@ -66,6 +62,7 @@ impl AppFrame {
         Self {
             state,
             show_settings: false,
+            show_about: false,
             db: Default::default(),
             results_table: Default::default(),
             preview: Default::default(),
@@ -221,190 +218,57 @@ impl AppFrame {
 
 impl eframe::App for AppFrame {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
-        let Self { db, .. } = self;
-        // fonts are initialized in run() creation context to avoid runtime deadlocks
-        TopBottomPanel::top("menu_top").show(ctx, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("New Database...").clicked() {
-                        db.show_add_db = true;
-                        ui.close();
-                    }
-                    if ui.button("Manage Databases...").clicked() {
-                        db.show_manage_db = true;
-                        ui.close();
-                    }
-                });
-                ui.menu_button("View", |ui| {
-                    if ui
-                        .checkbox(&mut self.left_panel_visible, "Left Panel")
-                        .changed()
-                    {
-                        // Panel visibility toggled
-                    }
-                    if ui
-                        .checkbox(&mut self.right_panel_visible, "Right Panel")
-                        .changed()
-                    {
-                        // Panel visibility toggled
-                    }
-                    ui.separator();
-                    if ui.button("Clear Current Session").clicked() {
-                        // self.clear_current_session();
-                        ui.close();
-                    }
-                });
-                ui.menu_button("Settings", |ui| {
-                    if ui.button("Open Settings").clicked() {
-                        self.show_settings = true;
-                        ui.close();
-                    }
-                });
-                ui.menu_button("Help", |_| {});
-            });
-        });
+        // Menu bar
+        layout::menu_bar::show_menu_bar(
+            ctx,
+            &mut self.db,
+            &mut self.left_panel_visible,
+            &mut self.right_panel_visible,
+            &mut self.show_settings,
+            &mut self.show_about,
+        );
 
-        // Bottom status bar
-        TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                // ui.label("Ready");
-                // ui.add_space(ui.available_width() - 200.0);
+        // Status bar
+        layout::status_bar::show_status_bar(ctx, &mut self.db);
 
-                // Database selection button and display
-                ui.horizontal(|ui| {
-                    if ui.button("Select Database").clicked() {
-                        db.show_manage_db = true;
-                    }
-                    ui.separator();
-                    let active_id = db.active_db_config_id.clone();
-                    let db_name = if let Some(ref id) = active_id {
-                        db.get_db_name(id).unwrap_or_else(|| id.clone())
-                    } else {
-                        "<no db>".to_string()
-                    };
-                    ui.label(format!("Selected Database Config: {}", db_name));
-                    ui.separator();
+        // Database management windows
+        self.db.ui_add_db_window(ctx);
+        self.db.ui_manage_db_window(ctx);
+        self.db.ui_edit_db_window(ctx);
 
-                    if active_id.is_some() {
-
-                        db.ensure_storage();
-                    if let Some(ref storage) = db.storage {
-                        if let Ok(Some(cfg)) = futures::block_on_async(async {
-                            storage.get_db_config(&active_id.as_ref().unwrap()).await
-                        }) {
-                            // Parse DSN to get connection details
-                            if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn)
-                            {
-                                ui.horizontal(|ui| {
-                                    ui.label(egui_phosphor::regular::DATABASE);
-                                    ui.label(egui::RichText::new(&cfg.id).strong());
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Engine:");
-                                    ui.label(&cfg.engine);
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Host:");
-                                    ui.label(&parsed.host);
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Database:");
-                                    ui.label(if parsed.database.is_empty() {
-                                        "<default>"
-                                    } else {
-                                        &parsed.database
-                                    });
-                                });
-                            }
-                        }
-                    }
-                    }
-
-                    
-                });
-            });
-        });
-
-        db.ui_add_db_window(ctx);
-        db.ui_manage_db_window(ctx);
-        db.ui_edit_db_window(ctx);
-
-        if self.show_settings {
-            let mut open = true;
-            let mut settings_changed = false;
-            egui::Window::new("设置")
-                .open(&mut open)
-                .default_pos(Self::screen_center(ctx))
-                .pivot(egui::Align2::CENTER_CENTER)
-                .default_size([400.0, 300.0])
-                .show(ctx, |ui| {
-                    let old_settings: Settings = self.state.settings.clone();
-                    self.settings_panel.ui(ui, &mut self.state.settings, ctx);
-                    if self.state.settings.font_family != old_settings.font_family
-                        || self.state.settings.font_size != old_settings.font_size
-                    {
-                        settings_changed = true;
-                    }
-                });
-            if settings_changed {
-                self.save_state();
-            }
-            if !open {
-                self.show_settings = false;
-            }
+        // Settings window
+        if layout::windows::show_settings_window(
+            ctx,
+            &mut self.show_settings,
+            &mut self.state,
+            &mut self.settings_panel,
+        ) {
+            self.save_state();
         }
 
-        // Left panel - Database structure tree
-        SidePanel::left("left_panel")
-            .resizable(true)
-            .default_width(self.left_panel_width)
-            .min_width(100.0)
-            .max_width(500.0)
-            .show_animated(ctx, self.left_panel_visible, |ui| {
-                self.db_tree.ui(ui, &mut self.db, &mut self.results_table);
-            });
+        // About window
+        layout::windows::show_about_window(ctx, &mut self.show_about);
 
-        // Right panel - Chat
-        SidePanel::right("right_panel")
-            .resizable(true)
-            .default_width(self.right_panel_width)
-            .min_width(100.0)
-            .max_width(500.0)
-            .show_animated(ctx, self.right_panel_visible, |ui| {
-                let settings = self.state.settings.clone();
-                let mut chat_ctx = components::ChatCtx {
-                    state: &mut self.state,
-                    preview: &mut self.preview,
-                    send_shortcut: settings.send_shortcut,
-                    openai_api_key: settings.openai_api_key.clone(),
-                    openai_model: settings.openai_model.clone(),
-                };
-                self.chat.ui(&mut chat_ctx, ui);
-            });
+        // Panels
+        layout::panels::show_left_panel(
+            ctx,
+            self.left_panel_visible,
+            self.left_panel_width,
+            &mut self.db_tree,
+            &mut self.db,
+            &mut self.results_table,
+        );
 
-        // Center panel - Results table with SQL editor
-        CentralPanel::default()
-            .frame(Frame::central_panel(&ctx.style()).inner_margin(0.))
-            .show(ctx, |ui| {
-                // Ensure storage is initialized before creating SqlCtx
-                self.db.ensure_storage();
-                let mut sql_ctx = components::SqlCtx {
-                    state: self.state.clone(),
-                    db: crate::components::DbManager {
-                        active_db_config_id: self.db.active_db_config_id.clone(),
-                        pools: self.db.pools.clone(),
-                        storage: None, // Will be initialized in run_sql via ensure_storage()
-                        ..Default::default()
-                    },
-                };
-                // Initialize storage in SqlCtx by ensuring it's available
-                if self.db.storage.is_some() {
-                    sql_ctx.db.ensure_storage();
-                }
-                self.results_table.ui(ui, Some(&mut sql_ctx));
-                // Update pools back if they were modified
-                self.db.pools = sql_ctx.db.pools;
-            });
+        layout::panels::show_right_panel(
+            ctx,
+            self.right_panel_visible,
+            self.right_panel_width,
+            &mut self.chat,
+            &mut self.state,
+            &mut self.preview,
+        );
+
+        layout::panels::show_center_panel(ctx, &mut self.db, &mut self.results_table, &self.state);
 
         // Image preview window
         self.preview.ui_window(ctx);
