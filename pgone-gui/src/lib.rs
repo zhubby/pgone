@@ -18,7 +18,7 @@ mod notify;
 mod sql;
 
 mod components;
-use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SettingsPanel};
+use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
 mod layout;
 mod media;
 
@@ -27,6 +27,9 @@ pub struct AppFrame {
     state: PersistedState,
     show_settings: bool,
     show_about: bool,
+    show_graph: bool,
+    graph_schema: Option<(String, String)>, // (database, schema)
+    graph: SchemaGraph,
     db: DbManager,
     results_table: ResultsTable,
     preview: PreviewManager,
@@ -63,6 +66,9 @@ impl AppFrame {
             state,
             show_settings: false,
             show_about: false,
+            show_graph: false,
+            graph_schema: None,
+            graph: SchemaGraph::default(),
             db: Default::default(),
             results_table: Default::default(),
             preview: Default::default(),
@@ -248,6 +254,23 @@ impl eframe::App for AppFrame {
 
         // About window
         layout::windows::show_about_window(ctx, &mut self.show_about);
+
+        // Check for pending graph window open
+        if let Some(schema_info) = self.db_tree.take_pending_open_graph() {
+            self.show_graph = true;
+            self.graph_schema = Some(schema_info.clone());
+            // Reinitialize graph with new schema
+            self.graph = SchemaGraph::new(schema_info.0.clone(), schema_info.1.clone());
+        }
+
+        // Graph window
+        layout::windows::show_graph_window(
+            ctx,
+            &mut self.show_graph,
+            self.graph_schema.clone(),
+            &mut self.db,
+            &mut self.graph,
+        );
 
         // Panels
         layout::panels::show_left_panel(

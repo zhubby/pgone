@@ -18,6 +18,7 @@ path = "src/main.rs"
 emath = { version = "0.32.3", default-features = false }
 ecolor = { version = "0.32.3", default-features = false }
 epaint = { version = "0.32.3", default-features = false }
+egui-snarl = "0.8"
 catppuccin-egui = { version = "5.7.0", default-features = false, features = ["egui32"] }
 epaint_default_fonts = { version = "0.32.3" }
 egui_table = "0.4.0"

@@ -1,4 +1,4 @@
-use crate::components::SettingsPanel;
+use crate::components::{DbManager, SchemaGraph, SettingsPanel};
 use crate::models::{PersistedState, Settings};
 use eframe::egui::{Align2, Context, Window};
 
@@ -78,6 +78,63 @@ pub fn show_about_window(ctx: &Context, show_about: &mut bool) {
         });
     if !open {
         *show_about = false;
+    }
+}
+
+pub fn show_graph_window(
+    ctx: &Context,
+    show_graph: &mut bool,
+    schema_info: Option<(String, String)>, // (database, schema)
+    db_manager: &mut DbManager,
+    graph: &mut SchemaGraph,
+) {
+    if !*show_graph {
+        return;
+    }
+
+    let mut open = true;
+    let title = if let Some((_database, _schema)) = &schema_info {
+        format!("Schema Graph: {}.{}", _database, _schema)
+    } else {
+        "Schema Graph".to_string()
+    };
+
+    // Get DSN before opening window to avoid borrow checker issues
+    let dsn = schema_info.as_ref().and_then(|(_database, _schema)| {
+        db_manager.ensure_storage();
+        db_manager
+            .active_db_config_id
+            .as_ref()
+            .and_then(|id| {
+                db_manager
+                    .storage
+                    .as_ref()
+                    .and_then(|storage| {
+                        crate::futures::block_on_async(async {
+                            storage.get_db_config(id).await
+                        })
+                        .ok()
+                        .flatten()
+                        .map(|cfg| cfg.dsn)
+                    })
+            })
+    });
+
+    Window::new(title)
+        .open(&mut open)
+        .default_pos(screen_center(ctx))
+        .pivot(Align2::CENTER_CENTER)
+        .default_size([400.0, 600.0])
+        .show(ctx, |ui| {
+            if schema_info.is_some() {
+                graph.ui(ui, dsn.as_deref());
+            } else {
+                ui.label("请选择一个 schema");
+            }
+        });
+
+    if !open {
+        *show_graph = false;
     }
 }
 

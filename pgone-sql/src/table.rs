@@ -1,6 +1,7 @@
 use crate::error::{Result, SqlError};
-use crate::models::TableInfo;
+use crate::models::{ColumnDetail, ForeignKeyDetail, PrimaryKeyDetail, TableDetail, TableInfo};
 use crate::session::Session;
+use std::collections::BTreeMap;
 use tracing::info;
 
 impl Session {
@@ -248,6 +249,190 @@ impl Session {
         }
 
         Ok((columns, data))
+    }
+
+    /// Get detailed information about a table including columns, primary keys, and foreign keys
+    pub async fn get_table_detail(&self, schema: &str, table_name: &str) -> Result<TableDetail> {
+        info!(schema = schema, table_name = table_name, "Getting table detail");
+
+        let conn = self.get_connection().await?;
+
+        // Get columns with comments
+        let col_rows = conn
+            .query(
+                r#"
+                SELECT c.column_name, c.is_nullable, c.data_type, c.udt_name,
+                       c.character_maximum_length, c.numeric_precision, c.numeric_scale,
+                       c.column_default, pgd.description AS column_comment
+                FROM information_schema.columns c
+                LEFT JOIN pg_class pc ON pc.relname = c.table_name
+                LEFT JOIN pg_namespace pn ON pn.nspname = c.table_schema AND pn.oid = pc.relnamespace
+                LEFT JOIN pg_attribute pa ON pa.attrelid = pc.oid AND pa.attname = c.column_name
+                LEFT JOIN pg_description pgd ON pgd.objoid = pc.oid AND pgd.objsubid = pa.attnum
+                WHERE c.table_schema = $1 AND c.table_name = $2
+                ORDER BY c.ordinal_position
+                "#,
+                &[&schema, &table_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?;
+
+        let columns: Vec<ColumnDetail> = col_rows
+            .iter()
+            .map(|row| ColumnDetail {
+                name: row.get("column_name"),
+                nullable: matches!(row.get::<_, String>("is_nullable").as_str(), "YES"),
+                data_type: row.get("data_type"),
+                udt_name: row.try_get("udt_name").ok(),
+                character_maximum_length: row.try_get("character_maximum_length").ok(),
+                numeric_precision: row.try_get("numeric_precision").ok(),
+                numeric_scale: row.try_get("numeric_scale").ok(),
+                default: row.try_get("column_default").ok(),
+                comment: row.try_get("column_comment").ok(),
+            })
+            .collect();
+
+        // Get table comment
+        let table_comment: Option<String> = conn
+            .query_opt(
+                r#"
+                SELECT obj_description(pc.oid)
+                FROM pg_class pc
+                JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+                WHERE pn.nspname = $1 AND pc.relname = $2
+                "#,
+                &[&schema, &table_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?
+            .and_then(|row| row.try_get(0).ok());
+
+        // Get primary key
+        let pk_rows = conn
+            .query(
+                r#"
+                SELECT kcu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+                WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1 AND tc.table_name = $2
+                ORDER BY kcu.ordinal_position
+                "#,
+                &[&schema, &table_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?;
+
+        let pk_cols: Vec<String> = pk_rows.iter().map(|row| row.get(0)).collect();
+        let primary_key = if pk_cols.is_empty() {
+            None
+        } else {
+            Some(PrimaryKeyDetail { columns: pk_cols })
+        };
+
+        // Get foreign keys
+        let fk_rows = conn
+            .query(
+                r#"
+                SELECT kcu.constraint_name, kcu.column_name, ccu.table_schema, ccu.table_name,
+                       ccu.column_name AS ref_column, rc.update_rule, rc.delete_rule
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.referential_constraints rc
+                  ON rc.constraint_name = tc.constraint_name AND rc.constraint_schema = tc.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON ccu.constraint_name = rc.unique_constraint_name
+                  AND ccu.constraint_schema = rc.unique_constraint_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1 AND tc.table_name = $2
+                ORDER BY kcu.ordinal_position
+                "#,
+                &[&schema, &table_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?;
+
+        // Group by constraint_name
+        let mut fk_map: BTreeMap<
+            String,
+            (
+                Vec<String>,
+                (String, Vec<String>),
+                Option<String>,
+                Option<String>,
+            ),
+        > = BTreeMap::new();
+
+        for row in fk_rows {
+            let constraint_name: String = row.get("constraint_name");
+            let column: String = row.get("column_name");
+            let ref_schema: String = row.get("table_schema");
+            let ref_table: String = row.get("table_name");
+            let ref_column: String = row.get("ref_column");
+            let on_update: Option<String> = row.try_get("update_rule").ok();
+            let on_delete: Option<String> = row.try_get("delete_rule").ok();
+
+            let entry = fk_map
+                .entry(constraint_name)
+                .or_insert((
+                    Vec::new(),
+                    (format!("{}.{}", ref_schema, ref_table), Vec::new()),
+                    None,
+                    None,
+                ));
+            entry.0.push(column);
+            entry.1 .1.push(ref_column);
+            entry.2 = on_update;
+            entry.3 = on_delete;
+        }
+
+        let foreign_keys: Vec<ForeignKeyDetail> = fk_map
+            .into_values()
+            .map(|(cols, (ref_table, ref_cols), on_update, on_delete)| {
+                ForeignKeyDetail {
+                    columns: cols,
+                    ref_table,
+                    ref_columns: ref_cols,
+                    on_update,
+                    on_delete,
+                }
+            })
+            .collect();
+
+        Ok(TableDetail {
+            schema: schema.to_string(),
+            name: table_name.to_string(),
+            comment: table_comment,
+            columns,
+            primary_key,
+            foreign_keys,
+        })
+    }
+
+    /// List all tables with detailed information in a schema
+    pub async fn list_table_details(&self, schema: &str) -> Result<Vec<TableDetail>> {
+        info!(schema = schema, "Listing table details");
+
+        // First get list of tables
+        let tables = self.list_tables(Some(schema)).await?;
+
+        // Then get details for each table
+        let mut details = Vec::new();
+        for table in tables {
+            match self.get_table_detail(&table.schema, &table.name).await {
+                Ok(detail) => details.push(detail),
+                Err(e) => {
+                    tracing::warn!(
+                        schema = table.schema,
+                        table = table.name,
+                        error = %e,
+                        "Failed to get table detail"
+                    );
+                }
+            }
+        }
+
+        Ok(details)
     }
 }
 

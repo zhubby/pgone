@@ -58,6 +58,7 @@ pub struct DbTree {
     // Pending actions (to avoid borrow checker issues in context menus)
     pending_query_table: Option<(String, String, String)>, // (database, schema, table)
     pending_open_sql_editor: bool, // Flag to open SQL editor
+    pending_open_graph: Option<(String, String)>, // (database, schema) - Flag to open graph window
     
     // Error state
     error: Option<String>,
@@ -68,6 +69,10 @@ impl DbTree {
         let value = self.pending_open_sql_editor;
         self.pending_open_sql_editor = false;
         value
+    }
+    
+    pub fn take_pending_open_graph(&mut self) -> Option<(String, String)> {
+        self.pending_open_graph.take()
     }
     
     pub fn ui(&mut self, ui: &mut egui::Ui, db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable) {
@@ -276,6 +281,10 @@ impl DbTree {
                                 
                                 // Handle schema context menu
                                 schema_response.header_response.context_menu(|ui| {
+                                    if ui.button("Graph").clicked() {
+                                        self.pending_open_graph = Some((db_name.clone(), schema_name.clone()));
+                                        ui.close();
+                                    }
                                     if ui.button("New Schema").clicked() {
                                         self.dialog = Some(DialogType::CreateSchema {
                                             database: db_name.clone(),
