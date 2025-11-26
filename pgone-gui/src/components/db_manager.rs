@@ -1,6 +1,7 @@
 use pgone_storage::blocking::StorageBlocking;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use crate::notify;
+use crate::futures;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbEngine {
@@ -125,11 +126,9 @@ impl DbManager {
     pub fn get_db_name(&mut self, id: &str) -> Option<String> {
         self.ensure_storage();
         if let Some(ref storage) = self.storage {
-            // Use tokio::task::block_in_place for synchronous access from async context
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(id).await
-                })
+            // Use block_on_async for synchronous access from async context
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(id).await
             }) {
                 return Some(cfg.id);
             }
@@ -152,10 +151,8 @@ impl DbManager {
         if self.storage.is_some() {
             return;
         }
-        if let Ok(storage) = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                StorageBlocking::open_local("pgone.db").await
-            })
+        if let Ok(storage) = futures::block_on_async(async {
+            StorageBlocking::open_local("pgone.db").await
         }) {
             self.storage = Some(storage);
         }
@@ -166,10 +163,8 @@ impl DbManager {
         self.ensure_storage();
         let mut to_switch: Option<String> = None;
         if let Some(storage) = &self.storage {
-            let list = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.list_db_configs(None).await
-                })
+            let list = futures::block_on_async(async {
+                storage.list_db_configs(None).await
             }).unwrap_or_default();
             for cfg in list {
                 let icon = egui_phosphor::regular::DATABASE;
@@ -474,10 +469,8 @@ impl DbManager {
                 .show(ctx, |ui| {
                     self.ensure_storage();
                     if let Some(storage) = &self.storage {
-                        let list = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                storage.list_db_configs(None).await
-                            })
+                        let list = futures::block_on_async(async {
+                            storage.list_db_configs(None).await
                         }).unwrap_or_default();
                         
                         if list.is_empty() {
@@ -563,10 +556,8 @@ impl DbManager {
                             }
                             for id in to_delete {
                                 if let Some(ref storage) = self.storage {
-                                    let _ = tokio::task::block_in_place(|| {
-                                        tokio::runtime::Handle::current().block_on(async {
-                                            storage.delete_db_config(&id).await
-                                        })
+                                    let _ = futures::block_on_async(async {
+                                        storage.delete_db_config(&id).await
                                     });
                                     // Clear active if deleted
                                     if self.active_db_config_id.as_ref() == Some(&id) {
@@ -657,22 +648,18 @@ impl DbManager {
         
         // 测试连接
         self.add_db_form.error = None;
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                PgPoolOptions::new()
-                    .max_connections(1)
-                    .connect(&dsn)
-                    .await
-            })
+        let result = futures::block_on_async(async {
+            PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&dsn)
+                .await
         });
         
         match result {
             Ok(pool) => {
                 // 尝试执行一个简单查询来验证连接
-                let query_result = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        sqlx::query("SELECT 1").execute(&pool).await
-                    })
+                let query_result = futures::block_on_async(async {
+                    sqlx::query("SELECT 1").execute(&pool).await
                 });
                 match query_result {
                     Ok(_) => {
@@ -746,10 +733,8 @@ impl DbManager {
             created_at: now,
             updated_at: now,
         };
-        let res = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                storage.upsert_db_config(&cfg).await
-            })
+        let res = futures::block_on_async(async {
+            storage.upsert_db_config(&cfg).await
         });
         match res {
             Ok(_) => Ok(()),
@@ -763,10 +748,8 @@ impl DbManager {
         let Some(storage) = self.storage.as_ref() else {
             return Err("storage not ready".into());
         };
-        let cfg = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                storage.get_db_config(id).await
-            })
+        let cfg = futures::block_on_async(async {
+            storage.get_db_config(id).await
         }).map_err(|e| e.to_string())?;
         let Some(cfg) = cfg else {
             return Err("Database config not found".into());
@@ -805,10 +788,8 @@ impl DbManager {
         };
         
         // Load existing config to preserve created_at
-        let existing_cfg = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                storage.get_db_config(id).await
-            })
+        let existing_cfg = futures::block_on_async(async {
+            storage.get_db_config(id).await
         }).map_err(|e| e.to_string())?;
         let Some(existing_cfg) = existing_cfg else {
             return Err("Database config not found".into());
@@ -872,10 +853,8 @@ impl DbManager {
             updated_at: Self::now_ts(),
         };
         
-        let res = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                storage.upsert_db_config(&cfg).await
-            })
+        let res = futures::block_on_async(async {
+            storage.upsert_db_config(&cfg).await
         });
         match res {
             Ok(_) => {
@@ -916,10 +895,8 @@ impl DbManager {
         let password = if self.edit_db_form.password.trim().is_empty() {
             if let Some(ref id) = self.edit_db_id {
                 if let Some(storage) = &self.storage {
-                    if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            storage.get_db_config(id).await
-                        })
+                    if let Ok(Some(cfg)) = futures::block_on_async(async {
+                        storage.get_db_config(id).await
                     }) {
                         if let Some(url) = url::Url::parse(&cfg.dsn).ok() {
                             url.password().unwrap_or("").to_string()
@@ -965,21 +942,17 @@ impl DbManager {
         };
         
         self.edit_db_form.error = None;
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                PgPoolOptions::new()
-                    .max_connections(1)
-                    .connect(&dsn)
-                    .await
-            })
+        let result = futures::block_on_async(async {
+            PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&dsn)
+                .await
         });
         
         match result {
             Ok(pool) => {
-                let query_result = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        sqlx::query("SELECT 1").execute(&pool).await
-                    })
+                let query_result = futures::block_on_async(async {
+                    sqlx::query("SELECT 1").execute(&pool).await
                 });
                 match query_result {
                     Ok(_) => {

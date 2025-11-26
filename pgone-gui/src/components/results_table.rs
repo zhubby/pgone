@@ -1,14 +1,18 @@
 use crate::components::SqlCtx;
+use crate::futures;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
+use tracing::debug;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use poll_promise::Promise;
+use pgone_sql::Session;
 
 #[derive(Default)]
 pub struct ResultsTable {
     // Filter and pagination
-    pub filter_values: HashMap<usize, String>,
+    // pub filter_values: HashMap<usize, String>,
     pub refresh_requested: bool,
     pub current_sql: Option<String>,
     pub previous_sql: Option<String>,
@@ -35,12 +39,18 @@ pub struct ResultsTable {
     
     // SQL execution flag
     pub execute_sql_requested: bool,
+    
+    // Database selection fields
+    pub selected_database: Option<String>,
+    pub available_databases: Vec<String>,
+    pub databases_promise: Option<Promise<Result<Vec<String>, String>>>,
+    pub current_db_id: Option<String>,
 }
 
 impl ResultsTable {
     pub fn new() -> Self {
         Self {
-            filter_values: HashMap::new(),
+            // filter_values: HashMap::new(),
             refresh_requested: false,
             current_sql: None,
             previous_sql: None,
@@ -57,6 +67,10 @@ impl ResultsTable {
             sort_column: None,
             sort_ascending: true,
             execute_sql_requested: false,
+            selected_database: None,
+            available_databases: Vec::new(),
+            databases_promise: None,
+            current_db_id: None,
         }
     }
 
@@ -91,6 +105,47 @@ impl ResultsTable {
                 }
             });
         });
+        
+        // Database selection dropdown
+        if show_execute {
+            ui.horizontal(|ui| {
+                ui.label("数据库:");
+                egui::ComboBox::from_id_salt("database_selector")
+                    .selected_text(
+                        self.selected_database
+                            .as_ref()
+                            .map(|s| s.as_str())
+                            .unwrap_or("<Default>"),
+                    )
+                    .show_ui(ui, |ui| {
+                        // Option to use DSN database
+                        if ui
+                            .selectable_value(
+                                &mut self.selected_database,
+                                None,
+                                "<Default>",
+                            )
+                            .clicked()
+                        {
+                            // Reset to DSN database
+                        }
+                        
+                        // List available databases
+                        for db_name in &self.available_databases {
+                            if ui
+                                .selectable_value(
+                                    &mut self.selected_database,
+                                    Some(db_name.clone()),
+                                    db_name,
+                                )
+                                .clicked()
+                            {
+                                // Database selected
+                            }
+                        }
+                    });
+            });
+        }
         ui.separator();
         
         let current_sql = self.sql_input.clone();
@@ -145,11 +200,9 @@ impl ResultsTable {
         };
         
         ctxs.db.ensure_storage();
-        let dsn = if let Some(ref storage) = ctxs.db.storage {
-            match tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+        let mut dsn = if let Some(ref storage) = ctxs.db.storage {
+            match futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 Ok(Some(cfg)) => cfg.dsn,
                 Ok(None) => {
@@ -171,27 +224,52 @@ impl ResultsTable {
             return;
         }
         
-        let sql = self.sql_input.clone();
-        // Use a hash of the db_id as the pool key
+        // Replace database in DSN if a different database is selected
+        if let Some(ref selected_db) = self.selected_database {
+            if let Some(new_dsn) = replace_database_in_dsn(&dsn, selected_db) {
+                dsn = new_dsn;
+            } else {
+                self.sql_error = Some(format!("Failed to replace database in DSN: {}", selected_db));
+                return;
+            }
+        }
         
+        let sql = self.sql_input.clone();
+        // Use a hash of the actual DSN (including database name) as the pool key
+        // This ensures that different databases get different connection pools
         let mut hasher = DefaultHasher::new();
-        db_id.hash(&mut hasher);
+        dsn.hash(&mut hasher);
         let pool_key = hasher.finish();
-        let pool_opt = ctxs.db.pools.get(&pool_key).cloned();
+        
+        // Get or create connection pool
+        let pool = if let Some(p) = ctxs.db.pools.get(&pool_key).cloned() {
+            p
+        } else {
+            // Create new pool with the modified DSN
+            let new_pool_result = futures::block_on_async(async {
+                PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(&dsn)
+                    .await
+                    .map_err(|e| e.to_string())
+            });
+            match new_pool_result {
+                Ok(new_pool) => {
+                    // Save the pool for future use
+                    ctxs.db.pools.insert(pool_key, new_pool.clone());
+                    new_pool
+                }
+                Err(e) => {
+                    self.sql_error = Some(format!("Failed to create connection pool: {}", e));
+                    return;
+                }
+            }
+        };
         
         // Try to detect primary key columns from SQL query
-        let pk_cols = self.detect_primary_keys(&sql, &dsn, &pool_opt);
+        let pk_cols = self.detect_primary_keys(&sql, &dsn, &Some(pool.clone()));
         
-        let res: Result<(Vec<String>, Vec<Vec<String>>), String> = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                let pool = match pool_opt {
-                    Some(p) => p,
-                    None => PgPoolOptions::new()
-                        .max_connections(1)
-                        .connect(&dsn)
-                        .await
-                        .map_err(|e| e.to_string())?,
-                };
+        let res: Result<(Vec<String>, Vec<Vec<String>>), String> = futures::block_on_async(async move {
                 let rows: Vec<PgRow> = sqlx::query(&sql)
                     .fetch_all(&pool)
                     .await
@@ -216,8 +294,10 @@ impl ResultsTable {
                     data.push(r);
                 }
                 Ok((cols, data))
-            })
         });
+
+        debug!("res: {:?}", res);
+        debug!("pk_cols: {:?}", pk_cols);
         
         match res {
             Ok((cols, rows)) => {
@@ -276,8 +356,7 @@ impl ResultsTable {
         // Query primary key information for the first table (simple case)
         // For JOIN queries, we only check the first table
         if let Some((schema, table)) = table_names.first() {
-            let pk_result = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
+            let pk_result = futures::block_on_async(async {
                     let pool = match pool_opt {
                         Some(p) => p.clone(),
                         None => PgPoolOptions::new()
@@ -305,10 +384,9 @@ impl ResultsTable {
                             .map(|r| r.get::<String, _>(0))
                             .collect::<HashSet<String>>()
                     })
-                })
-            });
+        });
             
-            pk_result
+        pk_result
         } else {
             None
         }
@@ -381,6 +459,37 @@ impl ResultsTable {
 
     /// Main UI method - unified entry point with SQL editor and results table
     pub fn ui(&mut self, ui: &mut egui::Ui, mut ctxs: Option<&mut SqlCtx>) {
+        // Check if database config changed and load databases
+        if let Some(ctxs) = ctxs.as_mut() {
+            let current_db_id = ctxs.db.active_db_config_id.clone();
+            if current_db_id != self.current_db_id {
+                self.current_db_id = current_db_id.clone();
+                self.selected_database = None; // Reset selection when DB config changes
+                if current_db_id.is_some() {
+                    self.load_databases(ctxs);
+                } else {
+                    self.available_databases.clear();
+                    self.databases_promise = None;
+                }
+            }
+        }
+        
+        // Check for database list loading completion
+        if let Some(promise) = &self.databases_promise {
+            if let Some(result) = promise.ready() {
+                match result {
+                    Ok(databases) => {
+                        self.available_databases = databases.clone();
+                    }
+                    Err(e) => {
+                        debug!("Failed to load databases: {}", e);
+                        self.available_databases.clear();
+                    }
+                }
+                self.databases_promise = None;
+            }
+        }
+        
         // Check if refresh was requested
         if self.refresh_requested {
             self.refresh_requested = false;
@@ -854,4 +963,84 @@ impl ResultsTable {
             .is_some()
         {}
     }
+    
+    /// Load available databases from the PostgreSQL instance
+    fn load_databases(&mut self, ctxs: &mut SqlCtx) {
+        if self.databases_promise.is_some() {
+            return; // Already loading
+        }
+        
+        let db_id = ctxs.db.active_db_config_id.clone();
+        let Some(db_id) = db_id else {
+            return;
+        };
+        
+        ctxs.db.ensure_storage();
+        let dsn = if let Some(ref storage) = ctxs.db.storage {
+            match futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
+            }) {
+                Ok(Some(cfg)) => cfg.dsn,
+                Ok(None) => {
+                    debug!("Database config not found: {}", db_id);
+                    return;
+                }
+                Err(e) => {
+                    debug!("Failed to load database config: {}", e);
+                    return;
+                }
+            }
+        } else {
+            return;
+        };
+        
+        let dsn_clone = dsn.clone();
+        let (sender, promise) = Promise::new();
+        self.databases_promise = Some(promise);
+        
+        futures::spawn(async move {
+            let result: Result<Vec<String>, String> = async {
+                let session = Session::connect_to_postgres(&dsn_clone)
+                    .await
+                    .map_err(|e| format!("Failed to connect to postgres: {}", e))?;
+                
+                let databases = session.list_databases()
+                    .await
+                    .map_err(|e| format!("Failed to list databases: {}", e))?;
+                
+                Ok(databases.into_iter().map(|db| db.name).collect())
+            }.await;
+            
+            sender.send(result);
+        });
+    }
+}
+
+/// Replace database name in DSN while preserving password and other parameters
+fn replace_database_in_dsn(dsn: &str, new_database: &str) -> Option<String> {
+    // Try to parse as URL first - this preserves password and all query parameters
+    if let Ok(mut url) = url::Url::parse(dsn) {
+        // Set the new database path (url::Url handles encoding automatically)
+        url.set_path(&format!("/{}", new_database));
+        return Some(url.to_string());
+    }
+    
+    // Fallback: try manual parsing for postgresql:// URLs
+    // This handles cases where URL parsing fails but DSN format is still valid
+    if dsn.starts_with("postgresql://") || dsn.starts_with("postgres://") {
+        // Find the last '/' before query parameters
+        if let Some(db_start) = dsn.rfind('/') {
+            if let Some(query_start) = dsn[db_start..].find('?') {
+                // Has query parameters - preserve them
+                let base = &dsn[..db_start];
+                let query = &dsn[db_start + query_start..];
+                return Some(format!("{}/{}{}", base, new_database, query));
+            } else {
+                // No query parameters
+                return Some(format!("{}/{}", &dsn[..db_start], new_database));
+            }
+        }
+    }
+    
+    None
 }

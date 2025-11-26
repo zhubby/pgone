@@ -159,23 +159,18 @@ impl AppFrame {
                 created_at: 0,
                 updated_at: 0,
             };
-            let _ = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(async { storage.create_session(&sess).await })
-            });
+            let _ = futures::block_on_async(async { storage.create_session(&sess).await });
             for m in &s.messages {
                 match &m.content {
                     MessageContent::Markdown(text) => {
-                        let _ = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                storage
-                                    .append_markdown(
-                                        &sess.id,
-                                        pgone_storage::models::Role::User,
-                                        text,
-                                    )
-                                    .await
-                            })
+                        let _ = futures::block_on_async(async {
+                            storage
+                                .append_markdown(
+                                    &sess.id,
+                                    pgone_storage::models::Role::User,
+                                    text,
+                                )
+                                .await
                         });
                     }
                     MessageContent::Image {
@@ -183,34 +178,30 @@ impl AppFrame {
                         width,
                         height,
                     } => {
-                        let _ = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                storage
-                                    .append_image(
-                                        &sess.id,
-                                        pgone_storage::models::Role::User,
-                                        &path.display().to_string(),
-                                        *width as i64,
-                                        *height as i64,
-                                    )
-                                    .await
-                            })
+                        let _ = futures::block_on_async(async {
+                            storage
+                                .append_image(
+                                    &sess.id,
+                                    pgone_storage::models::Role::User,
+                                    &path.display().to_string(),
+                                    *width as i64,
+                                    *height as i64,
+                                )
+                                .await
                         });
                     }
                     MessageContent::Video {
                         path, duration_ms, ..
                     } => {
-                        let _ = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                storage
-                                    .append_video(
-                                        &sess.id,
-                                        pgone_storage::models::Role::User,
-                                        &path.display().to_string(),
-                                        duration_ms.map(|v| v as i64),
-                                    )
-                                    .await
-                            })
+                        let _ = futures::block_on_async(async {
+                            storage
+                                .append_video(
+                                    &sess.id,
+                                    pgone_storage::models::Role::User,
+                                    &path.display().to_string(),
+                                    duration_ms.map(|v| v as i64),
+                                )
+                                .await
                         });
                     }
                 }
@@ -298,9 +289,8 @@ impl eframe::App for AppFrame {
 
                         db.ensure_storage();
                     if let Some(ref storage) = db.storage {
-                        if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current()
-                                .block_on(async { storage.get_db_config(&active_id.as_ref().unwrap()).await })
+                        if let Ok(Some(cfg)) = futures::block_on_async(async {
+                            storage.get_db_config(&active_id.as_ref().unwrap()).await
                         }) {
                             // Parse DSN to get connection details
                             if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn)
@@ -348,7 +338,7 @@ impl eframe::App for AppFrame {
                 .pivot(egui::Align2::CENTER_CENTER)
                 .default_size([400.0, 300.0])
                 .show(ctx, |ui| {
-                    let old_settings = self.state.settings.clone();
+                    let old_settings: Settings = self.state.settings.clone();
                     self.settings_panel.ui(ui, &mut self.state.settings, ctx);
                     if self.state.settings.font_family != old_settings.font_family
                         || self.state.settings.font_size != old_settings.font_size

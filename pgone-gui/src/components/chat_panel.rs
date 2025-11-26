@@ -1,4 +1,5 @@
 use crate::components::ChatCtx;
+use crate::futures;
 use crate::models::{Message, MessageContent, Role};
 use chrono::Utc;
 use poll_promise::Promise;
@@ -205,10 +206,8 @@ impl ChatPanel {
         if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
             session_id = Some(sess.id);
         }
-        let res: Result<String, String> = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                pgone_util::ai::chat_once(key, model, prompt).await
-            })
+        let res: Result<String, String> = futures::block_on_async(async move {
+            pgone_util::ai::chat_once(key, model, prompt).await
         });
         match res {
             Ok(answer) => {

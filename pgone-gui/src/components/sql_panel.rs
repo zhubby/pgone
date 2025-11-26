@@ -1,4 +1,5 @@
 use crate::components::{SqlCtx, ResultsTable};
+use crate::futures;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
 use std::collections::HashSet;
@@ -119,8 +120,7 @@ impl SqlPanel {
         // Try to detect primary key columns from SQL query
         let pk_cols = self.detect_primary_keys(&sql, &dsn, &pool_opt);
         
-        let res: Result<(Vec<String>, Vec<Vec<String>>), String> = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
+        let res: Result<(Vec<String>, Vec<Vec<String>>), String> = futures::block_on_async(async move {
             let pool = match pool_opt {
                 Some(p) => p,
                 None => PgPoolOptions::new()
@@ -153,7 +153,6 @@ impl SqlPanel {
                 data.push(r);
             }
             Ok((cols, data))
-            })
         });
         match res {
             Ok((cols, rows)) => {
@@ -208,8 +207,7 @@ impl SqlPanel {
         // Query primary key information for the first table (simple case)
         // For JOIN queries, we only check the first table
         if let Some((schema, table)) = table_names.first() {
-            let pk_result = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
+            let pk_result = futures::block_on_async(async {
                     let pool = match pool_opt {
                         Some(p) => p.clone(),
                         None => PgPoolOptions::new()
@@ -237,8 +235,7 @@ impl SqlPanel {
                             .map(|r| r.get::<String, _>(0))
                             .collect::<HashSet<String>>()
                     })
-                })
-            });
+        });
             
             pk_result
         } else {

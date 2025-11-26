@@ -442,10 +442,8 @@ impl DbTree {
         
         db_manager.ensure_storage();
         let dsn = if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 cfg.dsn
             } else {
@@ -487,10 +485,8 @@ impl DbTree {
         
         db_manager.ensure_storage();
         let dsn = if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 // Replace database name in DSN while preserving password
                 replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
@@ -540,10 +536,8 @@ impl DbTree {
         
         db_manager.ensure_storage();
         let dsn = if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 // Replace database name in DSN while preserving password
                 replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
@@ -589,10 +583,8 @@ impl DbTree {
         
         db_manager.ensure_storage();
         let dsn = if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 // Replace database name in DSN while preserving password
                 replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
@@ -615,17 +607,15 @@ impl DbTree {
         let schema_clone = schema.to_string();
         let table_clone = table.to_string();
         
-        // Use tokio::task::block_in_place to run async code
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::new(&dsn_clone)
-                            .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
-                        
-                session.query_table_data(&schema_clone, &table_clone, Some(100))
-                            .await
-                    .map_err(|e| format!("Failed to query table: {}", e))
-            })
+        // Use block_on_async to run async code
+        let result = futures::block_on_async(async {
+            let session = Session::new(&dsn_clone)
+                        .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+                    
+            session.query_table_data(&schema_clone, &table_clone, Some(100))
+                        .await
+                .map_err(|e| format!("Failed to query table: {}", e))
         });
         
         match result {
@@ -902,10 +892,8 @@ impl DbTree {
         let db_id = db_manager.active_db_config_id.clone()?;
         db_manager.ensure_storage();
         if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 // Replace database name in DSN while preserving password
                 return replace_database_in_dsn(&cfg.dsn, database).or_else(|| {
@@ -929,10 +917,8 @@ impl DbTree {
         
         db_manager.ensure_storage();
         let dsn = if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 cfg.dsn
             } else {
@@ -945,16 +931,14 @@ impl DbTree {
         let dsn_clone = dsn.clone();
         let name_clone = name.to_string();
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::connect_to_postgres(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to connect: {}", e))?;
-                
-                session.create_database(&name_clone, None, None, None)
-                    .await
-                    .map_err(|e| format!("Failed to create database: {}", e))
-            })
+        let result = futures::block_on_async(async {
+            let session = Session::connect_to_postgres(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+            
+            session.create_database(&name_clone, None, None, None)
+                .await
+                .map_err(|e| format!("Failed to create database: {}", e))
         });
         
         match result {
@@ -973,16 +957,14 @@ impl DbTree {
         let dsn = self.get_dsn_for_database(db_manager, database);
         let Some(dsn) = dsn else { return; };
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::new(&dsn)
-        .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
-                
-                session.create_schema(name, None)
-                    .await
-                    .map_err(|e| format!("Failed to create schema: {}", e))
-            })
+        let result = futures::block_on_async(async {
+            let session = Session::new(&dsn)
+    .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
+            session.create_schema(name, None)
+                .await
+                .map_err(|e| format!("Failed to create schema: {}", e))
         });
         
         match result {
@@ -1001,16 +983,14 @@ impl DbTree {
         let dsn = self.get_dsn_for_database(db_manager, database);
         let Some(dsn) = dsn else { return; };
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::new(&dsn)
-        .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
-                
-                session.create_table(ddl)
-        .await
-                    .map_err(|e| format!("Failed to create table: {}", e))
-            })
+        let result = futures::block_on_async(async {
+            let session = Session::new(&dsn)
+    .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
+            session.create_table(ddl)
+    .await
+                .map_err(|e| format!("Failed to create table: {}", e))
         });
         
         match result {
@@ -1033,10 +1013,8 @@ impl DbTree {
         
         db_manager.ensure_storage();
         let dsn = if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 cfg.dsn
         } else {
@@ -1049,16 +1027,14 @@ impl DbTree {
         let dsn_clone = dsn.clone();
         let name_clone = name.to_string();
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::connect_to_postgres(&dsn_clone)
-        .await
-                    .map_err(|e| format!("Failed to connect: {}", e))?;
-                
-                session.drop_database(&name_clone, false)
-                    .await
-                    .map_err(|e| format!("Failed to delete database: {}", e))
-            })
+        let result = futures::block_on_async(async {
+            let session = Session::connect_to_postgres(&dsn_clone)
+    .await
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+            
+            session.drop_database(&name_clone, false)
+                .await
+                .map_err(|e| format!("Failed to delete database: {}", e))
         });
         
         match result {
@@ -1077,16 +1053,14 @@ impl DbTree {
         let dsn = self.get_dsn_for_database(db_manager, database);
         let Some(dsn) = dsn else { return; };
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::new(&dsn)
-        .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
-                
-                session.drop_schema(name, false, cascade)
-                    .await
-                    .map_err(|e| format!("Failed to delete schema: {}", e))
-            })
+        let result = futures::block_on_async(async {
+            let session = Session::new(&dsn)
+    .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
+            session.drop_schema(name, false, cascade)
+                .await
+                .map_err(|e| format!("Failed to delete schema: {}", e))
         });
         
         match result {
@@ -1105,16 +1079,14 @@ impl DbTree {
         let dsn = self.get_dsn_for_database(db_manager, database);
         let Some(dsn) = dsn else { return; };
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::new(&dsn)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
-                
+        let result = futures::block_on_async(async {
+            let session = Session::new(&dsn)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
                 session.drop_table(schema, name, false, cascade)
                     .await
                     .map_err(|e| format!("Failed to delete table: {}", e))
-            })
         });
         
         match result {
@@ -1137,10 +1109,8 @@ impl DbTree {
         
         db_manager.ensure_storage();
         let dsn = if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.get_db_config(&db_id).await
-                })
+            if let Ok(Some(cfg)) = futures::block_on_async(async {
+                storage.get_db_config(&db_id).await
             }) {
                 cfg.dsn
             } else {
@@ -1154,16 +1124,14 @@ impl DbTree {
         let old_name_clone = old_name.to_string();
         let new_name_clone = new_name.to_string();
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::connect_to_postgres(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to connect: {}", e))?;
-                
-                session.alter_database(&old_name_clone, Some(&new_name_clone), None, None)
-                    .await
-                    .map_err(|e| format!("Failed to rename database: {}", e))
-            })
+        let result = futures::block_on_async(async {
+            let session = Session::connect_to_postgres(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+            
+            session.alter_database(&old_name_clone, Some(&new_name_clone), None, None)
+                .await
+                .map_err(|e| format!("Failed to rename database: {}", e))
         });
         
         match result {
@@ -1182,16 +1150,14 @@ impl DbTree {
         let dsn = self.get_dsn_for_database(db_manager, database);
         let Some(dsn) = dsn else { return; };
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::new(&dsn)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
-                
-                session.alter_schema(old_name, Some(new_name), None)
-                    .await
-                    .map_err(|e| format!("Failed to rename schema: {}", e))
-            })
+        let result = futures::block_on_async(async {
+            let session = Session::new(&dsn)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
+            session.alter_schema(old_name, Some(new_name), None)
+                .await
+                .map_err(|e| format!("Failed to rename schema: {}", e))
         });
         
         match result {
@@ -1210,16 +1176,14 @@ impl DbTree {
         let dsn = self.get_dsn_for_database(db_manager, database);
         let Some(dsn) = dsn else { return; };
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let session = Session::new(&dsn)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
-                
-                session.alter_table(schema, old_name, &format!("RENAME TO {}", quote_ident(new_name)))
-                    .await
-                    .map_err(|e| format!("Failed to rename table: {}", e))
-            })
+        let result = futures::block_on_async(async {
+            let session = Session::new(&dsn)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
+            session.alter_table(schema, old_name, &format!("RENAME TO {}", quote_ident(new_name)))
+                .await
+                .map_err(|e| format!("Failed to rename table: {}", e))
         });
         
         match result {

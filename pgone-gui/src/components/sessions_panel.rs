@@ -1,4 +1,5 @@
 use crate::components::SessionsCtx;
+use crate::futures;
 use crate::models::{DbConfig, Session};
 
 #[derive(Clone, Default)]
@@ -34,10 +35,8 @@ impl SessionsPanel {
                     created_at: 0,
                     updated_at: 0,
                 };
-                let _ = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        storage.create_session(&sess).await
-                    })
+                let _ = futures::block_on_async(async {
+                    storage.create_session(&sess).await
                 });
             }
         }
