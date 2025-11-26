@@ -2,6 +2,8 @@ use crate::components::SqlCtx;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Default)]
 pub struct ResultsTable {
@@ -171,8 +173,7 @@ impl ResultsTable {
         
         let sql = self.sql_input.clone();
         // Use a hash of the db_id as the pool key
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        
         let mut hasher = DefaultHasher::new();
         db_id.hash(&mut hasher);
         let pool_key = hasher.finish();

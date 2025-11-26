@@ -18,5 +18,5 @@ pub struct ChatCtx<'a> {
 #[derive(Default)]
 pub struct SqlCtx {
     pub state: PersistedState,
-    pub db: crate::components::DbManager,
+    pub db: DbManager,
 }

@@ -74,44 +74,7 @@ impl DbTree {
         // Show database information if one is selected
         let db_id_opt = db_manager.active_db_config_id.clone();
         if let Some(db_id) = db_id_opt {
-            db_manager.ensure_storage();
-            if let Some(ref storage) = db_manager.storage {
-                if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        storage.get_db_config(&db_id).await
-                    })
-                }) {
-                    // Parse DSN to get connection details
-                    if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                        egui::Frame::group(ui.style())
-                            .inner_margin(egui::Vec2::splat(8.0))
-                            .show(ui, |ui| {
-                                ui.heading("Database Info");
-                                ui.horizontal(|ui| {
-                                    ui.label(egui_phosphor::regular::DATABASE);
-                                    ui.label(egui::RichText::new(&cfg.id).strong());
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Engine:");
-                                    ui.label(&cfg.engine);
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Host:");
-                                    ui.label(&parsed.host);
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Database:");
-                                    ui.label(if parsed.database.is_empty() {
-                                        "<default>"
-                                    } else {
-                                        &parsed.database
-                                    });
-                                });
-                            });
-                        ui.add_space(10.0);
-                    }
-                }
-            }
+            
         }
         
         ui.heading(format!("{} Database Structure", egui_phosphor::regular::TREE_STRUCTURE));

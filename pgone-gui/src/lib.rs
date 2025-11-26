@@ -19,7 +19,7 @@ mod notify;
 mod sql;
 
 mod components;
-use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable};
+use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SettingsPanel};
 mod media;
 
 pub struct AppFrame {
@@ -31,6 +31,7 @@ pub struct AppFrame {
     preview: PreviewManager,
     chat: ChatPanel,
     db_tree: DbTree,
+    settings_panel: SettingsPanel,
     left_panel_visible: bool,
     right_panel_visible: bool,
     left_panel_width: f32,
@@ -70,6 +71,7 @@ impl AppFrame {
             preview: Default::default(),
             chat: Default::default(),
             db_tree: Default::default(),
+            settings_panel: Default::default(),
             left_panel_visible: true,
             right_panel_visible: true,
             left_panel_width: 250.0,
@@ -158,9 +160,8 @@ impl AppFrame {
                 updated_at: 0,
             };
             let _ = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    storage.create_session(&sess).await
-                })
+                tokio::runtime::Handle::current()
+                    .block_on(async { storage.create_session(&sess).await })
             });
             for m in &s.messages {
                 match &m.content {
@@ -244,10 +245,16 @@ impl eframe::App for AppFrame {
                     }
                 });
                 ui.menu_button("View", |ui| {
-                    if ui.checkbox(&mut self.left_panel_visible, "Left Panel").changed() {
+                    if ui
+                        .checkbox(&mut self.left_panel_visible, "Left Panel")
+                        .changed()
+                    {
                         // Panel visibility toggled
                     }
-                    if ui.checkbox(&mut self.right_panel_visible, "Right Panel").changed() {
+                    if ui
+                        .checkbox(&mut self.right_panel_visible, "Right Panel")
+                        .changed()
+                    {
                         // Panel visibility toggled
                     }
                     ui.separator();
@@ -269,9 +276,9 @@ impl eframe::App for AppFrame {
         // Bottom status bar
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Ready");
-                ui.add_space(ui.available_width() - 200.0);
-                
+                // ui.label("Ready");
+                // ui.add_space(ui.available_width() - 200.0);
+
                 // Database selection button and display
                 ui.horizontal(|ui| {
                     if ui.button("Select Database").clicked() {
@@ -279,12 +286,51 @@ impl eframe::App for AppFrame {
                     }
                     ui.separator();
                     let active_id = db.active_db_config_id.clone();
-                    let db_name = if let Some(id) = active_id {
-                        db.get_db_name(&id).unwrap_or_else(|| id)
+                    let db_name = if let Some(ref id) = active_id {
+                        db.get_db_name(id).unwrap_or_else(|| id.clone())
                     } else {
                         "<no db>".to_string()
                     };
-                    ui.label(format!("DB: {}", db_name));
+                    ui.label(format!("Selected Database Config: {}", db_name));
+                    ui.separator();
+
+                    if active_id.is_some() {
+
+                        db.ensure_storage();
+                    if let Some(ref storage) = db.storage {
+                        if let Ok(Some(cfg)) = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current()
+                                .block_on(async { storage.get_db_config(&active_id.as_ref().unwrap()).await })
+                        }) {
+                            // Parse DSN to get connection details
+                            if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn)
+                            {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::DATABASE);
+                                    ui.label(egui::RichText::new(&cfg.id).strong());
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Engine:");
+                                    ui.label(&cfg.engine);
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Host:");
+                                    ui.label(&parsed.host);
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Database:");
+                                    ui.label(if parsed.database.is_empty() {
+                                        "<default>"
+                                    } else {
+                                        &parsed.database
+                                    });
+                                });
+                            }
+                        }
+                    }
+                    }
+
+                    
                 });
             });
         });
@@ -292,19 +338,32 @@ impl eframe::App for AppFrame {
         db.ui_add_db_window(ctx);
         db.ui_manage_db_window(ctx);
         db.ui_edit_db_window(ctx);
-        
+
         if self.show_settings {
             let mut open = true;
-            egui::Window::new("Settings")
+            let mut settings_changed = false;
+            egui::Window::new("设置")
                 .open(&mut open)
                 .default_pos(Self::screen_center(ctx))
                 .pivot(egui::Align2::CENTER_CENTER)
-                .show(ctx, |_ui| {});
+                .default_size([400.0, 300.0])
+                .show(ctx, |ui| {
+                    let old_settings = self.state.settings.clone();
+                    self.settings_panel.ui(ui, &mut self.state.settings, ctx);
+                    if self.state.settings.font_family != old_settings.font_family
+                        || self.state.settings.font_size != old_settings.font_size
+                    {
+                        settings_changed = true;
+                    }
+                });
+            if settings_changed {
+                self.save_state();
+            }
             if !open {
                 self.show_settings = false;
             }
         }
-        
+
         // Left panel - Database structure tree
         SidePanel::left("left_panel")
             .resizable(true)
@@ -314,7 +373,7 @@ impl eframe::App for AppFrame {
             .show_animated(ctx, self.left_panel_visible, |ui| {
                 self.db_tree.ui(ui, &mut self.db, &mut self.results_table);
             });
-        
+
         // Right panel - Chat
         SidePanel::right("right_panel")
             .resizable(true)
@@ -332,7 +391,7 @@ impl eframe::App for AppFrame {
                 };
                 self.chat.ui(&mut chat_ctx, ui);
             });
-        
+
         // Center panel - Results table with SQL editor
         CentralPanel::default()
             .frame(Frame::central_panel(&ctx.style()).inner_margin(0.))
@@ -359,7 +418,7 @@ impl eframe::App for AppFrame {
 
         // Image preview window
         self.preview.ui_window(ctx);
-        
+
         // 显示通知
         notify::show(ctx);
     }
@@ -425,25 +484,93 @@ pub fn run() -> anyhow::Result<()> {
             // Inject phosphor font once at creation to avoid runtime deadlocks
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, PhosphorVariant::Regular);
-            
-            // Load custom font: LXGWWenKai-Regular.ttf
-            if let Ok(font_data) = std::fs::read("assets/fonts/LXGWWenKai-Regular.ttf") {
-                fonts.font_data.insert(
-                    "LXGWWenKai".to_owned(),
-                    Arc::new(egui::FontData::from_owned(font_data)),
-                );
-                
-                // Add to proportional font family for Chinese text support
-                fonts.families.get_mut(&egui::FontFamily::Proportional)
-                    .unwrap()
-                    .insert(0, "LXGWWenKai".to_owned());
-                
-                // Also add to monospace family if needed
-                fonts.families.get_mut(&egui::FontFamily::Monospace)
-                    .unwrap()
-                    .push("LXGWWenKai".to_owned());
+
+            // Load all fonts from assets/fonts directory
+            let fonts_dir = Path::new("assets/fonts");
+            let mut loaded_fonts = Vec::new();
+
+            if let Ok(entries) = fs::read_dir(fonts_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("ttf") {
+                        if let Ok(font_data) = fs::read(&path) {
+                            // Extract font name from filename (without extension)
+                            let font_name = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("Unknown")
+                                .to_string();
+
+                            fonts.font_data.insert(
+                                font_name.clone(),
+                                Arc::new(egui::FontData::from_owned(font_data)),
+                            );
+
+                            loaded_fonts.push(font_name);
+                        }
+                    }
+                }
             }
-            
+
+            // Load settings to get default font and size
+            let state = AppFrame::load_state().unwrap_or_else(|| PersistedState {
+                sessions: vec![Session {
+                    id: 1,
+                    title: "New Session".to_string(),
+                    messages: Vec::new(),
+                    db: DbConfig {
+                        engine: "postgres".to_string(),
+                        dsn: String::new(),
+                    },
+                }],
+                current_index: 0,
+                next_session_id: 2,
+                settings: Settings::default(),
+            });
+
+            // Set default font family based on settings
+            let default_font = &state.settings.font_family;
+            if fonts.font_data.contains_key(default_font) {
+                // Add selected font to the front of proportional font family
+                fonts
+                    .families
+                    .get_mut(&egui::FontFamily::Proportional)
+                    .unwrap()
+                    .insert(0, default_font.clone());
+
+                // Also add to monospace family
+                fonts
+                    .families
+                    .get_mut(&egui::FontFamily::Monospace)
+                    .unwrap()
+                    .push(default_font.clone());
+            } else {
+                // Fallback: add all loaded fonts
+                for font_name in &loaded_fonts {
+                    fonts
+                        .families
+                        .get_mut(&egui::FontFamily::Proportional)
+                        .unwrap()
+                        .insert(0, font_name.clone());
+                    fonts
+                        .families
+                        .get_mut(&egui::FontFamily::Monospace)
+                        .unwrap()
+                        .push(font_name.clone());
+                }
+            }
+
+            // Apply default font size to text styles
+            let font_size = state.settings.font_size;
+            let mut style = (*cc.egui_ctx.style()).clone();
+            for text_style in style.text_styles.values_mut() {
+                text_style.size = font_size;
+            }
+            cc.egui_ctx.set_style(style);
+
+            // Apply theme
+            SettingsPanel::apply_theme(&cc.egui_ctx, state.settings.theme);
+
             cc.egui_ctx.set_fonts(fonts);
             Ok(Box::new(AppFrame::new()))
         }),

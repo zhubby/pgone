@@ -79,12 +79,47 @@ pub enum SendShortcut {
     CmdEnter,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    System,
+    Latte,
+    Frappe,
+    Macchiato,
+    Mocha,
+}
+
+impl Theme {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Theme::System => "跟随系统",
+            Theme::Latte => "Catppuccin Latte",
+            Theme::Frappe => "Catppuccin Frappe",
+            Theme::Macchiato => "Catppuccin Macchiato",
+            Theme::Mocha => "Catppuccin Mocha",
+        }
+    }
+
+    pub fn all() -> &'static [Theme] {
+        &[Theme::System, Theme::Latte, Theme::Frappe, Theme::Macchiato, Theme::Mocha]
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
-    pub dark_theme: bool,
+    #[serde(default)]
+    pub dark_theme: bool, // Deprecated, kept for backward compatibility
     pub send_shortcut: SendShortcut,
     pub openai_api_key: Option<String>,
     pub openai_model: String,
+    pub font_family: String,
+    pub font_size: f32,
+    #[serde(default = "default_theme")]
+    pub theme: Theme,
+}
+
+fn default_theme() -> Theme {
+    Theme::System
 }
 
 impl Default for Settings {
@@ -94,6 +129,9 @@ impl Default for Settings {
             send_shortcut: SendShortcut::CmdEnter,
             openai_api_key: None,
             openai_model: "gpt-4o-mini".to_string(),
+            font_family: "LXGWWenKai-Medium".to_string(),
+            font_size: 12.0,
+            theme: Theme::System,
         }
     }
 }

@@ -14,6 +14,7 @@ pub use db_manager::DbManager;
 pub use db_tree::DbTree;
 pub use preview::PreviewManager;
 pub use results_table::ResultsTable;
+pub use settings::SettingsPanel;
 // SqlPanel is deprecated, use ResultsTable instead
 #[allow(unused_imports)]
 pub use sql_panel::SqlPanel;
