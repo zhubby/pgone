@@ -256,7 +256,7 @@ impl ChatPanel {
             session_id = Some(sess.id.clone());
         }
         let res: Result<String, String> = futures::block_on_async(async move {
-            pgone_util::ai::chat_once(key, model, prompt).await
+            pgone_util::llm::chat_once(key, model, prompt).await
         });
         match res {
             Ok(answer) => {
@@ -307,7 +307,7 @@ impl ChatPanel {
         let prompt_clone = prompt.clone();
         self.openai_promise = Some(Promise::spawn_thread("openai_request", move || {
             tokio::runtime::Handle::current().block_on(async move {
-                pgone_util::ai::chat_with_tools(key_clone, model_clone, prompt_clone).await
+                pgone_util::llm::chat_with_tools(key_clone, model_clone, prompt_clone).await
             })
         }));
     }

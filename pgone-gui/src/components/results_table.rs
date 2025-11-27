@@ -582,18 +582,22 @@ impl ResultsTable {
         ui.horizontal(|ui| {
             // Display SQL statement (truncated if too long)
             if let Some(ref sql) = self.current_sql {
-                let available_width = ui.available_width() - 400.0; // Reserve space for pagination controls
-                let truncated_sql = Self::truncate_text(ui, sql, available_width.max(100.0));
+                // Take only the first line (before any newline)
+                let first_line = sql.lines().next().unwrap_or("");
+                // Truncate to max 100 characters
+                let truncated_sql = if first_line.len() > 100 {
+                    format!("{}...", &first_line[..100])
+                } else {
+                    first_line.to_string()
+                };
                 ui.label(
                     egui::RichText::new(truncated_sql)
-                        .color(egui::Color32::GRAY)
-                        .small(),
+                        .color(egui::Color32::GRAY),
                 );
             } else {
                 ui.label(
                     egui::RichText::new("No SQL statement")
-                        .color(egui::Color32::GRAY)
-                        .small(),
+                        .color(egui::Color32::GRAY),
                 );
             }
 

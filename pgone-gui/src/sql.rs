@@ -291,7 +291,8 @@ pub fn format_sql(sql: &str) -> String {
             // 解析成功，进行格式化
             format_sql_string(sql)
         }
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("Failed to format SQL: {}", e);
             // 解析失败时，返回原 SQL（可能包含 sqlparser 不支持的语法）
             sql.to_string()
         }

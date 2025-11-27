@@ -1,5 +1,11 @@
 pub mod log;
-pub mod ai;
+pub mod llm;
+
+// Re-export LLM module for convenience
+pub use llm::{
+    Client, Config, LlmError, Result as LlmResult,
+    chat_once, chat_with_tools,
+};
 
 #[cfg(test)]
 mod tests {
