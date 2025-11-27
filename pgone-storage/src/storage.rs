@@ -304,3 +304,53 @@ fn parse_kind(s: String) -> MessageKind {
         _ => MessageKind::Video,
     }
 }
+
+// =====================
+// Settings storage helpers (key-value)
+// =====================
+
+use std::collections::HashMap;
+
+pub async fn upsert_setting(conn: &mut Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+        params![key, value, now_ts()],
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn get_setting(conn: &mut Connection, key: &str) -> Result<Option<String>> {
+    let mut rows = conn
+        .query("SELECT value FROM settings WHERE key=?1", params![key])
+        .await?;
+    if let Some(row) = rows.next().await? {
+        Ok(Some(row.get::<String>(0)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn get_all_settings(conn: &mut Connection) -> Result<HashMap<String, String>> {
+    let mut rows = conn
+        .query("SELECT key, value FROM settings", params![])
+        .await?;
+    let mut settings = HashMap::new();
+    while let Some(row) = rows.next().await? {
+        let key: String = row.get(0)?;
+        let value: String = row.get(1)?;
+        settings.insert(key, value);
+    }
+    Ok(settings)
+}
+
+pub async fn delete_setting(conn: &mut Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key=?1", params![key])
+        .await?;
+    Ok(())
+}
+
+pub async fn clear_settings(conn: &mut Connection) -> Result<()> {
+    conn.execute("DELETE FROM settings", params![]).await?;
+    Ok(())
+}

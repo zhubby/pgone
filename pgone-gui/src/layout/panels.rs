@@ -1,5 +1,6 @@
 use crate::components::{ChatCtx, ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SqlCtx};
 use crate::models::PersistedState;
+use crate::storage::SessionStorage;
 use eframe::egui::{CentralPanel, Context, Frame, SidePanel};
 
 pub fn show_left_panel(
@@ -27,6 +28,7 @@ pub fn show_right_panel(
     chat: &mut ChatPanel,
     state: &mut PersistedState,
     preview: &mut PreviewManager,
+    storage: &SessionStorage,
 ) {
     SidePanel::right("right_panel")
         .resizable(true)
@@ -41,6 +43,7 @@ pub fn show_right_panel(
                 send_shortcut: settings.send_shortcut,
                 openai_api_key: settings.openai_api_key.clone(),
                 openai_model: settings.openai_model.clone(),
+                storage,
             };
             chat.ui(&mut chat_ctx, ui);
         });

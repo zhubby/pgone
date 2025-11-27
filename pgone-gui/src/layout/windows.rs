@@ -1,5 +1,5 @@
 use crate::components::{DbManager, SchemaGraph, SettingsPanel};
-use crate::models::{PersistedState, Settings};
+use crate::models::PersistedState;
 use eframe::egui::{Align2, Context, Window};
 
 pub fn show_settings_window(
@@ -13,25 +13,29 @@ pub fn show_settings_window(
     }
 
     let mut open = true;
-    let mut settings_changed = false;
+    let mut should_save = false;
     Window::new("设置")
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)
-        .default_size([400.0, 300.0])
+        .default_size([500.0, 650.0])
         .show(ctx, |ui| {
-            let old_settings: Settings = state.settings.clone();
-            settings_panel.ui(ui, &mut state.settings, ctx);
-            if state.settings.font_family != old_settings.font_family
-                || state.settings.font_size != old_settings.font_size
-            {
-                settings_changed = true;
+            // Initialize original settings on first show
+            if !settings_panel.has_original_settings() {
+                settings_panel.init_original_settings(&state.settings);
+            }
+            
+            // Render UI and check if save button was clicked
+            if settings_panel.ui(ui, &mut state.settings, ctx) {
+                should_save = true;
             }
         });
     if !open {
         *show_settings = false;
+        // Reset original settings when closing
+        settings_panel.clear_original_settings();
     }
-    settings_changed
+    should_save
 }
 
 pub fn show_about_window(ctx: &Context, show_about: &mut bool) {

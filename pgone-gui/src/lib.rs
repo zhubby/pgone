@@ -1,14 +1,11 @@
-use chrono::{DateTime, Utc};
 use eframe::egui::{self, Context};
 use egui_phosphor::Variant as PhosphorVariant;
 use icns::{IconFamily, IconType};
-use serde::Deserialize;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 mod futures;
 mod models;
@@ -16,6 +13,8 @@ use models::*;
 mod markdown;
 mod notify;
 mod sql;
+mod storage;
+use storage::SessionStorage;
 
 mod components;
 use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
@@ -40,27 +39,67 @@ pub struct AppFrame {
     right_panel_visible: bool,
     left_panel_width: f32,
     right_panel_width: f32,
+    session_storage: SessionStorage,
 }
 
 impl AppFrame {
-    const SESSIONS_PATH: &'static str = "sessions.json";
+    // const SESSIONS_PATH: &'static str = "sessions.json";
 
     fn new() -> Self {
-        let state = Self::load_state().unwrap_or_else(|| PersistedState {
-            sessions: vec![Session {
-                id: 1,
-                title: "New Session".to_string(),
-                messages: Vec::new(),
-                db: DbConfig {
-                    engine: "postgres".to_string(),
-                    dsn: String::new(),
-                },
-            }],
-
+        // Initialize storage first to load settings
+        let mut db_manager = components::DbManager::default();
+        db_manager.ensure_storage();
+        
+        // Load settings from database
+        let settings = if let Some(ref storage) = db_manager.storage {
+            if let Ok(kv_map) = futures::block_on_async(async {
+                storage.get_all_settings().await
+            }) {
+                let loaded_settings = Settings::from_kv_map(&kv_map);
+                tracing::debug!("Loaded settings from DB: {:?}", loaded_settings);
+                tracing::debug!("KV map: {:?}", kv_map);
+                loaded_settings
+            } else {
+                tracing::warn!("Failed to load settings from database");
+                Settings::default()
+            }
+        } else {
+            tracing::warn!("Storage not available, using default settings");
+            Settings::default()
+        };
+        
+        // Initialize session storage
+        let session_storage = SessionStorage::new();
+        
+        // Load sessions from JSON file
+        let mut state = Self::load_state().map(|mut s| {
+            // Override settings with database-loaded settings
+            s.settings = settings.clone();
+            s
+        }).unwrap_or_else(|| PersistedState {
+            current_db_config_id: None,
+            settings: settings.clone(),
+            sessions: vec![ChatSession::new("0".to_string(), "新会话".to_string())],
             current_index: 0,
-            next_session_id: 2,
-            settings: Settings::default(),
+            next_session_id: 1,
         });
+        
+        // Load sessions from file and merge with state
+        if let Ok(loaded_sessions) = session_storage.load_sessions() {
+            if !loaded_sessions.is_empty() {
+                state.sessions = loaded_sessions;
+                // Ensure current_index is valid
+                if state.current_index >= state.sessions.len() {
+                    state.current_index = 0;
+                }
+                // Update next_session_id based on loaded sessions
+                if let Some(max_id) = state.sessions.iter()
+                    .filter_map(|s| s.id.parse::<u64>().ok())
+                    .max() {
+                    state.next_session_id = max_id + 1;
+                }
+            }
+        }
 
         Self {
             state,
@@ -69,7 +108,7 @@ impl AppFrame {
             show_graph: false,
             graph_schema: None,
             graph: SchemaGraph::default(),
-            db: Default::default(),
+            db: db_manager,
             results_table: Default::default(),
             preview: Default::default(),
             chat: Default::default(),
@@ -79,146 +118,110 @@ impl AppFrame {
             right_panel_visible: true,
             left_panel_width: 250.0,
             right_panel_width: 300.0,
+            session_storage,
         }
     }
 
     fn load_state() -> Option<PersistedState> {
-        if !Path::new(Self::SESSIONS_PATH).exists() {
-            return None;
-        }
-        let data = fs::read_to_string(Self::SESSIONS_PATH).ok()?;
-        // Try new format first
-        if let Ok(state) = serde_json::from_str::<PersistedState>(&data) {
-            return Some(state);
-        }
-        // Fallback to legacy format (content: String)
-        #[derive(Deserialize)]
-        struct LegacyMessage {
-            role: Role,
-            timestamp: DateTime<Utc>,
-            content: String,
-        }
-        #[derive(Deserialize)]
-        struct LegacySession {
-            id: u64,
-            title: String,
-            messages: Vec<LegacyMessage>,
-        }
-        #[derive(Deserialize)]
-        struct LegacyState {
-            sessions: Vec<LegacySession>,
-            current_index: usize,
-            next_session_id: u64,
-        }
-        if let Ok(old) = serde_json::from_str::<LegacyState>(&data) {
-            let sessions = old
-                .sessions
-                .into_iter()
-                .map(|s| Session {
-                    id: s.id,
-                    title: s.title,
-                    messages: s
-                        .messages
-                        .into_iter()
-                        .map(|m| Message {
-                            role: m.role,
-                            timestamp: m.timestamp,
-                            content: MessageContent::Markdown(m.content),
-                        })
-                        .collect(),
-                    db: DbConfig::default(),
-                })
-                .collect();
-            return Some(PersistedState {
-                sessions,
-                current_index: old.current_index,
-                next_session_id: old.next_session_id,
-                settings: Settings::default(),
+        Some(PersistedState {
+            current_db_config_id: None,
+            settings: Settings::default(),
+            sessions: vec![],
+            current_index: 0,
+            next_session_id: 1,
+        })
+        // if !Path::new(Self::SESSIONS_PATH).exists() {
+        //     return None;
+        // }
+        // let data = fs::read_to_string(Self::SESSIONS_PATH).ok()?;
+        // // Try new format first
+        // if let Ok(state) = serde_json::from_str::<PersistedState>(&data) {
+        //     return Some(state);
+        // }
+        // // Fallback to legacy format (content: String)
+        // #[derive(Deserialize)]
+        // struct LegacyMessage {
+        //     role: Role,
+        //     timestamp: DateTime<Utc>,
+        //     content: String,
+        // }
+        // #[derive(Deserialize)]
+        // struct LegacySession {
+        //     id: u64,
+        //     title: String,
+        //     messages: Vec<LegacyMessage>,
+        // }
+        // #[derive(Deserialize)]
+        // struct LegacyState {
+        //     sessions: Vec<LegacySession>,
+        //     current_index: usize,
+        //     next_session_id: u64,
+        // }
+        // if let Ok(old) = serde_json::from_str::<LegacyState>(&data) {
+        //     let sessions = old
+        //         .sessions
+        //         .into_iter()
+        //         .map(|s| Session {
+        //             id: s.id,
+        //             title: s.title,
+        //             messages: s
+        //                 .messages
+        //                 .into_iter()
+        //                 .map(|m| Message {
+        //                     role: m.role,
+        //                     timestamp: m.timestamp,
+        //                     content: MessageContent::Markdown(m.content),
+        //                 })
+        //                 .collect(),
+        //             db: DbConfig::default(),
+        //         })
+        //         .collect();
+        //     return Some(PersistedState {
+        //         sessions,
+        //         current_index: old.current_index,
+        //         next_session_id: old.next_session_id,
+        //         settings: Settings::default(),
+        //     });
+        // }
+        // None
+    }
+
+    #[allow(dead_code)]
+    fn save_state(&mut self) {
+        // Save settings to database
+        self.db.ensure_storage();
+        if let Some(ref storage) = self.db.storage {
+            let kv_map = self.state.settings.to_kv_map();
+            let _ = futures::block_on_async(async {
+                for (key, value) in kv_map {
+                    let _ = storage.upsert_setting(&key, &value).await;
+                }
             });
         }
-        None
+        
+        // // Also save to JSON for backward compatibility (sessions only)
+        // let sessions_only = serde_json::json!({
+        //     "sessions": self.state.sessions,
+        //     "current_index": self.state.current_index,
+        //     "next_session_id": self.state.next_session_id,
+        // });
+        // let _ = fs::write(
+        //     Self::SESSIONS_PATH,
+        //     serde_json::to_string_pretty(&sessions_only).unwrap_or_default(),
+        // );
     }
-
-    #[allow(dead_code)]
-    fn save_state(&self) {
-        let _ = fs::write(
-            Self::SESSIONS_PATH,
-            serde_json::to_string_pretty(&self.state).unwrap_or_default(),
-        );
-    }
-
-    #[allow(dead_code)]
-    fn migrate_from_json(&mut self) -> Result<(), String> {
+    
+    /// Save settings to database
+    pub fn save_settings(&mut self) {
         self.db.ensure_storage();
-        let Some(storage) = self.db.storage.as_ref() else {
-            return Err("storage missing".into());
-        };
-        // migrate sessions and messages
-        for s in &self.state.sessions {
-            let sess = pgone_storage::models::Session {
-                id: s.id.to_string(),
-                title: s.title.clone(),
-                config_id: None,
-                created_at: 0,
-                updated_at: 0,
-            };
-            let _ = futures::block_on_async(async { storage.create_session(&sess).await });
-            for m in &s.messages {
-                match &m.content {
-                    MessageContent::Markdown(text) => {
-                        let _ = futures::block_on_async(async {
-                            storage
-                                .append_markdown(
-                                    &sess.id,
-                                    pgone_storage::models::Role::User,
-                                    text,
-                                )
-                                .await
-                        });
-                    }
-                    MessageContent::Image {
-                        path,
-                        width,
-                        height,
-                    } => {
-                        let _ = futures::block_on_async(async {
-                            storage
-                                .append_image(
-                                    &sess.id,
-                                    pgone_storage::models::Role::User,
-                                    &path.display().to_string(),
-                                    *width as i64,
-                                    *height as i64,
-                                )
-                                .await
-                        });
-                    }
-                    MessageContent::Video {
-                        path, duration_ms, ..
-                    } => {
-                        let _ = futures::block_on_async(async {
-                            storage
-                                .append_video(
-                                    &sess.id,
-                                    pgone_storage::models::Role::User,
-                                    &path.display().to_string(),
-                                    duration_ms.map(|v| v as i64),
-                                )
-                                .await
-                        });
-                    }
+        if let Some(ref storage) = self.db.storage {
+            let kv_map = self.state.settings.to_kv_map();
+            let _ = futures::block_on_async(async {
+                for (key, value) in kv_map {
+                    let _ = storage.upsert_setting(&key, &value).await;
                 }
-            }
+            });
         }
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    fn now_ts() -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64
     }
 }
 
@@ -249,7 +252,8 @@ impl eframe::App for AppFrame {
             &mut self.state,
             &mut self.settings_panel,
         ) {
-            self.save_state();
+            // Save settings to database if changed
+            self.save_settings();
         }
 
         // About window
@@ -289,6 +293,7 @@ impl eframe::App for AppFrame {
             &mut self.chat,
             &mut self.state,
             &mut self.preview,
+            &self.session_storage,
         );
 
         layout::panels::show_center_panel(ctx, &mut self.db, &mut self.results_table, &self.state);
@@ -298,41 +303,6 @@ impl eframe::App for AppFrame {
 
         // 显示通知
         notify::show(ctx);
-    }
-}
-
-impl AppFrame {
-    #[allow(dead_code)]
-    fn clear_current_session(&mut self) {
-        if let Some(s) = self.state.sessions.get_mut(self.state.current_index) {
-            s.messages.clear();
-            self.save_state();
-        }
-    }
-}
-
-impl AppFrame {
-    #[allow(dead_code)]
-    fn delete_session(&mut self, idx: usize) {
-        if idx < self.state.sessions.len() {
-            self.state.sessions.remove(idx);
-            if self.state.sessions.is_empty() {
-                self.state.sessions.push(Session {
-                    id: self.state.next_session_id,
-                    title: "New Session".to_string(),
-                    messages: Vec::new(),
-                    db: DbConfig {
-                        engine: "postgres".to_string(),
-                        dsn: String::new(),
-                    },
-                });
-                self.state.next_session_id += 1;
-            }
-            if self.state.current_index >= self.state.sessions.len() {
-                self.state.current_index = self.state.sessions.len() - 1;
-            }
-            self.save_state();
-        }
     }
 }
 
@@ -389,21 +359,37 @@ pub fn run() -> anyhow::Result<()> {
                 }
             }
 
-            // Load settings to get default font and size
-            let state = AppFrame::load_state().unwrap_or_else(|| PersistedState {
-                sessions: vec![Session {
-                    id: 1,
-                    title: "New Session".to_string(),
-                    messages: Vec::new(),
-                    db: DbConfig {
-                        engine: "postgres".to_string(),
-                        dsn: String::new(),
-                    },
-                }],
+            // Load settings from database
+            let mut db_manager = components::DbManager::default();
+            db_manager.ensure_storage();
+            
+            let settings = if let Some(ref storage) = db_manager.storage {
+                if let Ok(kv_map) = futures::block_on_async(async {
+                    storage.get_all_settings().await
+                }) {
+                    Settings::from_kv_map(&kv_map)
+                } else {
+                    Settings::default()
+                }
+            } else {
+                Settings::default()
+            };
+
+            tracing::debug!("settings: {:?}", settings);
+            
+            // Load state (sessions) from JSON
+            let state = AppFrame::load_state().map(|mut s| {
+                s.settings = settings.clone();
+                s
+            }).unwrap_or_else(|| PersistedState {
+                current_db_config_id: None,
+                settings: settings.clone(),
+                sessions: vec![ChatSession::new("0".to_string(), "新会话".to_string())],
                 current_index: 0,
-                next_session_id: 2,
-                settings: Settings::default(),
+                next_session_id: 1,
             });
+
+            tracing::debug!("state: {:?}",state);
 
             // Set default font family based on settings
             let default_font = &state.settings.font_family;

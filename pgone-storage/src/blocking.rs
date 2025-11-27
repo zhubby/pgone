@@ -100,4 +100,30 @@ impl StorageBlocking {
         let mut conn = self.inner.conn().await?;
         crate::storage::get_current_user(&mut conn).await
     }
+
+    // Settings helpers
+    pub async fn upsert_setting(&self, key: &str, value: &str) -> Result<()> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::upsert_setting(&mut conn, key, value).await
+    }
+
+    pub async fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::get_setting(&mut conn, key).await
+    }
+
+    pub async fn get_all_settings(&self) -> Result<std::collections::HashMap<String, String>> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::get_all_settings(&mut conn).await
+    }
+
+    pub async fn delete_setting(&self, key: &str) -> Result<()> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::delete_setting(&mut conn, key).await
+    }
+
+    pub async fn clear_settings(&self) -> Result<()> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::clear_settings(&mut conn).await
+    }
 }

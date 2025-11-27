@@ -34,7 +34,8 @@ impl ChatPanel {
         ui.separator();
         egui_extras::StripBuilder::new(ui)
             .size(egui_extras::Size::remainder())
-            .size(egui_extras::Size::exact(120.0))
+            .size(egui_extras::Size::exact(200.0))
+            .size(egui_extras::Size::exact(50.0))
             .vertical(|mut strip| {
                 strip.cell(|ui| {
                     egui::ScrollArea::vertical()
@@ -94,10 +95,18 @@ impl ChatPanel {
                                 ui.separator();
                             }
                         });
+
                 });
                 strip.cell(|ui| {
-                    ui.label("Message");
-                    let editor = ui.add(egui::TextEdit::multiline(&mut self.input).desired_rows(4));
+                    ui.horizontal(|ui| {
+
+                        ui.label("Message");
+                        
+                    });
+
+                    ui.separator();
+
+                    let editor = ui.add_sized(egui::Vec2::new(ui.available_width(), ui.available_height()), egui::TextEdit::multiline(&mut self.input).desired_rows(4));
                     let send_via_shortcut = if editor.has_focus() {
                         let input = ui.input(|i| i.clone());
                         let enter_pressed = input.key_pressed(egui::Key::Enter);
@@ -116,20 +125,29 @@ impl ChatPanel {
                     } else {
                         false
                     };
-                    if ui.button("Ask").clicked() || send_via_shortcut {
+
+                    if send_via_shortcut {
                         self.send_openai_with_tools(ctxs);
                     }
+                    
                     // poll pending result
                     if let Some(ref promise) = self.openai_promise {
                         if let Some(result) = promise.ready() {
                             match result {
                                 Ok(text) => {
                                     if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-                                        sess.messages.push(Message {
+                                        let message = Message {
                                             role: Role::Assistant,
                                             timestamp: Utc::now(),
                                             content: MessageContent::Markdown(text.clone()),
-                                        });
+                                        };
+                                        sess.messages.push(message.clone());
+                                        sess.updated_at = Utc::now();
+                                        
+                                        // 保存到持久化存储
+                                        if let Err(e) = ctxs.storage.save_session(sess) {
+                                            tracing::error!("保存会话失败: {}", e);
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -140,6 +158,16 @@ impl ChatPanel {
                         }
                     }
                 });
+
+                strip.cell(|ui| {
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Send").clicked() {
+                            self.send_openai_with_tools(ctxs);
+                        }
+                    });
+
+                })
             });
     }
 
@@ -149,11 +177,18 @@ impl ChatPanel {
         if !text.is_empty()
             && let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index)
         {
-            session.messages.push(Message {
+            let message = Message {
                 role: Role::User,
                 timestamp: Utc::now(),
                 content: MessageContent::Markdown(text.to_owned()),
-            });
+            };
+            session.messages.push(message);
+            session.updated_at = Utc::now();
+            
+            // 保存到持久化存储
+            if let Err(e) = ctxs.storage.save_session(session) {
+                tracing::error!("保存会话失败: {}", e);
+            }
         }
         self.input.clear();
     }
@@ -165,7 +200,7 @@ impl ChatPanel {
             Err(_) => (0, 0),
         };
         if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-            session.messages.push(Message {
+            let message = Message {
                 role: Role::User,
                 timestamp: Utc::now(),
                 content: MessageContent::Image {
@@ -173,14 +208,21 @@ impl ChatPanel {
                     width: w,
                     height: h,
                 },
-            });
+            };
+            session.messages.push(message);
+            session.updated_at = Utc::now();
+            
+            // 保存到持久化存储
+            if let Err(e) = ctxs.storage.save_session(session) {
+                tracing::error!("保存会话失败: {}", e);
+            }
         }
     }
 
     #[allow(dead_code)]
     pub fn add_video_message(&mut self, ctxs: &mut ChatCtx, path: std::path::PathBuf) {
         if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-            session.messages.push(Message {
+            let message = Message {
                 role: Role::User,
                 timestamp: Utc::now(),
                 content: MessageContent::Video {
@@ -188,7 +230,14 @@ impl ChatPanel {
                     duration_ms: None,
                     thumbnail: None,
                 },
-            });
+            };
+            session.messages.push(message);
+            session.updated_at = Utc::now();
+            
+            // 保存到持久化存储
+            if let Err(e) = ctxs.storage.save_session(session) {
+                tracing::error!("保存会话失败: {}", e);
+            }
         }
     }
 
@@ -204,7 +253,7 @@ impl ChatPanel {
         }
         let mut session_id = None;
         if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
-            session_id = Some(sess.id);
+            session_id = Some(sess.id.clone());
         }
         let res: Result<String, String> = futures::block_on_async(async move {
             pgone_util::ai::chat_once(key, model, prompt).await
@@ -235,14 +284,23 @@ impl ChatPanel {
         if prompt.is_empty() {
             return;
         }
-        // append user message first
-        if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-            session.messages.push(Message {
+        
+        // 保存用户消息
+        if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+            let user_message = Message {
                 role: Role::User,
                 timestamp: Utc::now(),
                 content: MessageContent::Markdown(prompt.clone()),
-            });
+            };
+            sess.messages.push(user_message);
+            sess.updated_at = Utc::now();
+            
+            // 保存到持久化存储
+            if let Err(e) = ctxs.storage.save_session(sess) {
+                tracing::error!("保存用户消息失败: {}", e);
+            }
         }
+        
         self.input.clear();
         let key_clone = key.clone();
         let model_clone = model.clone();
