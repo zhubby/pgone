@@ -1,5 +1,7 @@
-pub mod context;
-
+pub mod menu_bar;
+pub mod panels;
+pub mod status_bar;
+pub mod windows;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, strum::Display, strum::EnumString)]
 pub enum Tab {

@@ -98,5 +98,16 @@ pub async fn migrate(conn: &mut Connection) -> Result<()> {
     )
     .await?;
 
+    // settings table (key-value store)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        )",
+        (),
+    )
+    .await?;
+
     Ok(())
 }

@@ -145,3 +145,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 欢迎提交 Issue/PR（建议使用 Conventional Commits）。
 
 
+### 打包可执行程序
+`cargo install cargo-bundle`
+`cargo bundle --release`

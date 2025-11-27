@@ -1,5 +1,6 @@
 use crate::components::{DbManager, PreviewManager};
 use crate::models::{PersistedState, SendShortcut};
+use crate::storage::SessionStorage;
 
 #[derive(Default)]
 pub struct SessionsCtx {
@@ -13,10 +14,11 @@ pub struct ChatCtx<'a> {
     pub send_shortcut: SendShortcut,
     pub openai_api_key: Option<String>,
     pub openai_model: String,
+    pub storage: &'a mut SessionStorage,
 }
 
 #[derive(Default)]
 pub struct SqlCtx {
     pub state: PersistedState,
-    pub db: crate::components::DbManager,
+    pub db: DbManager,
 }

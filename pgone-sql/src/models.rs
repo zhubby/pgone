@@ -74,6 +74,43 @@ pub struct SchemaInfo {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableDetail {
+    pub schema: String,
+    pub name: String,
+    pub comment: Option<String>,
+    pub columns: Vec<ColumnDetail>,
+    pub primary_key: Option<PrimaryKeyDetail>,
+    pub foreign_keys: Vec<ForeignKeyDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColumnDetail {
+    pub name: String,
+    pub data_type: String,
+    pub udt_name: Option<String>,
+    pub nullable: bool,
+    pub default: Option<String>,
+    pub character_maximum_length: Option<i32>,
+    pub numeric_precision: Option<i32>,
+    pub numeric_scale: Option<i32>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrimaryKeyDetail {
+    pub columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForeignKeyDetail {
+    pub columns: Vec<String>,
+    pub ref_table: String,
+    pub ref_columns: Vec<String>,
+    pub on_update: Option<String>,
+    pub on_delete: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
