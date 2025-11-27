@@ -14,7 +14,7 @@ pub struct ChatCtx<'a> {
     pub send_shortcut: SendShortcut,
     pub openai_api_key: Option<String>,
     pub openai_model: String,
-    pub storage: &'a SessionStorage,
+    pub storage: &'a mut SessionStorage,
 }
 
 #[derive(Default)]

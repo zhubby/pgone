@@ -1,90 +1,179 @@
-use crate::models::{ChatSession, Message};
-use anyhow::{Context, Result};
-use chrono::Utc;
-use std::fs;
-use std::path::Path;
-
-const SESSIONS_FILE: &str = "chat_sessions.json";
+use crate::models::{ChatSession, Message, MessageContent, Role};
+use crate::futures;
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use pgone_storage::blocking::StorageBlocking;
+use pgone_storage::models::{Message as StorageMessage, Role as StorageRole, Session as StorageSession, MessageKind as StorageMessageKind};
 
 pub struct SessionStorage {
-    file_path: String,
+    storage: Option<StorageBlocking>,
 }
 
 impl SessionStorage {
     pub fn new() -> Self {
-        Self {
-            file_path: SESSIONS_FILE.to_string(),
-        }
+        Self { storage: None }
     }
 
-    pub fn with_path(path: impl Into<String>) -> Self {
-        Self {
-            file_path: path.into(),
+    fn ensure_storage(&mut self) -> Result<&mut StorageBlocking> {
+        if self.storage.is_none() {
+            let storage = futures::block_on_async(async {
+                StorageBlocking::open_local("pgone.db").await
+            })?;
+            self.storage = Some(storage);
         }
+        Ok(self.storage.as_mut().unwrap())
     }
 
     /// 加载所有会话
-    pub fn load_sessions(&self) -> Result<Vec<ChatSession>> {
-        if !Path::new(&self.file_path).exists() {
-            return Ok(Vec::new());
+    pub fn load_sessions(&mut self) -> Result<Vec<ChatSession>> {
+        let storage = self.ensure_storage()?;
+        
+        let storage_sessions = futures::block_on_async(async {
+            storage.list_sessions(1000).await
+        })?;
+
+        let mut chat_sessions = Vec::new();
+        for storage_session in storage_sessions {
+            let messages = futures::block_on_async(async {
+                storage.list_messages(&storage_session.id, 10000).await
+            })?;
+
+            let chat_messages: Vec<Message> = messages
+                .into_iter()
+                .map(|m| storage_message_to_chat_message(m))
+                .collect();
+
+            chat_sessions.push(ChatSession {
+                id: storage_session.id,
+                title: storage_session.title,
+                messages: chat_messages,
+                created_at: timestamp_to_datetime(storage_session.created_at),
+                updated_at: timestamp_to_datetime(storage_session.updated_at),
+            });
         }
 
-        let content = fs::read_to_string(&self.file_path)
-            .with_context(|| format!("无法读取会话文件: {}", self.file_path))?;
+        // 按更新时间降序排序
+        chat_sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
 
-        let sessions: Vec<ChatSession> = serde_json::from_str(&content)
-            .with_context(|| "解析会话文件失败")?;
-
-        Ok(sessions)
+        Ok(chat_sessions)
     }
 
-    /// 保存所有会话
-    pub fn save_sessions(&self, sessions: &[ChatSession]) -> Result<()> {
-        let json = serde_json::to_string_pretty(sessions)
-            .with_context(|| "序列化会话数据失败")?;
+    /// 保存所有会话（批量保存）
+    pub fn save_sessions(&mut self, sessions: &[ChatSession]) -> Result<()> {
+        for session in sessions {
+            self.save_session(session)?;
+        }
 
-        fs::write(&self.file_path, json)
-            .with_context(|| format!("写入会话文件失败: {}", self.file_path))?;
-
-        tracing::debug!("已保存 {} 个会话到 {}", sessions.len(), self.file_path);
+        tracing::debug!("已保存 {} 个会话到数据库", sessions.len());
         Ok(())
     }
 
     /// 添加或更新单个会话
-    pub fn save_session(&self, session: &ChatSession) -> Result<()> {
-        let mut sessions = self.load_sessions().unwrap_or_default();
+    pub fn save_session(&mut self, session: &ChatSession) -> Result<()> {
+        let storage = self.ensure_storage()?;
+        
+        // 创建或更新会话
+        let storage_session = StorageSession {
+            id: session.id.clone(),
+            title: session.title.clone(),
+            config_id: None,
+            created_at: datetime_to_timestamp(session.created_at),
+            updated_at: datetime_to_timestamp(session.updated_at),
+        };
 
-        // 更新或添加会话
-        if let Some(existing) = sessions.iter_mut().find(|s| s.id == session.id) {
-            *existing = session.clone();
-        } else {
-            sessions.push(session.clone());
+        // 先删除会话（这会删除所有消息）
+        let _ = futures::block_on_async(async {
+            storage.delete_session(&session.id).await
+        });
+
+        // 重新创建会话
+        futures::block_on_async(async {
+            storage.create_session(&storage_session).await
+        })?;
+
+        // 插入所有消息
+        for msg in &session.messages {
+            match &msg.content {
+                MessageContent::Markdown(text) => {
+                    futures::block_on_async(async {
+                        storage.append_markdown(&session.id, chat_role_to_storage_role(msg.role), text).await
+                    })?;
+                }
+                MessageContent::Image { path, width, height } => {
+                    futures::block_on_async(async {
+                        storage.append_image(
+                            &session.id,
+                            chat_role_to_storage_role(msg.role),
+                            &path.to_string_lossy(),
+                            *width as i64,
+                            *height as i64,
+                        ).await
+                    })?;
+                }
+                MessageContent::Video { path, duration_ms, .. } => {
+                    futures::block_on_async(async {
+                        storage.append_video(
+                            &session.id,
+                            chat_role_to_storage_role(msg.role),
+                            &path.to_string_lossy(),
+                            duration_ms.map(|d| d as i64),
+                        ).await
+                    })?;
+                }
+            }
         }
 
-        // 按更新时间降序排序
-        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-
-        self.save_sessions(&sessions)
+        Ok(())
     }
 
     /// 删除会话
-    pub fn delete_session(&self, session_id: &str) -> Result<()> {
-        let mut sessions = self.load_sessions().unwrap_or_default();
-        sessions.retain(|s| s.id != session_id);
-        self.save_sessions(&sessions)
+    pub fn delete_session(&mut self, session_id: &str) -> Result<()> {
+        let storage = self.ensure_storage()?;
+        futures::block_on_async(async {
+            storage.delete_session(session_id).await
+        })?;
+        Ok(())
     }
 
     /// 添加消息到会话
-    pub fn add_message(&self, session_id: &str, message: Message) -> Result<()> {
-        let mut sessions = self.load_sessions().unwrap_or_default();
+    pub fn add_message(&mut self, session_id: &str, message: Message) -> Result<()> {
+        let storage = self.ensure_storage()?;
 
-        if let Some(session) = sessions.iter_mut().find(|s| s.id == session_id) {
-            session.messages.push(message);
-            session.updated_at = Utc::now();
-            self.save_sessions(&sessions)
-        } else {
-            anyhow::bail!("会话不存在: {}", session_id)
+        match &message.content {
+            MessageContent::Markdown(text) => {
+                futures::block_on_async(async {
+                    storage.append_markdown(session_id, chat_role_to_storage_role(message.role), text).await
+                })?;
+            }
+            MessageContent::Image { path, width, height } => {
+                futures::block_on_async(async {
+                    storage.append_image(
+                        session_id,
+                        chat_role_to_storage_role(message.role),
+                        &path.to_string_lossy(),
+                        *width as i64,
+                        *height as i64,
+                    ).await
+                })?;
+            }
+            MessageContent::Video { path, duration_ms, .. } => {
+                futures::block_on_async(async {
+                    storage.append_video(
+                        session_id,
+                        chat_role_to_storage_role(message.role),
+                        &path.to_string_lossy(),
+                        duration_ms.map(|d| d as i64),
+                    ).await
+                })?;
+            }
         }
+
+        // 更新会话的 updated_at（通过更新标题来触发 updated_at 更新）
+        futures::block_on_async(async {
+            storage.update_session_title(session_id, "").await
+        })?;
+
+        Ok(())
     }
 }
 
@@ -94,20 +183,68 @@ impl Default for SessionStorage {
     }
 }
 
+// 转换函数
+fn chat_role_to_storage_role(role: Role) -> StorageRole {
+    match role {
+        Role::User => StorageRole::User,
+        Role::Assistant => StorageRole::Assistant,
+        Role::System => StorageRole::System,
+    }
+}
+
+fn storage_role_to_chat_role(role: StorageRole) -> Role {
+    match role {
+        StorageRole::User => Role::User,
+        StorageRole::Assistant => Role::Assistant,
+        StorageRole::System => Role::System,
+    }
+}
+
+fn storage_message_to_chat_message(msg: StorageMessage) -> Message {
+    let content = match msg.kind {
+        StorageMessageKind::Markdown => {
+            MessageContent::Markdown(msg.content_markdown.unwrap_or_default())
+        }
+        StorageMessageKind::Image => {
+            MessageContent::Image {
+                path: msg.image_path.map(|p| p.into()).unwrap_or_default(),
+                width: msg.image_w.map(|w| w as u32).unwrap_or(0),
+                height: msg.image_h.map(|h| h as u32).unwrap_or(0),
+            }
+        }
+        StorageMessageKind::Video => {
+            MessageContent::Video {
+                path: msg.video_path.map(|p| p.into()).unwrap_or_default(),
+                duration_ms: msg.video_duration_ms.map(|d| d as u64),
+                thumbnail: None,
+            }
+        }
+    };
+
+    Message {
+        role: storage_role_to_chat_role(msg.role),
+        timestamp: timestamp_to_datetime(msg.timestamp),
+        content,
+    }
+}
+
+fn datetime_to_timestamp(dt: DateTime<Utc>) -> i64 {
+    dt.timestamp()
+}
+
+fn timestamp_to_datetime(ts: i64) -> DateTime<Utc> {
+    DateTime::from_timestamp(ts, 0).unwrap_or_else(|| Utc::now())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::{MessageContent, Role};
     use chrono::Utc;
-    use std::fs;
 
     #[test]
     fn test_session_storage() {
-        let temp_file = format!("test_sessions_{}.json", std::process::id());
-        let storage = SessionStorage::with_path(&temp_file);
-
-        // 清理测试文件
-        let _ = fs::remove_file(&temp_file);
+        let mut storage = SessionStorage::new();
 
         // 创建测试会话
         let mut session = ChatSession::new("test-1".to_string(), "测试会话".to_string());
@@ -142,9 +279,6 @@ mod tests {
         assert!(storage.delete_session("test-1").is_ok());
         let sessions = storage.load_sessions().unwrap();
         assert_eq!(sessions.len(), 0);
-
-        // 清理测试文件
-        let _ = fs::remove_file(&temp_file);
     }
 }
 

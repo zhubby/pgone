@@ -18,8 +18,9 @@ use storage::SessionStorage;
 
 mod components;
 use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
-mod layout;
+mod skeleton;
 mod media;
+mod agents;
 
 pub struct AppFrame {
     #[allow(dead_code)]
@@ -43,7 +44,6 @@ pub struct AppFrame {
 }
 
 impl AppFrame {
-    // const SESSIONS_PATH: &'static str = "sessions.json";
 
     fn new() -> Self {
         // Initialize storage first to load settings
@@ -69,22 +69,18 @@ impl AppFrame {
         };
         
         // Initialize session storage
-        let session_storage = SessionStorage::new();
+        let mut session_storage = SessionStorage::new();
         
-        // Load sessions from JSON file
-        let mut state = Self::load_state().map(|mut s| {
-            // Override settings with database-loaded settings
-            s.settings = settings.clone();
-            s
-        }).unwrap_or_else(|| PersistedState {
+        // Load sessions from database
+        let mut state = PersistedState {
             current_db_config_id: None,
             settings: settings.clone(),
-            sessions: vec![ChatSession::new("0".to_string(), "新会话".to_string())],
+            sessions: vec![],
             current_index: 0,
             next_session_id: 1,
-        });
+        };
         
-        // Load sessions from file and merge with state
+        // Load sessions from database
         if let Ok(loaded_sessions) = session_storage.load_sessions() {
             if !loaded_sessions.is_empty() {
                 state.sessions = loaded_sessions;
@@ -98,7 +94,13 @@ impl AppFrame {
                     .max() {
                     state.next_session_id = max_id + 1;
                 }
+            } else {
+                // 如果没有会话，创建一个默认会话
+                state.sessions = vec![ChatSession::new("0".to_string(), "新会话".to_string())];
             }
+        } else {
+            // 如果加载失败，创建一个默认会话
+            state.sessions = vec![ChatSession::new("0".to_string(), "新会话".to_string())];
         }
 
         Self {
@@ -122,69 +124,6 @@ impl AppFrame {
         }
     }
 
-    fn load_state() -> Option<PersistedState> {
-        Some(PersistedState {
-            current_db_config_id: None,
-            settings: Settings::default(),
-            sessions: vec![],
-            current_index: 0,
-            next_session_id: 1,
-        })
-        // if !Path::new(Self::SESSIONS_PATH).exists() {
-        //     return None;
-        // }
-        // let data = fs::read_to_string(Self::SESSIONS_PATH).ok()?;
-        // // Try new format first
-        // if let Ok(state) = serde_json::from_str::<PersistedState>(&data) {
-        //     return Some(state);
-        // }
-        // // Fallback to legacy format (content: String)
-        // #[derive(Deserialize)]
-        // struct LegacyMessage {
-        //     role: Role,
-        //     timestamp: DateTime<Utc>,
-        //     content: String,
-        // }
-        // #[derive(Deserialize)]
-        // struct LegacySession {
-        //     id: u64,
-        //     title: String,
-        //     messages: Vec<LegacyMessage>,
-        // }
-        // #[derive(Deserialize)]
-        // struct LegacyState {
-        //     sessions: Vec<LegacySession>,
-        //     current_index: usize,
-        //     next_session_id: u64,
-        // }
-        // if let Ok(old) = serde_json::from_str::<LegacyState>(&data) {
-        //     let sessions = old
-        //         .sessions
-        //         .into_iter()
-        //         .map(|s| Session {
-        //             id: s.id,
-        //             title: s.title,
-        //             messages: s
-        //                 .messages
-        //                 .into_iter()
-        //                 .map(|m| Message {
-        //                     role: m.role,
-        //                     timestamp: m.timestamp,
-        //                     content: MessageContent::Markdown(m.content),
-        //                 })
-        //                 .collect(),
-        //             db: DbConfig::default(),
-        //         })
-        //         .collect();
-        //     return Some(PersistedState {
-        //         sessions,
-        //         current_index: old.current_index,
-        //         next_session_id: old.next_session_id,
-        //         settings: Settings::default(),
-        //     });
-        // }
-        // None
-    }
 
     #[allow(dead_code)]
     fn save_state(&mut self) {
@@ -198,17 +137,6 @@ impl AppFrame {
                 }
             });
         }
-        
-        // // Also save to JSON for backward compatibility (sessions only)
-        // let sessions_only = serde_json::json!({
-        //     "sessions": self.state.sessions,
-        //     "current_index": self.state.current_index,
-        //     "next_session_id": self.state.next_session_id,
-        // });
-        // let _ = fs::write(
-        //     Self::SESSIONS_PATH,
-        //     serde_json::to_string_pretty(&sessions_only).unwrap_or_default(),
-        // );
     }
     
     /// Save settings to database
@@ -228,7 +156,7 @@ impl AppFrame {
 impl eframe::App for AppFrame {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
         // Menu bar
-        layout::menu_bar::show_menu_bar(
+        skeleton::menu_bar::show_menu_bar(
             ctx,
             &mut self.db,
             &mut self.left_panel_visible,
@@ -238,7 +166,7 @@ impl eframe::App for AppFrame {
         );
 
         // Status bar
-        layout::status_bar::show_status_bar(ctx, &mut self.db);
+        skeleton::status_bar::show_status_bar(ctx, &mut self.db);
 
         // Database management windows
         self.db.ui_add_db_window(ctx);
@@ -246,7 +174,7 @@ impl eframe::App for AppFrame {
         self.db.ui_edit_db_window(ctx);
 
         // Settings window
-        if layout::windows::show_settings_window(
+        if skeleton::windows::show_settings_window(
             ctx,
             &mut self.show_settings,
             &mut self.state,
@@ -257,7 +185,7 @@ impl eframe::App for AppFrame {
         }
 
         // About window
-        layout::windows::show_about_window(ctx, &mut self.show_about);
+        skeleton::windows::show_about_window(ctx, &mut self.show_about);
 
         // Check for pending graph window open
         if let Some(schema_info) = self.db_tree.take_pending_open_graph() {
@@ -268,7 +196,7 @@ impl eframe::App for AppFrame {
         }
 
         // Graph window
-        layout::windows::show_graph_window(
+        skeleton::windows::show_graph_window(
             ctx,
             &mut self.show_graph,
             self.graph_schema.clone(),
@@ -277,7 +205,7 @@ impl eframe::App for AppFrame {
         );
 
         // Panels
-        layout::panels::show_left_panel(
+        skeleton::panels::show_left_panel(
             ctx,
             self.left_panel_visible,
             self.left_panel_width,
@@ -286,17 +214,17 @@ impl eframe::App for AppFrame {
             &mut self.results_table,
         );
 
-        layout::panels::show_right_panel(
+        skeleton::panels::show_right_panel(
             ctx,
             self.right_panel_visible,
             self.right_panel_width,
             &mut self.chat,
             &mut self.state,
             &mut self.preview,
-            &self.session_storage,
+            &mut self.session_storage,
         );
 
-        layout::panels::show_center_panel(ctx, &mut self.db, &mut self.results_table, &self.state);
+        skeleton::panels::show_center_panel(ctx, &mut self.db, &mut self.results_table, &self.state);
 
         // Image preview window
         self.preview.ui_window(ctx);
@@ -376,23 +304,9 @@ pub fn run() -> anyhow::Result<()> {
             };
 
             tracing::debug!("settings: {:?}", settings);
-            
-            // Load state (sessions) from JSON
-            let state = AppFrame::load_state().map(|mut s| {
-                s.settings = settings.clone();
-                s
-            }).unwrap_or_else(|| PersistedState {
-                current_db_config_id: None,
-                settings: settings.clone(),
-                sessions: vec![ChatSession::new("0".to_string(), "新会话".to_string())],
-                current_index: 0,
-                next_session_id: 1,
-            });
-
-            tracing::debug!("state: {:?}",state);
 
             // Set default font family based on settings
-            let default_font = &state.settings.font_family;
+            let default_font = &settings.font_family;
             if fonts.font_data.contains_key(default_font) {
                 // Add selected font to the front of proportional font family
                 fonts
@@ -424,7 +338,7 @@ pub fn run() -> anyhow::Result<()> {
             }
 
             // Apply default font size to text styles
-            let font_size = state.settings.font_size;
+            let font_size = settings.font_size;
             let mut style = (*cc.egui_ctx.style()).clone();
             for text_style in style.text_styles.values_mut() {
                 text_style.size = font_size;
@@ -432,7 +346,7 @@ pub fn run() -> anyhow::Result<()> {
             cc.egui_ctx.set_style(style);
 
             // Apply theme
-            SettingsPanel::apply_theme(&cc.egui_ctx, state.settings.theme);
+            SettingsPanel::apply_theme(&cc.egui_ctx, settings.theme);
 
             cc.egui_ctx.set_fonts(fonts);
             Ok(Box::new(AppFrame::new()))

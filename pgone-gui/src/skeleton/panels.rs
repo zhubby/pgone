@@ -28,7 +28,7 @@ pub fn show_right_panel(
     chat: &mut ChatPanel,
     state: &mut PersistedState,
     preview: &mut PreviewManager,
-    storage: &SessionStorage,
+    storage: &mut SessionStorage,
 ) {
     SidePanel::right("right_panel")
         .resizable(true)
