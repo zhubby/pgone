@@ -3,6 +3,9 @@ use sqlx::Row;
 use sqlx::postgres::PgRow;
 use std::collections::HashSet;
 use once_cell::sync::Lazy;
+use sea_query::{Query, Expr, SelectStatement, Asterisk};
+use sqlparser::ast::{Statement, SelectItem, TableFactor, TableWithJoins, JoinOperator, SetExpr};
+use anyhow::{Result, anyhow};
 
 /// PostgreSQL 关键字集合
 static PG_KEYWORDS: &[&str] = &[
@@ -490,6 +493,346 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
         return format!("\\x{}", hex::encode(v));
     }
     "<unfmt>".to_string()
+}
+
+/// 将 SQL 语句转换为 sea_query::Query 对象
+/// 
+/// # 参数
+/// * `sql` - 要转换的 SQL 语句字符串
+/// 
+/// # 返回
+/// * `Result<Query>` - 成功时返回 sea_query::Query 对象
+/// 
+/// # 示例
+/// ```rust
+/// use pgone_gui::sql::sql_to_sea_query;
+/// 
+/// let sql = "SELECT id, name FROM users WHERE id > 10";
+/// let query = sql_to_sea_query(sql)?;
+/// ```
+pub fn sql_to_sea_query(sql: &str) -> Result<SelectStatement> {
+    use sqlparser::dialect::PostgreSqlDialect;
+    use sqlparser::parser::Parser;
+    
+    let dialect = PostgreSqlDialect {};
+    let ast = Parser::parse_sql(&dialect, sql)
+        .map_err(|e| anyhow!("Failed to parse SQL: {}", e))?;
+    
+    if ast.is_empty() {
+        return Err(anyhow!("Empty SQL statement"));
+    }
+    
+    if ast.len() > 1 {
+        return Err(anyhow!("Only single SQL statement is supported"));
+    }
+    
+    match &ast[0] {
+        Statement::Query(query) => {
+            convert_query_to_sea_query(query)
+        }
+        _ => Err(anyhow!("Only SELECT queries are supported")),
+    }
+}
+
+/// 将 sqlparser 的 Query 转换为 sea_query::Query
+fn convert_query_to_sea_query(query: &sqlparser::ast::Query) -> Result<SelectStatement> {
+    let mut sea_query = Query::select();
+    
+    // 处理 SELECT 子句 - 需要从 SetExpr 中提取
+    match query.body.as_ref() {
+        SetExpr::Select(select) => {
+            // 处理 SELECT 列
+            for item in &select.projection {
+                match item {
+                    SelectItem::UnnamedExpr(expr) => {
+                        let sea_expr = convert_expr_to_sea_expr(expr)?;
+                        sea_query.expr(sea_expr);
+                    }
+                    SelectItem::ExprWithAlias { expr, alias } => {
+                        let sea_expr = convert_expr_to_sea_expr(expr)?;
+                        let alias_name = alias.value.clone();
+                        sea_query.expr_as(sea_expr, alias_name);
+                    }
+                    SelectItem::Wildcard(_) => {
+                        sea_query.expr(Expr::col(Asterisk));
+                    }
+                    SelectItem::QualifiedWildcard(qualifier, _) => {
+                        let table = qualifier.to_string();
+                        sea_query.expr(Expr::col((table, Asterisk)));
+                    }
+                }
+            }
+            
+            // 处理 FROM 子句
+            if let Some(from) = select.from.first() {
+                convert_table_with_joins(from, &mut sea_query)?;
+            }
+            
+            // 处理 WHERE 子句
+            if let Some(where_clause) = &select.selection {
+                let sea_expr = convert_expr_to_sea_expr(where_clause)?;
+                sea_query.cond_where(sea_expr);
+            }
+        }
+        _ => {
+            return Err(anyhow!("Only SELECT statements are supported"));
+        }
+    }
+    
+    // 处理 ORDER BY 子句
+    // 注意：sea_query 的 order_by 需要 IntoColumnRef，这里简化处理
+    // 对于复杂表达式，可能需要使用其他方法
+    for order_by_elem in &query.order_by {
+        // 尝试将表达式转换为列名，如果失败则跳过
+        if let sqlparser::ast::Expr::Identifier(id) = &order_by_elem.expr {
+            let col_name = id.value.clone();
+            if order_by_elem.asc.unwrap_or(true) {
+                sea_query.order_by(col_name, sea_query::Order::Asc);
+            } else {
+                sea_query.order_by(col_name, sea_query::Order::Desc);
+            }
+        }
+        // 对于复杂表达式，暂时跳过（可以后续扩展）
+    }
+    
+    // 处理 LIMIT 子句
+    if let Some(limit) = &query.limit {
+        if let Ok(limit_value) = extract_numeric_value(limit) {
+            sea_query.limit(limit_value);
+        }
+    }
+    
+    // 处理 OFFSET 子句
+    if let Some(offset) = &query.offset {
+        if let Ok(offset_value) = extract_numeric_value(&offset.value) {
+            sea_query.offset(offset_value);
+        }
+    }
+    
+    Ok(sea_query)
+}
+
+/// 转换 sqlparser 的 TableWithJoins 到 sea_query
+fn convert_table_with_joins(
+    table_with_joins: &TableWithJoins,
+    sea_query: &mut SelectStatement,
+) -> Result<()> {
+    // 处理主表
+    match &table_with_joins.relation {
+        TableFactor::Table { name, alias, .. } => {
+            let table_name = name.to_string();
+            if let Some(alias) = alias {
+                let alias_name = alias.name.value.clone();
+                sea_query.from((table_name, alias_name));
+            } else {
+                sea_query.from(table_name);
+            }
+        }
+        TableFactor::Derived { .. } => {
+            return Err(anyhow!("Derived tables (subqueries) are not yet supported"));
+        }
+        TableFactor::TableFunction { .. } => {
+            return Err(anyhow!("Table functions are not yet supported"));
+        }
+        TableFactor::UNNEST { .. } => {
+            return Err(anyhow!("UNNEST is not yet supported"));
+        }
+        TableFactor::Pivot { .. } => {
+            return Err(anyhow!("PIVOT is not yet supported"));
+        }
+        TableFactor::Function { .. } => {
+            return Err(anyhow!("Table functions are not yet supported"));
+        }
+        TableFactor::JsonTable { .. } => {
+            return Err(anyhow!("JSON_TABLE is not yet supported"));
+        }
+        TableFactor::NestedJoin { .. } => {
+            return Err(anyhow!("Nested joins are not yet supported"));
+        }
+        TableFactor::Unpivot { .. } => {
+            return Err(anyhow!("UNPIVOT is not yet supported"));
+        }
+        TableFactor::MatchRecognize { .. } => {
+            return Err(anyhow!("MATCH_RECOGNIZE is not yet supported"));
+        }
+    }
+    
+    // 处理 JOIN
+    for join in &table_with_joins.joins {
+        match &join.join_operator {
+            JoinOperator::Inner(constraint) => {
+                if let Some(condition) = extract_join_condition(constraint, &join.relation)? {
+                    sea_query.inner_join(condition.table, condition.on);
+                }
+            }
+            JoinOperator::LeftOuter(constraint) => {
+                if let Some(condition) = extract_join_condition(constraint, &join.relation)? {
+                    sea_query.left_join(condition.table, condition.on);
+                }
+            }
+            JoinOperator::RightOuter(constraint) => {
+                if let Some(condition) = extract_join_condition(constraint, &join.relation)? {
+                    sea_query.right_join(condition.table, condition.on);
+                }
+            }
+            JoinOperator::FullOuter(constraint) => {
+                if let Some(condition) = extract_join_condition(constraint, &join.relation)? {
+                    sea_query.join(sea_query::JoinType::FullOuterJoin, condition.table, condition.on);
+                }
+            }
+            JoinOperator::CrossJoin => {
+                if let TableFactor::Table { name, .. } = &join.relation {
+                    let table_name = name.to_string();
+                    // Cross join 不需要条件，使用一个恒真条件
+                    sea_query.join(sea_query::JoinType::CrossJoin, table_name, Expr::cust("1 = 1"));
+                }
+            }
+            _ => {
+                return Err(anyhow!("Unsupported join type"));
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// JOIN 条件结构
+struct JoinCondition {
+    table: String,
+    on: Expr,
+}
+
+/// 提取 JOIN 条件
+fn extract_join_condition(
+    constraint: &sqlparser::ast::JoinConstraint,
+    relation: &TableFactor,
+) -> Result<Option<JoinCondition>> {
+    match constraint {
+        sqlparser::ast::JoinConstraint::On(expr) => {
+            // 获取表名
+            let table_name = match relation {
+                TableFactor::Table { name, alias, .. } => {
+                    if let Some(alias) = alias {
+                        alias.name.value.clone()
+                    } else {
+                        name.to_string()
+                    }
+                }
+                _ => return Err(anyhow!("Unsupported table factor in JOIN")),
+            };
+            
+            // 转换表达式
+            let sea_expr = convert_expr_to_sea_expr(expr)?;
+            Ok(Some(JoinCondition {
+                table: table_name,
+                on: sea_expr,
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// 将 sqlparser 的 Expr 转换为 sea_query 的 Expr
+fn convert_expr_to_sea_expr(expr: &sqlparser::ast::Expr) -> Result<Expr> {
+    match expr {
+        sqlparser::ast::Expr::Identifier(id) => {
+            Ok(Expr::col(id.value.clone()))
+        }
+        sqlparser::ast::Expr::CompoundIdentifier(ids) => {
+            if ids.len() == 2 {
+                Ok(Expr::col((ids[0].value.clone(), ids[1].value.clone())))
+            } else if ids.len() == 1 {
+                Ok(Expr::col(ids[0].value.clone()))
+            } else {
+                Err(anyhow!("Unsupported compound identifier with {} parts", ids.len()))
+            }
+        }
+        sqlparser::ast::Expr::Value(value) => {
+            match value {
+                sqlparser::ast::Value::Number(n, _) => {
+                    if let Ok(i) = n.parse::<i64>() {
+                        Ok(Expr::val(i))
+                    } else if let Ok(f) = n.parse::<f64>() {
+                        Ok(Expr::val(f))
+                    } else {
+                        Err(anyhow!("Invalid number: {}", n))
+                    }
+                }
+                sqlparser::ast::Value::SingleQuotedString(s) => {
+                    Ok(Expr::val(s.as_str()))
+                }
+                sqlparser::ast::Value::DoubleQuotedString(s) => {
+                    Ok(Expr::val(s.as_str()))
+                }
+                sqlparser::ast::Value::Boolean(b) => {
+                    Ok(Expr::val(*b))
+                }
+                sqlparser::ast::Value::Null => {
+                    Ok(Expr::val(None::<String>))
+                }
+                _ => Err(anyhow!("Unsupported value type")),
+            }
+        }
+        sqlparser::ast::Expr::BinaryOp { left, op, right } => {
+            // 对于二元操作符，使用 Expr::cust 来构建表达式
+            // 使用 Box::leak 来创建静态字符串
+            let left_str = format!("{}", left);
+            let right_str = format!("{}", right);
+            let op_str = match op {
+                sqlparser::ast::BinaryOperator::Plus => "+",
+                sqlparser::ast::BinaryOperator::Minus => "-",
+                sqlparser::ast::BinaryOperator::Multiply => "*",
+                sqlparser::ast::BinaryOperator::Divide => "/",
+                sqlparser::ast::BinaryOperator::Modulo => "%",
+                sqlparser::ast::BinaryOperator::Gt => ">",
+                sqlparser::ast::BinaryOperator::Lt => "<",
+                sqlparser::ast::BinaryOperator::GtEq => ">=",
+                sqlparser::ast::BinaryOperator::LtEq => "<=",
+                sqlparser::ast::BinaryOperator::Eq => "=",
+                sqlparser::ast::BinaryOperator::NotEq => "!=",
+                sqlparser::ast::BinaryOperator::And => "AND",
+                sqlparser::ast::BinaryOperator::Or => "OR",
+                _ => return Err(anyhow!("Unsupported binary operator: {:?}", op)),
+            };
+            let expr_str = format!("({} {} {})", left_str, op_str, right_str);
+            let leaked: &'static str = String::leak(expr_str);
+            Ok(Expr::cust(leaked))
+        }
+        sqlparser::ast::Expr::UnaryOp { op, expr } => {
+            let expr_str = format!("{}", expr);
+            let result = match op {
+                sqlparser::ast::UnaryOperator::Plus => expr_str,
+                sqlparser::ast::UnaryOperator::Minus => format!("-{}", expr_str),
+                sqlparser::ast::UnaryOperator::Not => format!("NOT {}", expr_str),
+                _ => return Err(anyhow!("Unsupported unary operator: {:?}", op)),
+            };
+            let leaked: &'static str = String::leak(result);
+            Ok(Expr::cust(leaked))
+        }
+        sqlparser::ast::Expr::Function(func) => {
+            // 处理函数调用 - 使用 Expr::cust 来简化实现
+            // 这样可以避免复杂的 FunctionArguments 处理
+            let func_str = format!("{}", func);
+            let leaked: &'static str = String::leak(func_str);
+            Ok(Expr::cust(leaked))
+        }
+        sqlparser::ast::Expr::Cast { expr, .. } => {
+            let sea_expr = convert_expr_to_sea_expr(expr)?;
+            // sea_query 的 cast 需要类型信息，这里简化处理
+            Ok(sea_expr) // TODO: 实现完整的 CAST 转换
+        }
+        _ => Err(anyhow!("Unsupported expression type: {:?}", expr)),
+    }
+}
+
+/// 从表达式中提取数值
+fn extract_numeric_value(expr: &sqlparser::ast::Expr) -> Result<u64> {
+    match expr {
+        sqlparser::ast::Expr::Value(sqlparser::ast::Value::Number(n, _)) => {
+            n.parse::<u64>().map_err(|e| anyhow!("Invalid number: {}", e))
+        }
+        _ => Err(anyhow!("Expected numeric value")),
+    }
 }
 
 #[cfg(test)]
