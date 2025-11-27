@@ -1,4 +1,3 @@
-use anyhow::Ok;
 use egui_snarl::{InPinId, NodeId, OutPinId, Snarl};
 use egui_snarl::ui::{SnarlStyle, SnarlViewer};
 use pgone_sql::{Session, TableDetail};
@@ -6,8 +5,6 @@ use poll_promise::Promise;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
-
-use crate::futures;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TableNode {
@@ -284,30 +281,25 @@ impl SchemaGraph {
         let schema_name = self.schema_name.clone();
         let dsn = dsn.to_string();
 
-        self.promise = Some(Promise::spawn_thread("load_table_details", move || {
-            crate::futures::block_on_async(async move {
+        let (sender, promise) = Promise::new();
+        self.promise = Some(promise);
+
+        crate::futures::spawn(async move {
+            let result: Result<Vec<TableDetail>, String> = async move {
                 let session = Session::new(&dsn).await.map_err(|e| e.to_string())?;
                 session
                     .list_table_details(&schema_name)
                     .await
                     .map_err(|e| e.to_string())
-            })
-        }));
-
-
-        // self.promise = futures::spawn(async {
-        //     let session = Session::new(&dsn).await.map_err(|e| e.to_string())?;
-        //     let r = session
-        //         .list_table_details(&schema_name)
-        //         .await
-        //         .map_err(|e| e.to_string());
-        //     Ok(r)
-        // }).into();
+            }.await;
+            
+            sender.send(result);
+        });
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, dsn: Option<&str>) {
         // Check promise status
-        if let Some(promise) = &self.promise {
+        if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
                 self.loading = false;
                 match result {
