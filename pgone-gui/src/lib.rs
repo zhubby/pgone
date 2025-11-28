@@ -166,7 +166,7 @@ impl eframe::App for AppFrame {
         );
 
         // Status bar
-        skeleton::status_bar::show_status_bar(ctx, &mut self.db);
+        skeleton::status_bar::show_status_bar(ctx, &mut self.db, &self.state.settings);
 
         // Database management windows
         self.db.ui_add_db_window(ctx);

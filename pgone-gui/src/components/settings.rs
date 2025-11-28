@@ -399,6 +399,17 @@ impl SettingsPanel {
         ui.separator();
         ui.add_space(10.0);
         
+        ui.heading("系统选项");
+        ui.separator();
+        
+        // Enable monitor checkbox
+        ui.checkbox(&mut settings.enable_monitor, "启用系统监控");
+        ui.label("在状态栏显示当前进程的 CPU、内存和网络使用情况");
+        
+        ui.add_space(20.0);
+        ui.separator();
+        ui.add_space(10.0);
+        
         // Save button
         let has_changes = self.has_changes(settings);
         let mut save_clicked = false;
@@ -446,7 +457,7 @@ impl SettingsPanel {
             return;
         };
 
-        let provider = settings.llm_provider;;
+        let provider = settings.llm_provider;
         let base_url = settings.openai_base_url.clone();
         let (sender, receiver) = mpsc::channel(1);
         self.models_receiver = Some(receiver);

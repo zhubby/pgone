@@ -61,6 +61,7 @@ poll-promise = "0.3"
 once_cell = { workspace = true }
 etl = { workspace = true }
 sea-query = "1.0.0-rc.1"
+sysinfo = "0.37.2"
 
 
 

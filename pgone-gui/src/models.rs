@@ -155,6 +155,8 @@ pub struct Settings {
     pub theme: Theme,
     #[serde(default = "default_llm_provider")]
     pub llm_provider: LLMProvider,
+    #[serde(default = "default_enable_monitor")]
+    pub enable_monitor: bool,
 }
 
 fn default_theme() -> Theme {
@@ -163,6 +165,10 @@ fn default_theme() -> Theme {
 
 fn default_llm_provider() -> LLMProvider {
     LLMProvider::OpenAI
+}
+
+fn default_enable_monitor() -> bool {
+    false
 }
 
 impl Default for Settings {
@@ -176,6 +182,7 @@ impl Default for Settings {
             font_size: 12.0,
             theme: Theme::System,
             llm_provider: LLMProvider::OpenAI,
+            enable_monitor: false,
         }
     }
 }
@@ -208,6 +215,7 @@ impl Settings {
         map.insert("openai_model".to_string(), self.openai_model.clone());
         map.insert("font_family".to_string(), self.font_family.clone());
         map.insert("font_size".to_string(), self.font_size.to_string());
+        map.insert("enable_monitor".to_string(), self.enable_monitor.to_string());
         
         map
     }
@@ -283,6 +291,13 @@ impl Settings {
         if let Some(value) = map.get("font_size") {
             if let Ok(size) = value.parse::<f32>() {
                 settings.font_size = size;
+            }
+        }
+        
+        // Parse enable_monitor
+        if let Some(value) = map.get("enable_monitor") {
+            if let Ok(enabled) = value.parse::<bool>() {
+                settings.enable_monitor = enabled;
             }
         }
         
