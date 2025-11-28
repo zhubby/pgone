@@ -1,7 +1,15 @@
 [package]
 name = "pgone-mcp-server"
-version = "0.1.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+documentation = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
 
 [[bin]]
 name = "pgone-mcp-server"
@@ -17,8 +25,9 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
-async-trait = "0.1"
+async-trait = { workspace = true }
 moka = { version = "0.12", features = ["future"] }
 once_cell = { workspace = true }
 clap = { workspace = true }
 pgone-util = { workspace = true }
+pgone-sql = { workspace = true }

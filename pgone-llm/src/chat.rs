@@ -1,11 +1,11 @@
-use crate::llm::{Client, LlmError, Result};
+use crate::{Client, LlmError, Result};
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
     ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
     ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestFunctionMessageArgs,
 };
 use futures::Stream;
-use crate::llm::tools::{Tool, FunctionCall};
+use crate::tools::{Tool, FunctionCall};
 
 #[derive(Debug, Clone)]
 pub enum ChatMessageContent {

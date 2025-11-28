@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use pgone_llm::LLMProvider;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -152,10 +153,16 @@ pub struct Settings {
     pub font_size: f32,
     #[serde(default = "default_theme")]
     pub theme: Theme,
+    #[serde(default = "default_llm_provider")]
+    pub llm_provider: LLMProvider,
 }
 
 fn default_theme() -> Theme {
     Theme::System
+}
+
+fn default_llm_provider() -> LLMProvider {
+    LLMProvider::OpenAI
 }
 
 impl Default for Settings {
@@ -168,6 +175,7 @@ impl Default for Settings {
             font_family: "LXGWWenKai-Medium".to_string(),
             font_size: 12.0,
             theme: Theme::System,
+            llm_provider: LLMProvider::OpenAI,
         }
     }
 }
@@ -181,6 +189,7 @@ impl Settings {
         // Serialize enum as JSON string
         map.insert("send_shortcut".to_string(), serde_json::to_string(&self.send_shortcut).unwrap_or_default());
         map.insert("theme".to_string(), serde_json::to_string(&self.theme).unwrap_or_default());
+        map.insert("llm_provider".to_string(), serde_json::to_string(&self.llm_provider).unwrap_or_default());
         
         // Store Option<String> as JSON (null or string)
         if let Some(ref key) = self.openai_api_key {
@@ -220,6 +229,13 @@ impl Settings {
         if let Some(value) = map.get("theme") {
             if let Ok(theme) = serde_json::from_str::<Theme>(value) {
                 settings.theme = theme;
+            }
+        }
+        
+        // Parse llm_provider
+        if let Some(value) = map.get("llm_provider") {
+            if let Ok(provider) = serde_json::from_str::<LLMProvider>(value) {
+                settings.llm_provider = provider;
             }
         }
         

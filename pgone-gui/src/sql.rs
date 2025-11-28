@@ -6,6 +6,8 @@ use once_cell::sync::Lazy;
 use sea_query::{Query, Expr, SelectStatement, Asterisk};
 use sqlparser::ast::{Statement, SelectItem, TableFactor, TableWithJoins, JoinOperator, SetExpr};
 use anyhow::{Result, anyhow};
+use serde_json;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, FixedOffset};
 
 /// PostgreSQL 关键字集合
 static PG_KEYWORDS: &[&str] = &[
@@ -477,21 +479,110 @@ fn format_sql_string(sql: &str) -> String {
 }
 
 pub fn format_cell(row: &PgRow, idx: usize) -> String {
-    if let Ok(v) = row.try_get::<String, _>(idx) {
-        return v;
+    // 首先检查是否为 NULL
+    if row.try_get_raw(idx).is_err() {
+        return "NULL".to_string();
+    }
+
+    // JSON/JSONB 类型 - 尝试直接获取（如果 sqlx 支持）
+    // 注意：如果 sqlx 未启用 json 特性，这会失败并继续尝试其他类型
+    if let Ok(v) = row.try_get::<serde_json::Value, _>(idx) {
+        return serde_json::to_string_pretty(&v)
+            .unwrap_or_else(|_| v.to_string());
+    }
+
+    // 数组类型 - 尝试常见元素类型（在字符串之前处理，避免误判）
+    if let Ok(v) = row.try_get::<Vec<i32>, _>(idx) {
+        return format!("{{{}}}", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
+    }
+    if let Ok(v) = row.try_get::<Vec<i64>, _>(idx) {
+        return format!("{{{}}}", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
+    }
+    if let Ok(v) = row.try_get::<Vec<String>, _>(idx) {
+        return format!("{{{}}}", v.iter().map(|s| format!("\"{}\"", s.replace('"', "\"\""))).collect::<Vec<_>>().join(","));
+    }
+    if let Ok(v) = row.try_get::<Vec<f64>, _>(idx) {
+        return format!("{{{}}}", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
+    }
+    if let Ok(v) = row.try_get::<Vec<bool>, _>(idx) {
+        return format!("{{{}}}", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
+    }
+
+    // 数值类型
+    if let Ok(v) = row.try_get::<i16, _>(idx) {
+        return v.to_string();
+    }
+    if let Ok(v) = row.try_get::<i32, _>(idx) {
+        return v.to_string();
     }
     if let Ok(v) = row.try_get::<i64, _>(idx) {
+        return v.to_string();
+    }
+    if let Ok(v) = row.try_get::<f32, _>(idx) {
         return v.to_string();
     }
     if let Ok(v) = row.try_get::<f64, _>(idx) {
         return v.to_string();
     }
+
+    // 布尔类型
     if let Ok(v) = row.try_get::<bool, _>(idx) {
         return v.to_string();
     }
+
+    // 字节类型 (BYTEA) - 在字符串之前处理
     if let Ok(v) = row.try_get::<Vec<u8>, _>(idx) {
         return format!("\\x{}", hex::encode(v));
     }
+
+    // 字符串类型 - 尝试解析为日期时间、UUID等
+    if let Ok(v) = row.try_get::<String, _>(idx) {
+        // 尝试解析为 TIMESTAMPTZ (带时区的时间戳)
+        if let Ok(dt) = DateTime::parse_from_rfc3339(&v) {
+            return dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string();
+        }
+        // 尝试解析为 TIMESTAMPTZ (其他格式)
+        if let Ok(dt) = DateTime::<FixedOffset>::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f %z") {
+            return dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string();
+        }
+        // 尝试解析为 TIMESTAMP (不带时区的时间戳)
+        if let Ok(dt) = NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f") {
+            return dt.format("%Y-%m-%d %H:%M:%S%.f").to_string();
+        }
+        if let Ok(dt) = NaiveDateTime::parse_from_str(&v, "%Y-%m-%dT%H:%M:%S%.f") {
+            return dt.format("%Y-%m-%d %H:%M:%S%.f").to_string();
+        }
+        if let Ok(dt) = NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S") {
+            return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+        }
+        // 尝试解析为 DATE
+        if let Ok(d) = NaiveDate::parse_from_str(&v, "%Y-%m-%d") {
+            return d.format("%Y-%m-%d").to_string();
+        }
+        // 尝试解析为 TIME
+        if let Ok(t) = NaiveTime::parse_from_str(&v, "%H:%M:%S%.f") {
+            return t.format("%H:%M:%S%.f").to_string();
+        }
+        if let Ok(t) = NaiveTime::parse_from_str(&v, "%H:%M:%S") {
+            return t.format("%H:%M:%S").to_string();
+        }
+        // 尝试解析为 UUID
+        if let Ok(u) = uuid::Uuid::parse_str(&v) {
+            return u.to_string();
+        }
+        // 尝试解析为 JSON（如果字符串看起来像 JSON）
+        if (v.starts_with('{') && v.ends_with('}')) || (v.starts_with('[') && v.ends_with(']')) {
+            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&v) {
+                if let Ok(pretty) = serde_json::to_string_pretty(&json_val) {
+                    return pretty;
+                }
+            }
+        }
+        // 返回原始字符串
+        return v;
+    }
+
+    // 最后的回退
     "<unfmt>".to_string()
 }
 

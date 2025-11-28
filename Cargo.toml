@@ -31,7 +31,7 @@ members = [
     "pgone-mcp-server",
     "pgone-auditor", 
     "pgone-util", 
-    "pgone-sql",
+    "pgone-sql", "pgone-agent", "pgone-llm",
 ]
 
 resolver = "2"
@@ -87,3 +87,4 @@ pgone-apiserver = { path = "pgone-apiserver" }
 pgone-a2a = { path = "pgone-a2a" }
 pgone-util= { path = "pgone-util" }
 pgone-sql = { path = "pgone-sql" }
+pgone-llm = { path = "pgone-llm" }
