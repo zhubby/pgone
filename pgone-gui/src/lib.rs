@@ -18,7 +18,8 @@ use storage::SessionStorage;
 
 mod components;
 use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
-mod skeleton;
+mod skeletons;
+mod styles;
 mod media;
 mod agents;
 
@@ -156,7 +157,7 @@ impl AppFrame {
 impl eframe::App for AppFrame {
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
         // Menu bar
-        skeleton::menu_bar::show_menu_bar(
+        skeletons::menu_bar::show_menu_bar(
             ctx,
             &mut self.db,
             &mut self.left_panel_visible,
@@ -166,7 +167,7 @@ impl eframe::App for AppFrame {
         );
 
         // Status bar
-        skeleton::status_bar::show_status_bar(ctx, &mut self.db, &self.state.settings);
+        skeletons::status_bar::show_status_bar(ctx, &mut self.db, &self.state.settings);
 
         // Database management windows
         self.db.ui_add_db_window(ctx);
@@ -174,7 +175,7 @@ impl eframe::App for AppFrame {
         self.db.ui_edit_db_window(ctx);
 
         // Settings window
-        if skeleton::windows::show_settings_window(
+        if skeletons::windows::show_settings_window(
             ctx,
             &mut self.show_settings,
             &mut self.state,
@@ -185,7 +186,7 @@ impl eframe::App for AppFrame {
         }
 
         // About window
-        skeleton::windows::show_about_window(ctx, &mut self.show_about);
+        skeletons::windows::show_about_window(ctx, &mut self.show_about);
 
         // Check for pending graph window open
         if let Some(schema_info) = self.db_tree.take_pending_open_graph() {
@@ -196,7 +197,7 @@ impl eframe::App for AppFrame {
         }
 
         // Graph window
-        skeleton::windows::show_graph_window(
+        skeletons::windows::show_graph_window(
             ctx,
             &mut self.show_graph,
             self.graph_schema.clone(),
@@ -205,7 +206,7 @@ impl eframe::App for AppFrame {
         );
 
         // Panels
-        skeleton::panels::show_left_panel(
+        skeletons::panels::show_left_panel(
             ctx,
             self.left_panel_visible,
             self.left_panel_width,
@@ -214,7 +215,7 @@ impl eframe::App for AppFrame {
             &mut self.results_table,
         );
 
-        skeleton::panels::show_right_panel(
+        skeletons::panels::show_right_panel(
             ctx,
             self.right_panel_visible,
             self.right_panel_width,
@@ -224,7 +225,7 @@ impl eframe::App for AppFrame {
             &mut self.session_storage,
         );
 
-        skeleton::panels::show_center_panel(ctx, &mut self.db, &mut self.results_table, &self.state);
+        skeletons::panels::show_center_panel(ctx, &mut self.db, &mut self.results_table, &self.state);
 
         // Image preview window
         self.preview.ui_window(ctx);
