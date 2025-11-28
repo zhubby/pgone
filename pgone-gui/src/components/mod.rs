@@ -1,4 +1,3 @@
-pub mod chat_panel;
 pub mod context;
 pub mod db_manager;
 pub mod db_tree;
@@ -7,8 +6,9 @@ pub mod results_table;
 pub mod settings;
 pub mod graph;
 pub mod formatter;
+pub mod chats;
 
-pub use chat_panel::ChatPanel;
+pub use chats::ChatPanel;
 pub use context::{ChatCtx, SqlCtx};
 pub use db_manager::DbManager;
 pub use db_tree::DbTree;

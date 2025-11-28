@@ -1,4 +1,4 @@
-use crate::llm::error::{LlmError, Result};
+use crate::error::{LlmError, Result};
 
 #[derive(Debug, Clone)]
 pub struct Config {

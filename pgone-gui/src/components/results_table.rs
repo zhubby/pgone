@@ -306,9 +306,6 @@ impl ResultsTable {
                 Ok((cols, data))
             });
 
-        debug!("res: {:?}", res);
-        debug!("pk_cols: {:?}", pk_cols);
-
         match res {
             Ok((cols, rows)) => {
                 self.query_columns = cols;
@@ -728,6 +725,9 @@ impl ResultsTable {
             return;
         }
 
+        debug!("query_columns: {:?}", self.query_columns);
+        debug!("query_rows: {:?}", self.query_rows);
+
         // Calculate pagination
         let total_rows = self.query_rows.len();
         let total_pages = if self.rows_per_page > 0 {
@@ -751,11 +751,9 @@ impl ResultsTable {
             (self.current_page - 1) * self.rows_per_page
         };
         let end_idx = (start_idx + self.rows_per_page).min(total_rows);
-        let page_rows = if start_idx < total_rows {
-            &self.query_rows[start_idx..end_idx]
-        } else {
-            &[]
-        };
+        let page_rows = &self.query_rows;
+
+        debug!("page_rows: {:?}", page_rows);
 
         let available_height = ui.available_height() - 40.0;
         let row_height = 20.0;
@@ -839,234 +837,6 @@ impl ResultsTable {
         if let Some(col) = clicked_column {
             self.sort_rows(&col);
         }
-    }
-
-    /// Legacy UI method for backward compatibility
-    pub fn ui_legacy(
-        &mut self,
-        ui: &mut egui::Ui,
-        columns: &[String],
-        rows: &[Vec<String>],
-        primary_key_columns: Option<&HashSet<String>>,
-        show_refresh: bool,
-        sql: Option<&str>,
-    ) {
-        // Update current SQL statement
-        let new_sql = sql.map(|s| s.to_string());
-
-        // Reset to first page if SQL statement changed
-        if self.previous_sql != new_sql {
-            self.current_page = 1;
-            self.previous_sql = new_sql.clone();
-        }
-
-        self.current_sql = new_sql;
-        ui.horizontal(|ui| {
-            ui.heading("Results");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if show_refresh {
-                    if ui.button(egui_phosphor::regular::ARROW_CLOCKWISE).clicked() {
-                        self.refresh_requested = true;
-                    }
-                    ui.add_space(8.0);
-                }
-                if ui.button("Export CSV...").clicked() {
-                    self.export_csv(columns, rows);
-                }
-            });
-        });
-        ui.separator();
-
-        // Toolbar with SQL statement and pagination
-        ui.horizontal(|ui| {
-            // Display SQL statement (truncated if too long)
-            if let Some(ref sql) = self.current_sql {
-                let available_width = ui.available_width() - 200.0; // Reserve space for pagination buttons
-                let truncated_sql = Self::truncate_text(ui, sql, available_width.max(100.0));
-                ui.label(
-                    egui::RichText::new(truncated_sql)
-                        .color(egui::Color32::GRAY)
-                        .small(),
-                );
-            } else {
-                ui.label(
-                    egui::RichText::new("No SQL statement")
-                        .color(egui::Color32::GRAY)
-                        .small(),
-                );
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Pagination controls
-                let total_rows = rows.len();
-                let rows_per_page = self.rows_per_page.max(1);
-                let total_pages = if total_rows == 0 {
-                    1
-                } else {
-                    (total_rows + rows_per_page - 1) / rows_per_page
-                };
-
-                // Ensure current_page is valid
-                if total_pages > 0 {
-                    if self.current_page > total_pages {
-                        self.current_page = total_pages;
-                    }
-                    if self.current_page < 1 {
-                        self.current_page = 1;
-                    }
-                } else {
-                    self.current_page = 1;
-                }
-
-                // Page info
-                if total_rows > 0 {
-                    let start_row = (self.current_page - 1) * rows_per_page + 1;
-                    let end_row = (start_row + rows_per_page - 1).min(total_rows);
-                    ui.label(format!("{} - {} / {}", start_row, end_row, total_rows));
-                    ui.add_space(8.0);
-
-                    // Next page button
-                    if ui
-                        .add_enabled(
-                            self.current_page < total_pages,
-                            egui::Button::new(egui_phosphor::regular::CARET_RIGHT),
-                        )
-                        .clicked()
-                    {
-                        if self.current_page < total_pages {
-                            self.current_page += 1;
-                        }
-                    }
-
-                    // Previous page button
-                    if ui
-                        .add_enabled(
-                            self.current_page > 1,
-                            egui::Button::new(egui_phosphor::regular::CARET_LEFT),
-                        )
-                        .clicked()
-                    {
-                        if self.current_page > 1 {
-                            self.current_page -= 1;
-                        }
-                    }
-
-                    ui.add_space(4.0);
-
-                    // First page button
-                    if ui
-                        .add_enabled(
-                            self.current_page > 1,
-                            egui::Button::new(egui_phosphor::regular::CARET_DOUBLE_LEFT),
-                        )
-                        .clicked()
-                    {
-                        self.current_page = 1;
-                    }
-
-                    // Last page button
-                    if ui
-                        .add_enabled(
-                            self.current_page < total_pages,
-                            egui::Button::new(egui_phosphor::regular::CARET_DOUBLE_RIGHT),
-                        )
-                        .clicked()
-                    {
-                        self.current_page = total_pages;
-                    }
-                } else {
-                    ui.label("0 / 0");
-                }
-            });
-        });
-        ui.separator();
-
-        if columns.is_empty() {
-            ui.centered_and_justified(|ui| {
-                ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
-            });
-            return;
-        }
-
-        // Calculate pagination
-        let total_rows = rows.len();
-        let total_pages = if self.rows_per_page > 0 {
-            (total_rows + self.rows_per_page - 1) / self.rows_per_page
-        } else {
-            1
-        };
-
-        // Ensure current_page is valid
-        if self.current_page > total_pages.max(1) {
-            self.current_page = total_pages.max(1);
-        }
-        if self.current_page < 1 {
-            self.current_page = 1;
-        }
-
-        // Get current page rows
-        let start_idx = if total_rows == 0 {
-            0
-        } else {
-            (self.current_page - 1) * self.rows_per_page
-        };
-        let end_idx = (start_idx + self.rows_per_page).min(total_rows);
-        let page_rows = if start_idx < total_rows {
-            &rows[start_idx..end_idx]
-        } else {
-            &[]
-        };
-
-        let available_height = ui.available_height() - 40.0;
-        let row_height = 20.0;
-        let max_visible_rows = (available_height / row_height).floor() as usize;
-
-        egui::ScrollArea::both()
-            .auto_shrink([false; 2])
-            .show(ui, |ui| {
-                egui::Grid::new("results_table")
-                    .striped(true)
-                    .spacing([8.0, 4.0])
-                    .show(ui, |ui| {
-                        // Header row - add blank column at the beginning
-                        ui.label(""); // Blank column
-                        for col in columns {
-                            ui.horizontal(|ui| {
-                                // Show key icon for primary key columns
-                                if let Some(pk_cols) = primary_key_columns {
-                                    if pk_cols.contains(col) {
-                                        ui.label(egui_phosphor::regular::KEY);
-                                        ui.add_space(4.0);
-                                    }
-                                }
-                                ui.strong(col);
-                            });
-                        }
-                        ui.end_row();
-
-                        // Data rows - add blank cell at the beginning of each row
-                        for row in page_rows {
-                            ui.label(""); // Blank cell
-                            for cell in row {
-                                ui.label(cell);
-                            }
-                            ui.end_row();
-                        }
-
-                        // Empty rows for better visibility
-                        let data_rows = page_rows.len();
-                        if data_rows < max_visible_rows {
-                            let empty_rows_needed = max_visible_rows - data_rows;
-                            for _ in 0..empty_rows_needed {
-                                ui.label(""); // Blank cell
-                                for _ in columns {
-                                    ui.label("");
-                                }
-                                ui.end_row();
-                            }
-                        }
-                    });
-            });
     }
 
     fn export_csv(&self, columns: &[String], rows: &[Vec<String>]) {

@@ -1,4 +1,4 @@
-use crate::llm::{Client, Result};
+use crate::{Client, Result};
 
 #[derive(Debug, Clone)]
 pub struct ModelInfo {

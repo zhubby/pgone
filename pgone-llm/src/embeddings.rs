@@ -1,4 +1,4 @@
-use crate::llm::{Client, LlmError, Result};
+use crate::{Client, LlmError, Result};
 use async_openai::types::CreateEmbeddingRequestArgs;
 
 #[derive(Debug, Clone)]

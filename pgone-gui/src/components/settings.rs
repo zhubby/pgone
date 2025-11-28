@@ -1,12 +1,20 @@
 use crate::models::{Settings, SendShortcut, Theme};
+use crate::futures;
 use egui::{ComboBox, Ui};
 use std::fs;
 use std::path::Path;
+use tokio::sync::mpsc;
+use pgone_llm::LLMProvider;
 
 pub struct SettingsPanel {
     previous_font_size: Option<f32>,
     original_settings: Option<Settings>,
     settings: Settings,
+    available_models: Vec<String>,
+    models_receiver: Option<mpsc::Receiver<Result<Vec<String>, String>>>,
+    models_loaded: bool,
+    last_api_key: Option<String>,
+    last_base_url: Option<String>,
 }
 
 impl Default for SettingsPanel {
@@ -15,6 +23,11 @@ impl Default for SettingsPanel {
             previous_font_size: None,
             original_settings: None,
             settings: Settings::default(),
+            available_models: Vec::new(),
+            models_receiver: None,
+            models_loaded: false,
+            last_api_key: None,
+            last_base_url: None,
         }
     }
 }
@@ -25,7 +38,12 @@ impl SettingsPanel {
         Self {
             previous_font_size: None,
             original_settings: None,
-            settings,
+            settings: settings.clone(),
+            available_models: Vec::new(),
+            models_receiver: None,
+            models_loaded: false,
+            last_api_key: settings.openai_api_key.clone(),
+            last_base_url: settings.openai_base_url.clone(),
         }
     }
 
@@ -57,6 +75,30 @@ impl SettingsPanel {
     /// Get available font sizes
     pub fn get_available_font_sizes() -> Vec<f32> {
         vec![10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 24.0]
+    }
+    
+    /// Get all available LLM providers
+    pub fn all_llm_providers() -> &'static [LLMProvider] {
+        &[
+            LLMProvider::OpenAI,
+            LLMProvider::Gemini,
+            LLMProvider::Moonshot,
+            LLMProvider::DeepSeek,
+            LLMProvider::Ollama,
+            LLMProvider::BigModel,
+        ]
+    }
+    
+    /// Get display name for LLM provider
+    pub fn llm_provider_display_name(provider: &LLMProvider) -> &'static str {
+        match provider {
+            LLMProvider::OpenAI => "OpenAI",
+            LLMProvider::Gemini => "Google Gemini",
+            LLMProvider::Moonshot => "Moonshot",
+            LLMProvider::DeepSeek => "DeepSeek",
+            LLMProvider::Ollama => "Ollama",
+            LLMProvider::BigModel => "BigModel",
+        }
     }
 
     /// Initialize original settings (call when opening settings window)
@@ -91,6 +133,60 @@ impl SettingsPanel {
     /// Render settings UI
     /// Returns true if save button was clicked
     pub fn ui(&mut self, ui: &mut Ui, settings: &mut Settings, ctx: &egui::Context) -> bool {
+        // 检查 API key 或 base_url 是否改变，如果改变则重新加载模型列表
+        let api_key_changed = self.last_api_key != settings.openai_api_key;
+        let base_url_changed = self.last_base_url != settings.openai_base_url;
+        
+        if (api_key_changed || base_url_changed) && settings.openai_api_key.is_some() {
+            self.last_api_key = settings.openai_api_key.clone();
+            self.last_base_url = settings.openai_base_url.clone();
+            self.models_loaded = false;
+            self.models_receiver = None;
+            self.load_models(settings);
+        }
+        
+        // 检查模型加载结果
+        if let Some(ref mut receiver) = self.models_receiver {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    match result {
+                        Ok(models) => {
+                            self.available_models = models;
+                            self.models_loaded = true;
+                        }
+                        Err(e) => {
+                            tracing::error!("加载模型列表失败: {}", e);
+                            // 如果加载失败，使用默认模型列表
+                            self.available_models = vec![
+                                "gpt-4o-mini".to_string(),
+                                "gpt-4o".to_string(),
+                                "gpt-4-turbo".to_string(),
+                                "gpt-4".to_string(),
+                                "gpt-3.5-turbo".to_string(),
+                            ];
+                            self.models_loaded = true;
+                        }
+                    }
+                    self.models_receiver = None;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    // 还没有结果，继续等待
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    // Channel已断开，清理
+                    self.models_receiver = None;
+                }
+            }
+        }
+        
+        // 如果还没有加载过且有 API key，则开始加载
+        if !self.models_loaded 
+            && settings.openai_api_key.is_some() 
+            && self.models_receiver.is_none() 
+        {
+            self.load_models(settings);
+        }
+        
         ui.heading("设置");
         ui.separator();
         
@@ -120,8 +216,26 @@ impl SettingsPanel {
         ui.separator();
         ui.add_space(10.0);
         
-        ui.heading("OpenAI 配置");
+        ui.heading("LLM 配置");
         ui.separator();
+        
+        // LLM Provider selection
+        ui.horizontal(|ui| {
+            ui.label("模型供应商:");
+            ComboBox::from_id_salt("llm_provider")
+                .selected_text(Self::llm_provider_display_name(&settings.llm_provider))
+                .show_ui(ui, |ui| {
+                    for provider in Self::all_llm_providers() {
+                        ui.selectable_value(
+                            &mut settings.llm_provider,
+                            *provider,
+                            Self::llm_provider_display_name(provider),
+                        );
+                    }
+                });
+        });
+        
+        ui.add_space(5.0);
         
         // OpenAI API Key
         ui.horizontal(|ui| {
@@ -160,18 +274,31 @@ impl SettingsPanel {
         // OpenAI Model
         ui.horizontal(|ui| {
             ui.label("模型:");
-            let available_models = vec![
-                "gpt-4o-mini",
-                "gpt-4o",
-                "gpt-4-turbo",
-                "gpt-4",
-                "gpt-3.5-turbo",
-            ];
+            let available_models = if self.available_models.is_empty() {
+                // 如果还没有加载，显示默认模型列表
+                vec![
+                    "gpt-4o-mini".to_string(),
+                    "gpt-4o".to_string(),
+                    "gpt-4-turbo".to_string(),
+                    "gpt-4".to_string(),
+                    "gpt-3.5-turbo".to_string(),
+                ]
+            } else {
+                self.available_models.clone()
+            };
+            
+            // 如果正在加载，显示加载状态
+            let display_text = if self.models_receiver.is_some() {
+                format!("{} (加载中...)", settings.openai_model)
+            } else {
+                settings.openai_model.clone()
+            };
+            
             ComboBox::from_id_salt("openai_model")
-                .selected_text(&settings.openai_model)
+                .selected_text(&display_text)
                 .show_ui(ui, |ui| {
                     for model in &available_models {
-                        let model_str = model.to_string();
+                        let model_str = model.clone();
                         ui.selectable_value(
                             &mut settings.openai_model,
                             model_str.clone(),
@@ -272,6 +399,17 @@ impl SettingsPanel {
         ui.separator();
         ui.add_space(10.0);
         
+        ui.heading("系统选项");
+        ui.separator();
+        
+        // Enable monitor checkbox
+        ui.checkbox(&mut settings.enable_monitor, "启用系统监控");
+        ui.label("在状态栏显示当前进程的 CPU、内存和网络使用情况");
+        
+        ui.add_space(20.0);
+        ui.separator();
+        ui.add_space(10.0);
+        
         // Save button
         let has_changes = self.has_changes(settings);
         let mut save_clicked = false;
@@ -312,6 +450,42 @@ impl SettingsPanel {
                 catppuccin_egui::set_theme(ctx, catppuccin_egui::MOCHA);
             }
         }
+    }
+    
+    fn load_models(&mut self, settings: &Settings) {
+        let Some(api_key) = settings.openai_api_key.clone() else {
+            return;
+        };
+
+        let provider = settings.llm_provider;
+        let base_url = settings.openai_base_url.clone();
+        let (sender, receiver) = mpsc::channel(1);
+        self.models_receiver = Some(receiver);
+        
+        futures::spawn(async move {
+            let mut config = pgone_llm::Config::new(api_key);
+            if let Some(url) = base_url {
+                config = config.with_base_url(url);
+            }
+            
+            let result = match pgone_llm::Client::new(config, provider) {
+                Ok(client) => {
+                    match client.models_list().await {
+                        Ok(models) => {
+                            let model_ids: Vec<String> = models
+                                .into_iter()
+                                .map(|m| m.id)
+                                .collect();
+                            Ok(model_ids)
+                        }
+                        Err(e) => Err(e.to_string()),
+                    }
+                }
+                Err(e) => Err(e.to_string()),
+            };
+            
+            let _ = sender.send(result).await;
+        });
     }
 }
 
