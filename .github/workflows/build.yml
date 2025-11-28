@@ -19,6 +19,11 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -41,10 +46,6 @@ jobs:
           name: binaries
           path: |
             target/release/pgone-gui
-            target/release/pgone-mcp-server
-            target/release/pgone-apiserver
-            target/release/pgone-auditor
-            target/release/pgone-a2a
           retention-days: 7
           if-no-files-found: warn
 
