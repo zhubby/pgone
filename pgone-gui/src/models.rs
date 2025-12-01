@@ -157,6 +157,10 @@ pub struct Settings {
     pub llm_provider: LLMProvider,
     #[serde(default = "default_enable_monitor")]
     pub enable_monitor: bool,
+    #[serde(default = "default_proxy_enabled")]
+    pub proxy_enabled: bool,
+    pub proxy_host: Option<String>,
+    pub proxy_port: Option<u16>,
 }
 
 fn default_theme() -> Theme {
@@ -168,6 +172,10 @@ fn default_llm_provider() -> LLMProvider {
 }
 
 fn default_enable_monitor() -> bool {
+    false
+}
+
+fn default_proxy_enabled() -> bool {
     false
 }
 
@@ -183,6 +191,9 @@ impl Default for Settings {
             theme: Theme::System,
             llm_provider: LLMProvider::OpenAI,
             enable_monitor: false,
+            proxy_enabled: false,
+            proxy_host: None,
+            proxy_port: None,
         }
     }
 }
@@ -216,6 +227,19 @@ impl Settings {
         map.insert("font_family".to_string(), self.font_family.clone());
         map.insert("font_size".to_string(), self.font_size.to_string());
         map.insert("enable_monitor".to_string(), self.enable_monitor.to_string());
+        
+        // Proxy settings
+        map.insert("proxy_enabled".to_string(), self.proxy_enabled.to_string());
+        if let Some(ref host) = self.proxy_host {
+            map.insert("proxy_host".to_string(), host.clone());
+        } else {
+            map.insert("proxy_host".to_string(), "".to_string());
+        }
+        if let Some(port) = self.proxy_port {
+            map.insert("proxy_port".to_string(), port.to_string());
+        } else {
+            map.insert("proxy_port".to_string(), "".to_string());
+        }
         
         map
     }
@@ -298,6 +322,33 @@ impl Settings {
         if let Some(value) = map.get("enable_monitor") {
             if let Ok(enabled) = value.parse::<bool>() {
                 settings.enable_monitor = enabled;
+            }
+        }
+        
+        // Parse proxy_enabled
+        if let Some(value) = map.get("proxy_enabled") {
+            if let Ok(enabled) = value.parse::<bool>() {
+                settings.proxy_enabled = enabled;
+            }
+        }
+        
+        // Parse proxy_host
+        if let Some(value) = map.get("proxy_host") {
+            if !value.is_empty() {
+                settings.proxy_host = Some(value.clone());
+            } else {
+                settings.proxy_host = None;
+            }
+        }
+        
+        // Parse proxy_port
+        if let Some(value) = map.get("proxy_port") {
+            if !value.is_empty() {
+                if let Ok(port) = value.parse::<u16>() {
+                    settings.proxy_port = Some(port);
+                }
+            } else {
+                settings.proxy_port = None;
             }
         }
         

@@ -3,6 +3,7 @@ use crate::futures;
 use crate::models::{Message, MessageContent, Role};
 use chrono::Utc;
 use tokio::sync::mpsc;
+use pgone_llm::{Client, Config, LLMProvider};
 
 use super::input_area::InputArea;
 use super::message_list::MessageList;
@@ -223,8 +224,30 @@ impl ChatPanel {
         if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
             session_id = Some(sess.id.clone());
         }
+        let provider = ctxs.state.settings.llm_provider;
+        let proxy_enabled = ctxs.state.settings.proxy_enabled;
+        let proxy_host = ctxs.state.settings.proxy_host.clone();
+        let proxy_port = ctxs.state.settings.proxy_port;
         let res: Result<String, String> = futures::block_on_async(async move {
-            pgone_llm::chat_once(key, model, prompt).await
+            let mut config = Config::new(key);
+            if proxy_enabled {
+                if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
+                    config = config.with_proxy(host, port);
+                }
+            }
+            let client = match Client::new(config, provider) {
+                Ok(c) => c,
+                Err(e) => return Err(e.to_string()),
+            };
+            let request = pgone_llm::chat::ChatRequest::new(model)
+                .with_messages(vec![
+                    pgone_llm::chat::ChatMessage::system("You are a helpful assistant.".to_string()),
+                    pgone_llm::chat::ChatMessage::user(prompt),
+                ]);
+            match client.chat_create(request).await {
+                Ok(resp) => Ok(resp.content),
+                Err(e) => Err(e.to_string()),
+            }
         });
         match res {
             Ok(answer) => {
@@ -279,18 +302,41 @@ impl ChatPanel {
         let key_clone = key.clone();
         let model_clone = model.clone();
         let prompt_clone = prompt.clone();
+        let provider = ctxs.state.settings.llm_provider;
+        let proxy_enabled = ctxs.state.settings.proxy_enabled;
+        let proxy_host = ctxs.state.settings.proxy_host.clone();
+        let proxy_port = ctxs.state.settings.proxy_port;
 
         let (sender, receiver) = mpsc::channel(1);
         self.openai_receiver = Some(receiver);
 
         futures::spawn(async move {
-            if let Some(base_url) = base_url {
-                let result = pgone_llm::chat_with_tools_custom_endpoint(key_clone, base_url, model_clone, prompt_clone).await;
-                let _ = sender.send(result).await;
-            } else {
-                let result = pgone_llm::chat_with_tools(key_clone, model_clone, prompt_clone).await;
-                let _ = sender.send(result).await;
+            let mut config = Config::new(key_clone);
+            if let Some(url) = base_url {
+                config = config.with_base_url(url);
             }
+            if proxy_enabled {
+                if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
+                    config = config.with_proxy(host, port);
+                }
+            }
+            let client = match Client::new(config, provider) {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = sender.send(Err(e.to_string())).await;
+                    return;
+                }
+            };
+            let request = pgone_llm::chat::ChatRequest::new(model_clone)
+                .with_messages(vec![
+                    pgone_llm::chat::ChatMessage::system("You are a helpful assistant.".to_string()),
+                    pgone_llm::chat::ChatMessage::user(prompt_clone),
+                ]);
+            let result = match client.chat_create(request).await {
+                Ok(resp) => Ok(resp.content),
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = sender.send(result).await;
         });
     }
 }

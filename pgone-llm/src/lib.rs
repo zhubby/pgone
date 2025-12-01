@@ -38,7 +38,19 @@ pub enum LLMProvider {
 impl Client {
     pub fn new(config: Config, provider: LLMProvider) -> crate::error::Result<Self> {
         config.validate()?;
-        let mut openai_config = OpenAIConfig::new().with_api_key(config.api_key.clone());
+        
+        // Build HTTP client with proxy if configured
+        let http_client = if let Some(proxy_url) = config.proxy_url() {
+            reqwest::Client::builder()
+                .proxy(reqwest::Proxy::http(&proxy_url)?)
+                .build()?
+        } else {
+            reqwest::Client::new()
+        };
+        
+        let mut openai_config = OpenAIConfig::new()
+            .with_api_key(config.api_key.clone());
+            // .with_http_client(http_client);
         
         if let Some(ref base_url) = config.base_url {
             openai_config = openai_config.with_api_base(base_url.clone());
