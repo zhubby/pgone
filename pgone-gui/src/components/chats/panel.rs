@@ -2,8 +2,9 @@ use crate::components::ChatCtx;
 use crate::futures;
 use crate::models::{Message, MessageContent, Role};
 use chrono::Utc;
+use egui::Widget;
 use tokio::sync::mpsc;
-use pgone_llm::{Client, Config, LLMProvider};
+use pgone_llm::{Client, Config};
 
 use super::input_area::InputArea;
 use super::message_list::MessageList;
@@ -14,6 +15,8 @@ pub struct ChatPanel {
     pub input_area: InputArea,
     openai_receiver: Option<mpsc::Receiver<Result<String, String>>>,
     model_loader: ModelLoader,
+    enable_thinking: bool,
+    enable_search: bool,
 }
 
 impl Default for ChatPanel {
@@ -22,6 +25,8 @@ impl Default for ChatPanel {
             input_area: InputArea::default(),
             openai_receiver: None,
             model_loader: ModelLoader::default(),
+            enable_thinking: false,
+            enable_search: false,
         }
     }
 }
@@ -39,6 +44,8 @@ impl Clone for ChatPanel {
                 models_receiver: None, // Receivers cannot be cloned, reset on clone
                 models_loaded: self.model_loader.models_loaded,
             },
+            enable_thinking: self.enable_thinking,
+            enable_search: self.enable_search,
         }
     }
 }
@@ -95,6 +102,8 @@ impl ChatPanel {
                                             if let Err(e) = ctxs.storage.save_session(sess) {
                                                 tracing::error!("保存会话失败: {}", e);
                                             }
+                                            // 设置滚动到底部标志
+                                            ctxs.should_scroll_to_bottom = true;
                                         }
                                     }
                                     Err(e) => {
@@ -119,9 +128,12 @@ impl ChatPanel {
                 // 底部按钮栏
                 strip.cell(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Send").clicked() {
+                        if ui.button(format!("{} Send", egui_phosphor::regular::PAPER_PLANE_RIGHT)).clicked() {
                             self.send_openai_with_tools(ctxs);
                         }
+
+                        egui::widgets::Checkbox::new(&mut self.enable_search, "联网搜索").ui(ui);
+                        egui::widgets::Checkbox::new(&mut self.enable_thinking, "深度思考").ui(ui);
                         
                         // 模型选择下拉框
                         ui.add_space(10.0);
@@ -157,6 +169,10 @@ impl ChatPanel {
                             ctxs.openai_model = selected_model.clone();
                             ctxs.state.settings.openai_model = selected_model;
                         }
+
+
+                        
+
                     });
                 })
             });
@@ -184,7 +200,7 @@ impl ChatPanel {
     }
 
     #[allow(dead_code)]
-    pub fn add_image_message(&mut self, ctxs: &mut ChatCtx, path: std::path::PathBuf) {
+    pub fn add_image_message(&mut self, _ctxs: &mut ChatCtx, path: std::path::PathBuf) {
         // 直接添加到 pending_resources，让用户确认后再发送
         self.input_area.pending_resources.push(path);
     }
@@ -295,6 +311,8 @@ impl ChatPanel {
                 if let Err(e) = ctxs.storage.save_session(sess) {
                     tracing::error!("保存用户消息失败: {}", e);
                 }
+                // 发送消息后也滚动到底部
+                ctxs.should_scroll_to_bottom = true;
             }
         }
         

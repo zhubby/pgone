@@ -21,7 +21,6 @@ use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, Sch
 mod skeletons;
 mod styles;
 mod media;
-mod agents;
 mod prompt;
 
 pub struct AppFrame {

@@ -44,6 +44,7 @@ pub fn show_right_panel(
                 openai_api_key: settings.openai_api_key.clone(),
                 openai_model: settings.openai_model.clone(),
                 storage,
+                should_scroll_to_bottom: false,
             };
             chat.ui(&mut chat_ctx, ui);
         });

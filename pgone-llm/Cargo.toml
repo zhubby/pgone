@@ -22,6 +22,8 @@ reqwest = { workspace = true }
 gemini-rust = "1.5.1"
 strum = { workspace = true }
 tracing = { workspace = true }
+rig-core = "0.24.0"
+mistralrs = { version = "0.6.0"}
 
 [dev-dependencies]
 tokio = { workspace = true }
