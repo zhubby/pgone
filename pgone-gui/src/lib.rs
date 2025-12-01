@@ -97,11 +97,11 @@ impl AppFrame {
                 }
             } else {
                 // 如果没有会话，创建一个默认会话
-                state.sessions = vec![ChatSession::new("0".to_string(), "新会话".to_string())];
+                state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
             }
         } else {
             // 如果加载失败，创建一个默认会话
-            state.sessions = vec![ChatSession::new("0".to_string(), "新会话".to_string())];
+            state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
         }
 
         Self {

@@ -40,12 +40,12 @@ impl Client {
         config.validate()?;
         
         // Build HTTP client with proxy if configured
-        let http_client = if let Some(proxy_url) = config.proxy_url() {
+        let http_client = if config.proxy_enabled {
             reqwest::Client::builder()
-                .proxy(reqwest::Proxy::http(&proxy_url)?)
+                .proxy(reqwest::Proxy::http(config.proxy_url().unwrap())?)
                 .build()?
         } else {
-            reqwest::Client::new()
+            reqwest::Client::builder().no_proxy().build()?
         };
         
         let mut openai_config = OpenAIConfig::new()
@@ -56,7 +56,7 @@ impl Client {
             openai_config = openai_config.with_api_base(base_url.clone());
         }
 
-        let inner = OpenAiClient::with_config(openai_config);
+        let inner = OpenAiClient::with_config(openai_config).with_http_client(http_client);
         
         Ok(Self { inner, config, provider })
     }
