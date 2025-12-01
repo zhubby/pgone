@@ -18,9 +18,9 @@ impl MessageList {
                 for msg in &messages {
                     ui.horizontal(|ui| {
                         ui.strong(match msg.role {
-                            Role::User => "User",
-                            Role::Assistant => "Assistant",
-                            Role::System => "System",
+                            Role::User => format!("{} User",egui_phosphor::regular::USER),
+                            Role::Assistant => format!("{} Assistant",egui_phosphor::regular::ROBOT),
+                            Role::System => format!("{} System",egui_phosphor::regular::USER_GEAR),
                         });
                         ui.label(msg.timestamp.format("%Y-%m-%d %H:%M:%S").to_string());
                         if ui.small_button("Copy").clicked()

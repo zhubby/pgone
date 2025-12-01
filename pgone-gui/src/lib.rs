@@ -22,6 +22,7 @@ mod skeletons;
 mod styles;
 mod media;
 mod agents;
+mod prompt;
 
 pub struct AppFrame {
     #[allow(dead_code)]

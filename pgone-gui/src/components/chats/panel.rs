@@ -241,7 +241,7 @@ impl ChatPanel {
             };
             let request = pgone_llm::chat::ChatRequest::new(model)
                 .with_messages(vec![
-                    pgone_llm::chat::ChatMessage::system("You are a helpful assistant.".to_string()),
+                    pgone_llm::chat::ChatMessage::system(crate::prompt::system_prompt()),
                     pgone_llm::chat::ChatMessage::user(prompt),
                 ]);
             match client.chat_create(request).await {
@@ -329,7 +329,7 @@ impl ChatPanel {
             };
             let request = pgone_llm::chat::ChatRequest::new(model_clone)
                 .with_messages(vec![
-                    pgone_llm::chat::ChatMessage::system("You are a helpful assistant.".to_string()),
+                    pgone_llm::chat::ChatMessage::system(crate::prompt::system_prompt()),
                     pgone_llm::chat::ChatMessage::user(prompt_clone),
                 ]);
             let result = match client.chat_create(request).await {
