@@ -1,5 +1,5 @@
 use crate::error::{Result, SqlError};
-use crate::models::{ColumnDetail, ForeignKeyDetail, PrimaryKeyDetail, TableDetail, TableInfo};
+use crate::models::{ColumnDetail, ForeignKeyDetail, IndexInfo, PrimaryKeyDetail, TableDetail, TableInfo};
 use crate::session::Session;
 use std::collections::BTreeMap;
 use tracing::info;
@@ -433,6 +433,67 @@ impl Session {
         }
 
         Ok(details)
+    }
+
+    /// List all indexes for a specific table
+    pub async fn list_table_indexes(&self, schema: &str, table_name: &str) -> Result<Vec<IndexInfo>> {
+        info!(schema = schema, table_name = table_name, "Listing table indexes");
+        
+        let conn = self.get_connection().await?;
+        
+        // Query indexes using pg_indexes view
+        let rows = conn.query(
+            r#"
+            SELECT 
+                i.indexname AS name,
+                i.indexdef AS definition,
+                pg_catalog.obj_description(c.oid, 'pg_class') AS description
+            FROM pg_indexes i
+            JOIN pg_class c ON c.relname = i.indexname
+            JOIN pg_namespace n ON n.nspname = i.schemaname AND n.oid = c.relnamespace
+            WHERE i.schemaname = $1 AND i.tablename = $2
+            ORDER BY i.indexname
+            "#,
+            &[&schema, &table_name],
+        )
+        .await
+        .map_err(SqlError::Connection)?;
+
+        let mut indexes = Vec::new();
+        for row in rows {
+            let name: String = row.get("name");
+            let definition: String = row.get("definition");
+            let description: Option<String> = row.try_get("description").ok();
+            
+            // Check if index is unique (UNIQUE keyword in definition)
+            let unique = definition.to_uppercase().contains(" UNIQUE ");
+            
+            // Extract columns from definition
+            // Format: CREATE [UNIQUE] INDEX ... ON ... USING ... (column1, column2, ...)
+            let columns = if let Some(start_pos) = definition.rfind('(') {
+                if let Some(end_pos) = definition[start_pos..].find(')') {
+                    definition[start_pos + 1..start_pos + end_pos]
+                        .split(',')
+                        .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+            
+            indexes.push(IndexInfo {
+                name,
+                unique,
+                columns,
+                definition: Some(definition),
+                description,
+            });
+        }
+
+        Ok(indexes)
     }
 }
 
