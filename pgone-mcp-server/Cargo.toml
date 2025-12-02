@@ -16,7 +16,7 @@ name = "pgone-mcp-server"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "io-std", "io-util"] }
+tokio = { workspace = true, features = ["full"] }
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -31,3 +31,6 @@ once_cell = { workspace = true }
 clap = { workspace = true }
 pgone-util = { workspace = true }
 pgone-sql = { workspace = true }
+pgone-storage = { workspace = true }
+rmcp = { version = "0.8.0", features = ["server"] }
+axum = { workspace = true }

@@ -1,8 +1,7 @@
 use std::env;
+use std::path::PathBuf;
 
-use pgone_mcp_server::config::load_connections_from_path;
 use pgone_mcp_server::mcp::run_stdio;
-use pgone_mcp_server::registry::ConnectionRegistry;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -14,39 +13,12 @@ async fn main() -> anyhow::Result<()> {
         )
         .try_init();
 
-    // 读取 --connections <path> 或环境变量 PGONE_CONNECTIONS
-    let mut args = env::args().collect::<Vec<String>>();
-    let mut connections_path: Option<String> = None;
-    if let Some(pos) = args.iter().position(|a| a == "--connections")
-        && let Some(p) = args.get(pos + 1)
-    {
-        connections_path = Some(p.clone());
-        // 移除已消费参数，避免误传给其他解析（这里纯示例，无其他解析）
-        args.drain(pos..=pos + 1);
-    }
-    if connections_path.is_none() {
-        connections_path = env::var("PGONE_CONNECTIONS").ok();
-    }
-
-    let registry = ConnectionRegistry::new();
-
-    // 预加载连接（可选）
-    if let Some(path) = connections_path {
-        match load_connections_from_path(&path) {
-            Ok(conns) => {
-                for c in conns {
-                    if let Err(e) = registry.register(c).await {
-                        tracing::warn!(error = %e, "注册数据库连接失败");
-                    }
-                }
-                tracing::info!("已从配置文件加载连接: {}", path);
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "读取连接配置失败，继续以空注册表启动");
-            }
-        }
-    }
+    // 从环境变量获取 storage 路径
+    let storage_path = env::var("PGONE_STORAGE_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("storage"));
 
     tracing::info!("PGone MCP Server 启动（stdio 模式）");
-    run_stdio(registry).await
+    tracing::info!("Storage 路径: {}", storage_path.display());
+    run_stdio(storage_path).await
 }
