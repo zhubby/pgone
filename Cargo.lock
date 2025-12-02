@@ -5317,6 +5317,7 @@ dependencies = [
  "chrono",
  "infer",
  "libsql",
+ "sea-query",
  "serde",
  "serde_json",
  "tokio",
@@ -6734,9 +6735,11 @@ version = "1.0.0-rc.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89ebab2b9d558deec08e43887a63ed4d96d56b32cb9d98578bd1749e2c8c7e24"
 dependencies = [
+ "chrono",
  "inherent",
  "itoa",
  "sea-query-derive",
+ "serde_json",
 ]
 
 [[package]]

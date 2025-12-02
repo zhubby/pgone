@@ -213,6 +213,43 @@ pub async fn list_messages(
     Ok(out)
 }
 
+/// 查询 messages 表中指定 session_id 的记录，按创建时间从近到远排序，返回前 10 条
+/// 
+/// # 参数
+/// - `conn`: 数据库连接
+/// - `session_id`: session 的 id（必需）
+/// 
+/// # 返回
+/// 返回 Message 数组，按 timestamp 降序排列，最新的记录在前，最多 10 条
+pub async fn query_messages_by_session(
+    conn: &mut Connection,
+    session_id: &str,
+) -> Result<Vec<Message>> {
+    let mut rows = conn.query(
+        "SELECT id, session_id, role, timestamp, kind, content_markdown, image_path, image_w, image_h, video_path, video_duration_ms
+         FROM messages WHERE session_id=?1 ORDER BY timestamp DESC LIMIT 10",
+        params![session_id]
+    ).await?;
+
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().await? {
+        out.push(Message {
+            id: r.get::<String>(0)?,
+            session_id: r.get::<String>(1)?,
+            role: parse_role(r.get::<String>(2)?),
+            timestamp: r.get::<i64>(3)?,
+            kind: parse_kind(r.get::<String>(4)?),
+            content_markdown: r.get::<Option<String>>(5)?,
+            image_path: r.get::<Option<String>>(6)?,
+            image_w: r.get::<Option<i64>>(7)?,
+            image_h: r.get::<Option<i64>>(8)?,
+            video_path: r.get::<Option<String>>(9)?,
+            video_duration_ms: r.get::<Option<i64>>(10)?,
+        });
+    }
+    Ok(out)
+}
+
 // =====================
 // Auth storage helpers
 // =====================
@@ -354,3 +391,5 @@ pub async fn clear_settings(conn: &mut Connection) -> Result<()> {
     conn.execute("DELETE FROM settings", params![]).await?;
     Ok(())
 }
+
+

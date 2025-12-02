@@ -1,5 +1,6 @@
 use eframe::egui::{Align2, Context, TextFormat, Window};
 use eframe::egui::text::LayoutJob;
+use super::screen_center;
 
 /// 格式化 YAML 文本
 pub fn format_yaml(text: &str) -> Result<String, String> {
@@ -239,9 +240,5 @@ pub fn show_yaml_formatter_window(
     if !open || should_close {
         *show = false;
     }
-}
-
-fn screen_center(ctx: &Context) -> eframe::egui::Pos2 {
-    ctx.screen_rect().center()
 }
 

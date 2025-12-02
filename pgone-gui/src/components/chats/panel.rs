@@ -190,6 +190,31 @@ impl ChatPanel {
             return;
         }
         
+        // 查询历史消息（在保存当前消息之前）
+        let mut history_messages = Vec::new();
+        if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
+            match ctxs.storage.query_messages_by_session(&sess.id) {
+                Ok(messages) => {
+                    // 反转结果（查询结果是降序，需要转为升序）
+                    let reversed_messages: Vec<_> = messages.into_iter().rev().collect();
+                    // 转换为 ChatMessage，只处理 Markdown 类型
+                    for msg in reversed_messages {
+                        if let MessageContent::Markdown(content) = &msg.content {
+                            let chat_msg = match msg.role {
+                                Role::User => pgone_llm::chat::ChatMessage::user(content.clone()),
+                                Role::Assistant => pgone_llm::chat::ChatMessage::assistant(content.clone()),
+                                Role::System => pgone_llm::chat::ChatMessage::system(content.clone()),
+                            };
+                            history_messages.push(chat_msg);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("查询历史消息失败: {}", e);
+                }
+            }
+        }
+        
         // 保存用户消息（如果有文本）
         if !prompt.is_empty() {
             if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
@@ -221,6 +246,15 @@ impl ChatPanel {
         let (sender, receiver) = mpsc::channel(1);
         self.openai_receiver = Some(receiver);
 
+        // 构建消息列表：系统提示 + 历史消息 + 当前用户输入
+        let mut chat_messages = vec![
+            pgone_llm::chat::ChatMessage::system(crate::prompt::system_prompt()),
+        ];
+        chat_messages.extend(history_messages);
+        if !prompt_clone.is_empty() {
+            chat_messages.push(pgone_llm::chat::ChatMessage::user(prompt_clone.clone()));
+        }
+
         futures::spawn(async move {
             let mut config = Config::new(key_clone);
             if let Some(url) = base_url {
@@ -239,10 +273,7 @@ impl ChatPanel {
                 }
             };
             let request = pgone_llm::chat::ChatRequest::new(model_clone)
-                .with_messages(vec![
-                    pgone_llm::chat::ChatMessage::system(crate::prompt::system_prompt()),
-                    pgone_llm::chat::ChatMessage::user(prompt_clone),
-                ]);
+                .with_messages(chat_messages);
             let result = match client.chat_create(request).await {
                 Ok(resp) => Ok(resp.content),
                 Err(e) => Err(e.to_string()),

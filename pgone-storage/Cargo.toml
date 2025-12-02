@@ -18,3 +18,9 @@ uuid = { workspace = true }
 infer = "0.15"
 libsql = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
+sea-query = { version = "1.0.0-rc.1", features = [
+    "backend-sqlite",
+    "derive",
+    "with-chrono",
+    "with-json",
+] }

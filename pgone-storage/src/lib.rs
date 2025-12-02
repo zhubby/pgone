@@ -9,6 +9,7 @@ pub mod models;
 pub mod schema;
 pub mod storage;
 pub mod file_sys;
+pub mod query;
 
 pub struct Storage {
     db: Database,
