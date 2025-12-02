@@ -10,7 +10,6 @@ use std::sync::Arc;
 mod futures;
 mod models;
 use models::*;
-mod markdown;
 mod notify;
 mod sql;
 mod storage;

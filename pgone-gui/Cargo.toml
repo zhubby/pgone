@@ -18,9 +18,17 @@ path = "src/main.rs"
 emath = { version = "0.32.3", default-features = false }
 ecolor = { version = "0.32.3", default-features = false }
 epaint = { version = "0.32.3", default-features = false }
+egui_commonmark = { version = "0.21", features = [
+    "svg",
+    "fetch",
+    "better_syntax_highlighting",
+    "embedded_image",
+] }
 egui-snarl = "0.8"
-catppuccin-egui = { version = "5.7.0", default-features = false, features = ["egui32"] }
-egui-data-table = {version = "0.8"}
+catppuccin-egui = { version = "5.7.0", default-features = false, features = [
+    "egui32",
+] }
+egui-data-table = { version = "0.8" }
 epaint_default_fonts = { version = "0.32.3" }
 egui_table = "0.4.0"
 egui-phosphor = "0.10"
@@ -34,11 +42,10 @@ serde_yaml = "0.9"
 toml = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { workspace = true }
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["png"] }
 webbrowser = "1"
 rfd = "0.15"
 open = "5"
-pulldown-cmark = "0.12"
 sqlparser = "0.48"
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
@@ -66,7 +73,6 @@ sea-query = "1.0.0-rc.1"
 sysinfo = "0.37.2"
 
 
-
 # 添加以下配置
 [package.metadata.bundle]
 name = "PGone"
@@ -76,4 +82,4 @@ version = "0.1.0"
 copyright = "Copyright 2025 zhubby"
 category = "Developer Tool"
 short_description = "PGone is a suite of tools for PostgreSQL"
-resources = ["assets/icon.icns", "assets/fonts/*.ttf","pgone.db"]
+resources = ["assets/icon.icns", "assets/fonts/*.ttf", "pgone.db"]

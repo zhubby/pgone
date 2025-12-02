@@ -37,7 +37,7 @@ impl MessageList {
                     });
                     match &msg.content {
                         MessageContent::Markdown(text) => {
-                            crate::markdown::render_markdown(ui, text)
+                            crate::skeletons::formatters::md::render_markdown(ui, text)
                         }
                         MessageContent::Image {
                             path,
