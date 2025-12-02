@@ -57,7 +57,6 @@ impl AppFrame {
             }) {
                 let loaded_settings = Settings::from_kv_map(&kv_map);
                 tracing::debug!("Loaded settings from DB: {:?}", loaded_settings);
-                tracing::debug!("KV map: {:?}", kv_map);
                 loaded_settings
             } else {
                 tracing::warn!("Failed to load settings from database");
