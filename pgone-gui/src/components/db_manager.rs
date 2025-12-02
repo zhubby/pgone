@@ -152,7 +152,7 @@ impl DbManager {
             return;
         }
         if let Ok(storage) = futures::block_on_async(async {
-            StorageBlocking::open_local("pgone.db").await
+            StorageBlocking::open_local(pgone_storage::DATABASE_PATH).await
         }) {
             self.storage = Some(storage);
         }

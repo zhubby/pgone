@@ -31,7 +31,7 @@ members = [
     "pgone-mcp-server",
     "pgone-auditor", 
     "pgone-util", 
-    "pgone-sql", "pgone-agent", "pgone-llm", "pgone-vector",
+    "pgone-sql", "pgone-agent", "pgone-llm", "pgone-vector", "pgone-mcp-client",
 ]
 
 resolver = "2"

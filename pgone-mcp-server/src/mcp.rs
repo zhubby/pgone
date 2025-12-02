@@ -38,6 +38,7 @@ impl McpContext {
 }
 
 /// MCP 服务器实现
+#[derive(Clone)]
 pub struct PgoneMcpServer {
     context: McpContext,
 }
@@ -59,6 +60,7 @@ impl PgoneMcpServer {
             output_schema: None,
             annotations: Default::default(),
             icons: Default::default(),
+            meta: Default::default(),
         }
     }
 }
@@ -579,5 +581,59 @@ pub async fn run_stdio(storage_path: std::path::PathBuf) -> anyhow::Result<()> {
     let _running = serve_server(service, transport).await?;
     
     // 等待服务运行（通常不会返回，除非出错）
+    Ok(())
+}
+
+/// 运行 Streamable HTTP 模式的 MCP 服务器
+pub async fn run_streamable(storage_path: std::path::PathBuf, addr: &str) -> anyhow::Result<()> {
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+    };
+    use std::sync::Arc;
+    use tokio_util::sync::CancellationToken;
+    
+    // 先创建 handler（async 初始化）
+    let handler = PgoneMcpServer::new(storage_path).await?;
+    let handler = Arc::new(handler);
+    
+    // 创建工厂函数，返回克隆的 handler
+    let handler_clone = handler.clone();
+    let factory = move || -> Result<PgoneMcpServer, std::io::Error> {
+        Ok((*handler_clone).clone())
+    };
+    
+    // 创建 session manager 并包装在 Arc 中
+    let session_manager = Arc::new(LocalSessionManager::default());
+    
+    // 创建 cancellation token
+    let ct = CancellationToken::new();
+    
+    // 创建 StreamableHttpService
+    let service = StreamableHttpService::new(
+        factory,
+        session_manager,
+        StreamableHttpServerConfig {
+            stateful_mode: true,
+            sse_keep_alive: None,
+        },
+    );
+    
+    // 创建 axum router
+    let router = axum::Router::new().nest_service("/mcp", service);
+    
+    // 绑定地址
+    let tcp_listener = tokio::net::TcpListener::bind(addr).await?;
+    
+    tracing::info!("MCP 服务器启动（Streamable HTTP 模式）");
+    tracing::info!("监听地址: {}", addr);
+    
+    // 启动服务器
+    let _ = axum::serve(tcp_listener, router)
+        .with_graceful_shutdown(async move {
+            tokio::signal::ctrl_c().await.unwrap();
+            ct.cancel();
+        })
+        .await;
+    
     Ok(())
 }
