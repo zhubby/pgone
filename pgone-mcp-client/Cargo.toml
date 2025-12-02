@@ -19,4 +19,4 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
-rmcp = { version = "0.10.0", features = ["client", "transport-sse-client", "transport-streamable-http-client"] }
+rmcp = { version = "0.10.0", features = ["client", "transport-sse-client", "transport-streamable-http-client", "transport-async-rw"] }

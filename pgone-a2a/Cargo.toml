@@ -21,6 +21,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
 pgone-mcp-server = { workspace = true }
+pgone-sql = { workspace = true }
 
 [[bin]]
 name = "pgone-a2a"

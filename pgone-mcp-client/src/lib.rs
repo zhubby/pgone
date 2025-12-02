@@ -1,6 +1,11 @@
 use anyhow::Result;
 use rmcp::model::{CallToolResult, Tool};
+use rmcp::service::RoleClient;
+use rmcp::transport::async_rw::AsyncRwTransport;
 use serde_json::{json, Value};
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::RwLock;
 use thiserror::Error;
 
 /// 客户端错误类型
@@ -37,9 +42,9 @@ pub struct McpClient {
     // 对于 Streamable HTTP，我们需要一个 HTTP 客户端
     #[allow(dead_code)]
     http_client: Option<reqwest::Client>,
-    // 对于 STDIO，我们需要保持连接状态
-    #[allow(dead_code)]
-    stdio_handle: Option<tokio::task::JoinHandle<Result<()>>>,
+    // 对于 STDIO，我们需要保持传输层和请求 ID 计数器
+    // 注意：传输层类型取决于实际的 reader/writer 类型
+    stdio_request_id: Option<Arc<RwLock<u64>>>,
 }
 
 impl McpClient {
@@ -53,7 +58,30 @@ impl McpClient {
         Ok(Self {
             transport,
             http_client,
-            stdio_handle: None,
+            stdio_request_id: None,
+        })
+    }
+
+    /// 创建新的 STDIO MCP 客户端
+    pub async fn new_stdio<R, W>(reader: R, writer: W) -> Result<Self>
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        // 创建传输层（暂时不保存，因为需要实现 JSON-RPC 通信）
+        let _transport: AsyncRwTransport<RoleClient, R, W> = AsyncRwTransport::new_client(reader, writer);
+        let request_id = Arc::new(RwLock::new(1u64));
+
+        // TODO: 实现完整的 stdio 传输通信
+        // 需要：
+        // 1. 保存传输层引用
+        // 2. 实现 JSON-RPC 消息发送和接收
+        // 3. 实现 list_tools 和 call_tool 方法
+
+        Ok(Self {
+            transport: Transport::Stdio,
+            http_client: None,
+            stdio_request_id: Some(request_id),
         })
     }
 
@@ -74,10 +102,9 @@ impl McpClient {
     }
 
     // STDIO 传输实现
+    // 注意：这些方法需要实现 JSON-RPC 协议通信
+    // 暂时返回错误，提示使用 Streamable HTTP
     async fn list_tools_stdio(&self) -> Result<Vec<Tool>> {
-        // STDIO 传输需要与服务器进程进行双向通信
-        // 这通常需要启动一个子进程或连接到现有的 STDIO 流
-        // 暂时返回错误，提示使用 Streamable HTTP
         tracing::warn!("STDIO transport for list_tools not fully implemented. Use StreamableHttp transport instead.");
         Err(anyhow::anyhow!("STDIO transport not yet implemented. Please use StreamableHttp transport."))
     }

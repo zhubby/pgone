@@ -7,12 +7,11 @@ use axum::{
     Router,
 };
 use pgone_mcp_server::{
-    adapters::postgres::PostgresIntrospector,
-    core::introspector::DatabaseIntrospector,
+    adapter::SqlSessionIntrospector,
     core::models::{DatabaseSchema, IntrospectOptions},
 };
+use pgone_sql::Session;
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::net::SocketAddr;
 use tracing::{error, info};
 
@@ -63,21 +62,13 @@ pub struct ErrorResponse {
 pub struct SchemaQueryService;
 
 impl SchemaQueryService {
-    /// 创建 PostgreSQL 连接池
-    async fn create_pool(dsn: &str) -> Result<Pool<Postgres>> {
-        let pool = PgPoolOptions::new()
-            .max_connections(10)
-            .connect(dsn)
-            .await?;
-        Ok(pool)
-    }
-
     /// 查询数据库 schema
     pub async fn query_schema(req: SchemaQueryRequest) -> Result<DatabaseSchema> {
-        info!(dsn = ?req.dsn, "Creating database connection pool");
+        info!(dsn = ?req.dsn, "Creating database session");
         
-        let pool = Self::create_pool(&req.dsn).await?;
-        let introspector = PostgresIntrospector::new(pool);
+        let session = Session::new(&req.dsn).await
+            .map_err(|e| anyhow::anyhow!("Failed to create session: {}", e))?;
+        let introspector = SqlSessionIntrospector::new(session);
 
         let opts = IntrospectOptions {
             schemas: req.schemas,

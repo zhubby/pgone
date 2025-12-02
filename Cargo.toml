@@ -80,6 +80,7 @@ turso = { version = "0.1.5" }
 etl = { git = "https://github.com/supabase/etl" }
 
 pgone-mcp-server = { path = "pgone-mcp-server" }
+pgone-mcp-client = { path = "pgone-mcp-client" }
 pgone-gui = { path = "pgone-gui" }
 pgone-auditor = { path = "pgone-auditor" }
 pgone-storage = { path = "pgone-storage" }
