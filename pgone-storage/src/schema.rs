@@ -109,5 +109,35 @@ pub async fn migrate(conn: &mut Connection) -> Result<()> {
     )
     .await?;
 
+    // file_index table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_index (
+            id TEXT PRIMARY KEY,
+            current_path TEXT NOT NULL,
+            original_path TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            file_type TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_index_original_path ON file_index(original_path)",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_index_file_type ON file_index(file_type)",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_index_created_at ON file_index(created_at)",
+        (),
+    )
+    .await?;
+
     Ok(())
 }

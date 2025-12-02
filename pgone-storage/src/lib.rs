@@ -8,6 +8,7 @@ pub mod blocking;
 pub mod models;
 pub mod schema;
 pub mod storage;
+pub mod file_sys;
 
 pub struct Storage {
     db: Database,

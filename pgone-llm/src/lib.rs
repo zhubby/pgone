@@ -9,6 +9,7 @@ pub mod audio;
 pub mod files;
 pub mod models;
 pub mod tools;
+pub mod services;
 
 pub use config::Config;
 pub use error::{LlmError, Result};

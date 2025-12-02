@@ -1339,6 +1339,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfb"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d38f2da7a0a2c4ccf0065be06397cc26a81f4e528be095826eee9d4adbb8c60f"
+dependencies = [
+ "byteorder",
+ "fnv",
+ "uuid",
+]
+
+[[package]]
 name = "cfg-expr"
 version = "0.15.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3580,6 +3591,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "infer"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb33622da908807a06f9513c19b3c1ad50fab3e4137d82a78107d502075aa199"
+dependencies = [
+ "cfb",
+]
+
+[[package]]
 name = "inherent"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5219,12 +5239,14 @@ dependencies = [
  "sea-query",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sqlparser 0.48.0",
  "sqlx",
  "strum 0.27.2",
  "sysinfo",
  "tokio",
  "tokio-postgres 0.7.15",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -5293,11 +5315,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "infer",
  "libsql",
  "serde",
  "serde_json",
  "tokio",
  "turso",
+ "uuid",
 ]
 
 [[package]]
@@ -7912,6 +7936,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime 0.6.11",
+ "toml_write",
  "winnow",
 ]
 
@@ -7935,6 +7960,12 @@ checksum = "4cf893c33be71572e0e9aa6dd15e6677937abd686b066eac3f8cd3531688a627"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_write"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tonic"
