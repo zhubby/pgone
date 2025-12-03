@@ -311,8 +311,6 @@ pub(super) fn query_table_data(tree: &mut DbTree, db_manager: &mut crate::compon
         Ok((columns, rows)) => {
             results_table.query_columns = columns;
             results_table.query_rows = rows;
-            // Reset to first page after new query
-            results_table.current_page = 1;
         }
         Err(e) => {
             tree.error = Some(e);
@@ -482,7 +480,6 @@ pub(super) fn query_index_detail(tree: &mut DbTree, db_manager: &mut crate::comp
         Ok((columns, rows)) => {
             results_table.query_columns = columns;
             results_table.query_rows = rows;
-            results_table.current_page = 1;
         }
         Err(e) => {
             tree.error = Some(e);
@@ -664,7 +661,6 @@ pub(super) fn query_foreign_key_detail(tree: &mut DbTree, db_manager: &mut crate
         Ok((columns, rows)) => {
             results_table.query_columns = columns;
             results_table.query_rows = rows;
-            results_table.current_page = 1;
         }
         Err(e) => {
             tree.error = Some(e);
@@ -716,7 +712,6 @@ pub(super) fn query_trigger_detail(tree: &mut DbTree, db_manager: &mut crate::co
         Ok((columns, rows)) => {
             results_table.query_columns = columns;
             results_table.query_rows = rows;
-            results_table.current_page = 1;
         }
         Err(e) => {
             tree.error = Some(e);

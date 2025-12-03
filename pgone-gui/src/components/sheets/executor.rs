@@ -126,8 +126,6 @@ impl ResultsTable {
                 if let Some(pk) = pk_cols {
                     self.primary_key_columns = pk;
                 }
-                // Reset to first page after new query
-                self.current_page = 1;
                 self.current_sql = Some(self.sql_input.clone());
             }
             Err(e) => {

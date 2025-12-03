@@ -1,6 +1,6 @@
 use crate::components::SqlCtx;
 use poll_promise::Promise;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use tracing::debug;
 
 mod utils;
@@ -11,13 +11,10 @@ mod database_loader;
 
 #[derive(Default)]
 pub struct ResultsTable {
-    // Filter and pagination
-    // pub filter_values: HashMap<usize, String>,
+    // Refresh control
     pub refresh_requested: bool,
     pub current_sql: Option<String>,
     pub previous_sql: Option<String>,
-    pub current_page: usize,
-    pub rows_per_page: usize,
 
     // SQL editor fields
     pub sql_input: String,
@@ -27,15 +24,6 @@ pub struct ResultsTable {
     pub query_columns: Vec<String>,
     pub query_rows: Vec<Vec<String>>,
     pub primary_key_columns: HashSet<String>,
-
-    // Pagination enhancement fields
-    pub page_size_options: Vec<usize>,
-    pub page_jump_input: String,
-
-    // Field display enhancement fields
-    pub column_widths: HashMap<String, f32>,
-    pub sort_column: Option<String>,
-    pub sort_ascending: bool,
 
     // SQL execution flag
     pub execute_sql_requested: bool,
@@ -50,22 +38,14 @@ pub struct ResultsTable {
 impl ResultsTable {
     pub fn new() -> Self {
         Self {
-            // filter_values: HashMap::new(),
             refresh_requested: false,
             current_sql: None,
             previous_sql: None,
-            current_page: 1,
-            rows_per_page: 100,
             sql_input: String::new(),
             sql_error: None,
             query_columns: Vec::new(),
             query_rows: Vec::new(),
             primary_key_columns: HashSet::new(),
-            page_size_options: vec![10, 25, 50, 100, 200, 500],
-            page_jump_input: String::new(),
-            column_widths: HashMap::new(),
-            sort_column: None,
-            sort_ascending: true,
             execute_sql_requested: false,
             selected_database: None,
             available_databases: Vec::new(),
