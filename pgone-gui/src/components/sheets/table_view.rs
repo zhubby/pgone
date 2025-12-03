@@ -1,6 +1,11 @@
 use super::ResultsTable;
+use crate::components::SqlCtx;
+use crate::futures;
 use egui_data_table::{DataTable, Renderer, RowViewer};
+use sqlx::postgres::{PgPoolOptions, PgRow};
+use sqlx::{Column, Row};
 use std::collections::HashSet;
+use super::utils;
 use tracing::debug;
 
 /// 查询结果行数据结构
@@ -117,13 +122,246 @@ impl RowViewer<QueryRow> for QueryRowViewer {
 }
 
 impl ResultsTable {
+    /// 执行 SQL 查询并更新结果
+    /// 从 SqlCtx 获取数据库连接，执行 SQL 语句，并将结果存储到表格中
+    fn execute_sql(&mut self, sql: &str, ctxs: &mut SqlCtx) {
+        self.sql_error = None;
+        self.primary_key_columns.clear();
+
+        // 获取数据库配置 ID
+        let db_id = match &ctxs.db.active_db_config_id {
+            Some(id) => id.clone(),
+            None => {
+                self.sql_error = Some("No database selected".into());
+                return;
+            }
+        };
+
+        ctxs.db.ensure_storage();
+        let mut dsn = if let Some(ref storage) = ctxs.db.storage {
+            match futures::block_on_async(async { storage.get_db_config(&db_id).await }) {
+                Ok(Some(cfg)) => cfg.dsn,
+                Ok(None) => {
+                    self.sql_error = Some("Database config not found".into());
+                    return;
+                }
+                Err(e) => {
+                    self.sql_error = Some(format!("Failed to load database config: {}", e));
+                    return;
+                }
+            }
+        } else {
+            self.sql_error = Some("Storage not initialized".into());
+            return;
+        };
+
+        if dsn.trim().is_empty() {
+            self.sql_error = Some("DSN is empty".into());
+            return;
+        }
+
+        // 如果选择了不同的数据库，替换 DSN 中的数据库名
+        if let Some(ref selected_db) = self.selected_database {
+            if let Some(new_dsn) = utils::replace_database_in_dsn(&dsn, selected_db) {
+                dsn = new_dsn;
+            } else {
+                self.sql_error = Some(format!(
+                    "Failed to replace database in DSN: {}",
+                    selected_db
+                ));
+                return;
+            }
+        }
+
+        // 使用 DSN 的哈希值作为连接池的键
+        let pool_key = utils::calculate_dsn_hash(&dsn);
+
+        // 获取或创建连接池
+        let pool = if let Some(p) = ctxs.db.pools.get(&pool_key).cloned() {
+            p
+        } else {
+            let new_pool_result = futures::block_on_async(async {
+                PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(&dsn)
+                    .await
+                    .map_err(|e| e.to_string())
+            });
+            match new_pool_result {
+                Ok(new_pool) => {
+                    ctxs.db.pools.insert(pool_key, new_pool.clone());
+                    new_pool
+                }
+                Err(e) => {
+                    self.sql_error = Some(format!("Failed to create connection pool: {}", e));
+                    return;
+                }
+            }
+        };
+
+        // 尝试检测主键列
+        let pk_cols = self.detect_primary_keys(sql, &dsn, &Some(pool.clone()));
+
+        // 执行 SQL 查询
+        let res: Result<(Vec<String>, Vec<Vec<String>>), String> =
+            futures::block_on_async(async move {
+                let rows: Vec<PgRow> = sqlx::query(sql)
+                    .fetch_all(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let mut cols: Vec<String> = Vec::new();
+                let mut data: Vec<Vec<String>> = Vec::new();
+                if let Some(first) = rows.first() {
+                    for c in first.columns() {
+                        cols.push(c.name().to_string());
+                    }
+                }
+                for row in rows.into_iter().take(10000) {
+                    let mut r: Vec<String> = Vec::new();
+                    let n = if cols.is_empty() {
+                        row.len()
+                    } else {
+                        cols.len()
+                    };
+                    for i in 0..n {
+                        r.push(crate::sql::format_cell(&row, i));
+                    }
+                    data.push(r);
+                }
+                Ok((cols, data))
+            });
+
+        match res {
+            Ok((cols, rows)) => {
+                self.query_columns = cols;
+                self.query_rows = rows;
+                if let Some(pk) = pk_cols {
+                    self.primary_key_columns = pk;
+                }
+            }
+            Err(e) => {
+                self.sql_error = Some(e);
+            }
+        }
+    }
+
+    /// 检测 SQL 查询中的主键列
+    fn detect_primary_keys(
+        &self,
+        sql: &str,
+        dsn: &str,
+        pool_opt: &Option<sqlx::PgPool>,
+    ) -> Option<HashSet<String>> {
+        // 解析 SQL 提取表名
+        let dialect = sqlparser::dialect::PostgreSqlDialect {};
+        let ast = sqlparser::parser::Parser::parse_sql(&dialect, sql).ok()?;
+
+        // 从 SELECT 语句中提取表名
+        let mut table_names = Vec::new();
+        for stmt in ast {
+            if let sqlparser::ast::Statement::Query(query) = stmt {
+                if let sqlparser::ast::SetExpr::Select(select) = &*query.body {
+                    for table_with_joins in &select.from {
+                        if let sqlparser::ast::TableFactor::Table { name, .. } =
+                            &table_with_joins.relation
+                        {
+                            let schema = name.0.first().map(|i| i.value.clone());
+                            let table = name.0.last().map(|i| i.value.clone());
+                            match (schema, table) {
+                                (Some(s), Some(t)) => {
+                                    table_names.push((s, t));
+                                }
+                                (None, Some(t)) => {
+                                    table_names.push(("public".to_string(), t));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if table_names.is_empty() {
+            return None;
+        }
+
+        // 查询第一个表的主键信息（简单情况）
+        if let Some((schema, table)) = table_names.first() {
+            let pk_result = futures::block_on_async(async {
+                let pool = match pool_opt {
+                    Some(p) => p.clone(),
+                    None => PgPoolOptions::new()
+                        .max_connections(1)
+                        .connect(dsn)
+                        .await
+                        .ok()?,
+                };
+
+                let pk_query = "SELECT kcu.column_name \
+                        FROM information_schema.table_constraints tc \
+                        JOIN information_schema.key_column_usage kcu \
+                          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema \
+                        WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1 AND tc.table_name = $2 \
+                        ORDER BY kcu.ordinal_position";
+
+                let rows: Result<Vec<sqlx::postgres::PgRow>, _> = sqlx::query(pk_query)
+                    .bind(schema)
+                    .bind(table)
+                    .fetch_all(&pool)
+                    .await;
+
+                rows.ok().map(|rows| {
+                    rows.into_iter()
+                        .map(|r| r.get::<String, _>(0))
+                        .collect::<HashSet<String>>()
+                })
+            });
+
+            pk_result
+        } else {
+            None
+        }
+    }
+
     /// 渲染查询结果表格
-    /// 使用 egui-data-table 组件显示查询结果，支持主键列标识和 CSV 导出
-    pub fn ui_results_table(&mut self, ui: &mut egui::Ui, show_refresh: bool) {
-        // 更新当前 SQL 语句
-        let new_sql = Some(self.sql_input.clone());
-        self.current_sql = new_sql.clone();
-        self.previous_sql = new_sql;
+    /// 接收 SQL 语句和 SqlCtx，内部执行 SQL 并渲染结果
+    /// 支持主键列标识、CSV 导出和自动刷新
+    pub fn ui_results_table(
+        &mut self,
+        ui: &mut egui::Ui,
+        sql: Option<&str>,
+        ctxs: Option<&mut SqlCtx>,
+        show_refresh: bool,
+    ) {
+        // 更新当前 SQL 语句（但不自动执行）
+        if let Some(sql_str) = sql {
+            // 只更新当前 SQL，不自动执行
+            let sql_changed = self.current_sql.as_ref().map(|s| s != sql_str).unwrap_or(true);
+            if sql_changed {
+                self.current_sql = Some(sql_str.to_string());
+                self.previous_sql = self.current_sql.clone();
+            }
+        }
+
+        // 检查是否需要刷新
+        let should_refresh = self.refresh_requested;
+        if should_refresh {
+            self.refresh_requested = false;
+        }
+
+        // 检查是否有执行请求（通过点击运行按钮触发）
+        let should_execute_requested = self.execute_sql_requested;
+        if should_execute_requested {
+            self.execute_sql_requested = false;
+        }
+
+        // 执行 SQL（仅在点击运行按钮或刷新按钮时执行，不自动执行）
+        if (should_refresh || should_execute_requested) && sql.is_some() {
+            if let Some(ctxs) = ctxs {
+                self.execute_sql(sql.unwrap(), ctxs);
+            }
+        }
 
         // 顶部工具栏：标题、刷新按钮、CSV 导出按钮
         ui.horizontal(|ui| {
@@ -144,9 +382,9 @@ impl ResultsTable {
 
         // SQL 语句预览工具栏
         ui.horizontal(|ui| {
-            if let Some(ref sql) = self.current_sql {
+            if let Some(ref sql_str) = self.current_sql {
                 // 只显示第一行，最多 100 个字符
-                let first_line = sql.lines().next().unwrap_or("");
+                let first_line = sql_str.lines().next().unwrap_or("");
                 let truncated_sql = if first_line.len() > 100 {
                     format!("{}...", &first_line[..100])
                 } else {
@@ -164,6 +402,17 @@ impl ResultsTable {
             }
         });
         ui.separator();
+
+        // 显示错误信息（如果有）
+        if let Some(ref error) = self.sql_error {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} Error: {}", egui_phosphor::regular::WARNING, error))
+                        .color(egui::Color32::RED),
+                );
+            });
+            ui.separator();
+        }
 
         // 如果没有查询结果，显示空状态
         if self.query_columns.is_empty() {

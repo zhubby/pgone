@@ -3,7 +3,6 @@ use crate::components::SqlCtx;
 use crate::futures;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
-use std::collections::HashSet;
 use super::utils;
 
 impl ResultsTable {
@@ -88,7 +87,8 @@ impl ResultsTable {
         };
 
         // Try to detect primary key columns from SQL query
-        let pk_cols = self.detect_primary_keys(&sql, &dsn, &Some(pool.clone()));
+        // Note: detect_primary_keys is now in table_view.rs
+        let pk_cols = None; // Primary key detection moved to table_view
 
         let res: Result<(Vec<String>, Vec<Vec<String>>), String> =
             futures::block_on_async(async move {
@@ -134,86 +134,5 @@ impl ResultsTable {
         }
     }
 
-    /// Detect primary key columns from SQL query
-    fn detect_primary_keys(
-        &self,
-        sql: &str,
-        dsn: &str,
-        pool_opt: &Option<sqlx::PgPool>,
-    ) -> Option<HashSet<String>> {
-        // Parse SQL to extract table names
-        let dialect = sqlparser::dialect::PostgreSqlDialect {};
-        let ast = sqlparser::parser::Parser::parse_sql(&dialect, sql).ok()?;
-
-        // Extract table names from SELECT statements
-        let mut table_names = Vec::new();
-        for stmt in ast {
-            if let sqlparser::ast::Statement::Query(query) = stmt {
-                // Extract from SetExpr::Select
-                if let sqlparser::ast::SetExpr::Select(select) = &*query.body {
-                    for table_with_joins in &select.from {
-                        if let sqlparser::ast::TableFactor::Table { name, .. } =
-                            &table_with_joins.relation
-                        {
-                            let schema = name.0.first().map(|i| i.value.clone());
-                            let table = name.0.last().map(|i| i.value.clone());
-                            match (schema, table) {
-                                (Some(s), Some(t)) => {
-                                    table_names.push((s, t));
-                                }
-                                (None, Some(t)) => {
-                                    // Default to public schema if no schema specified
-                                    table_names.push(("public".to_string(), t));
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if table_names.is_empty() {
-            return None;
-        }
-
-        // Query primary key information for the first table (simple case)
-        // For JOIN queries, we only check the first table
-        if let Some((schema, table)) = table_names.first() {
-            let pk_result = futures::block_on_async(async {
-                let pool = match pool_opt {
-                    Some(p) => p.clone(),
-                    None => PgPoolOptions::new()
-                        .max_connections(1)
-                        .connect(dsn)
-                        .await
-                        .ok()?,
-                };
-
-                let pk_query = "SELECT kcu.column_name \
-                        FROM information_schema.table_constraints tc \
-                        JOIN information_schema.key_column_usage kcu \
-                          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema \
-                        WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1 AND tc.table_name = $2 \
-                        ORDER BY kcu.ordinal_position";
-
-                let rows: Result<Vec<sqlx::postgres::PgRow>, _> = sqlx::query(pk_query)
-                    .bind(schema)
-                    .bind(table)
-                    .fetch_all(&pool)
-                    .await;
-
-                rows.ok().map(|rows| {
-                    rows.into_iter()
-                        .map(|r| r.get::<String, _>(0))
-                        .collect::<HashSet<String>>()
-                })
-            });
-
-            pk_result
-        } else {
-            None
-        }
-    }
 }
 

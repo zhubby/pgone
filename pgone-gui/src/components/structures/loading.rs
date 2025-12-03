@@ -265,57 +265,22 @@ pub(super) fn load_tables(tree: &mut DbTree, db_manager: &mut crate::components:
     });
 }
 
-pub(super) fn query_table_data(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable, database: &str, schema: &str, table: &str) {
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
-        return;
-    };
+pub(super) fn query_table_data(_tree: &mut DbTree, _db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable, database: &str, schema: &str, table: &str) {
+    // 生成 SQL 查询语句，让表格组件自己执行查询
+    // 使用 LIMIT 100 限制结果数量，避免查询过大数据集
+    let sql = format!("SELECT * FROM \"{}\".\"{}\" LIMIT 100", schema, table);
     
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) = futures::block_on_async(async {
-            storage.get_db_config(&db_id).await
-        }) {
-            // Replace database name in DSN while preserving password
-            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
-                // Fallback to manual construction if URL parsing fails
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                    format!("{}://{}@{}:{}/{}", 
-                        parsed.engine, parsed.user, parsed.host, parsed.port, database)
-                } else {
-                    cfg.dsn.clone()
-                }
-            })
-        } else {
-            return;
-        }
-    } else {
-        return;
-    };
+    // 设置 SQL 到表格组件的输入框
+    results_table.sql_input = sql.clone();
     
-    let dsn_clone = dsn.clone();
-    let schema_clone = schema.to_string();
-    let table_clone = table.to_string();
+    // 设置选中的数据库，以便表格组件能够正确切换数据库连接
+    results_table.selected_database = Some(database.to_string());
     
-    // Use block_on_async to run async code
-    let result = futures::block_on_async(async {
-        let session = Session::new(&dsn_clone)
-                    .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
-                
-        session.query_table_data(&schema_clone, &table_clone, Some(100))
-                    .await
-            .map_err(|e| format!("Failed to query table: {}", e))
-    });
+    // 设置当前 SQL 用于显示
+    results_table.current_sql = Some(sql);
     
-    match result {
-        Ok((columns, rows)) => {
-            results_table.query_columns = columns;
-            results_table.query_rows = rows;
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    // 请求执行 SQL，表格组件会在下次渲染时自动执行
+    results_table.execute_sql_requested = true;
 }
 
 pub(super) fn get_dsn_for_database(_tree: &DbTree, db_manager: &mut crate::components::DbManager, database: &str) -> Option<String> {

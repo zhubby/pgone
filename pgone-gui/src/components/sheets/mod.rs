@@ -89,21 +89,8 @@ impl ResultsTable {
             }
         }
 
-        // Check if refresh was requested
-        if self.refresh_requested {
-            self.refresh_requested = false;
-            if let Some(ctxs) = ctxs.as_mut() {
-                self.run_sql(ctxs);
-            }
-        }
-
-        // Check if SQL execution was requested
-        if self.execute_sql_requested {
-            self.execute_sql_requested = false;
-            if let Some(ctxs) = ctxs.as_mut() {
-                self.run_sql(ctxs);
-            }
-        }
+        // SQL 执行现在由表格组件内部处理
+        // refresh_requested 和 execute_sql_requested 会在 ui_results_table 中处理
 
         let has_ctxs = ctxs.is_some();
 
@@ -122,7 +109,14 @@ impl ResultsTable {
         ui.separator();
 
         // Results section
-        self.ui_results_table(ui, has_ctxs);
+        // 传递 SQL 语句和上下文，表格内部负责执行和渲染
+        // 克隆 SQL 字符串以避免借用冲突
+        let sql = if self.sql_input.trim().is_empty() {
+            None
+        } else {
+            Some(self.sql_input.clone())
+        };
+        self.ui_results_table(ui, sql.as_deref(), ctxs, has_ctxs);
     }
 }
 
