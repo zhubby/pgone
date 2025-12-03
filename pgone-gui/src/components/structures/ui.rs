@@ -7,7 +7,7 @@ use std::collections::HashSet;
 impl DbTree {
     pub fn ui(&mut self, ui: &mut egui::Ui, db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable) {
         ui.horizontal(|ui| {
-            ui.heading(format!("{} Database Structure", egui_phosphor::regular::TREE_STRUCTURE));
+            ui.heading(format!("{} Structure", egui_phosphor::regular::TREE_STRUCTURE));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(format!("{} Open", egui_phosphor::regular::FOLDER_OPEN)).clicked() {
                     db_manager.show_manage_db = true;
