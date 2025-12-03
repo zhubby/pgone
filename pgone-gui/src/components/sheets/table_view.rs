@@ -26,14 +26,36 @@ struct QueryRowViewer {
 
 impl QueryRowViewer {
     /// 截断单元格文本，最长12个字符，超过使用省略号显示
+    /// 遇到换行符直接截断并追加省略号，确保始终只显示一行
     /// 使用字符迭代器确保正确处理多字节字符（如中文）
     fn truncate_cell_text(text: &str) -> String {
         const MAX_LENGTH: usize = 12;
-        if text.chars().count() <= MAX_LENGTH {
+        
+        // 首先处理换行符：找到第一个换行符的位置
+        // 优先处理 \r\n（Windows 换行符），然后是单独的 \n 或 \r
+        let first_line = if let Some(crlf_pos) = text.find("\r\n") {
+            // 找到 \r\n，截断并追加省略号
+            let truncated: String = text.chars().take(crlf_pos).collect();
+            format!("{}...", truncated)
+        } else if let Some(newline_pos) = text.find('\n') {
+            // 找到单独的 \n，截断并追加省略号
+            let truncated: String = text.chars().take(newline_pos).collect();
+            format!("{}...", truncated)
+        } else if let Some(carriage_pos) = text.find('\r') {
+            // 找到单独的 \r，截断并追加省略号
+            let truncated: String = text.chars().take(carriage_pos).collect();
+            format!("{}...", truncated)
+        } else {
+            // 没有换行符，使用原文本
             text.to_string()
+        };
+        
+        // 然后处理长度限制
+        if first_line.chars().count() <= MAX_LENGTH {
+            first_line
         } else {
             // 使用字符迭代器确保正确处理多字节字符
-            let truncated: String = text.chars().take(MAX_LENGTH).collect();
+            let truncated: String = first_line.chars().take(MAX_LENGTH).collect();
             format!("{}...", truncated)
         }
     }
