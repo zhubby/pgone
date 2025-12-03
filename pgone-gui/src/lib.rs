@@ -43,7 +43,7 @@ pub struct AppFrame {
     left_panel_width: f32,
     right_panel_width: f32,
     session_storage: SessionStorage,
-    mcp_client: Option<McpClientManager>,
+    // mcp_client: Option<McpClientManager>,
 }
 
 impl AppFrame {
@@ -105,33 +105,29 @@ impl AppFrame {
             state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
         }
 
+        /// 不需要初始化额外的进程来提供tools
         // 初始化 MCP client
-        let mcp_client = if db_manager.storage.is_some() {
-            // 获取 storage 路径
-            let storage_path = std::env::var("PGONE_STORAGE_PATH")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|_| {
-                    // 默认使用 pgone_storage::DATABASE_PATH
-                    std::path::PathBuf::from(pgone_storage::DATABASE_PATH)
-                });
+        // let mcp_client = if db_manager.storage.is_some() {
+        //     // 使用 pgone_storage::DATABASE_PATH
+        //     let storage_path = std::path::PathBuf::from(pgone_storage::DATABASE_PATH);
 
-            // 启动 MCP server 并创建客户端
-            match futures::block_on_async(async {
-                McpClientManager::new(storage_path).await
-            }) {
-                Ok(client) => {
-                    tracing::info!("MCP client 初始化成功");
-                    Some(client)
-                }
-                Err(e) => {
-                    tracing::warn!("MCP client 初始化失败: {}", e);
-                    None
-                }
-            }
-        } else {
-            tracing::warn!("Storage 不可用，跳过 MCP client 初始化");
-            None
-        };
+        //     // 启动 MCP server 并创建客户端
+        //     match futures::block_on_async(async {
+        //         McpClientManager::new(storage_path).await
+        //     }) {
+        //         Ok(client) => {
+        //             tracing::info!("MCP client 初始化成功");
+        //             Some(client)
+        //         }
+        //         Err(e) => {
+        //             tracing::warn!("MCP client 初始化失败: {}", e);
+        //             None
+        //         }
+        //     }
+        // } else {
+        //     tracing::warn!("Storage 不可用，跳过 MCP client 初始化");
+        //     None
+        // };
 
         Self {
             state,
@@ -151,7 +147,7 @@ impl AppFrame {
             left_panel_width: 250.0,
             right_panel_width: 300.0,
             session_storage,
-            mcp_client,
+            // mcp_client,
         }
     }
 

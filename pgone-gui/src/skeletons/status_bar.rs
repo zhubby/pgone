@@ -4,7 +4,11 @@ use crate::models::Settings;
 use eframe::egui::{Context, TopBottomPanel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::Row;
+use regex::Regex;
 
 // 缓存 System 实例以提高性能
 static SYSTEM: Lazy<Arc<Mutex<sysinfo::System>>> = Lazy::new(|| {
@@ -16,28 +20,25 @@ static LAST_REFRESH: Lazy<Arc<Mutex<Option<Instant>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(None))
 });
 
+// 缓存数据库版本信息（按连接ID）
+static DB_VERSION_CACHE: Lazy<Arc<Mutex<HashMap<String, (String, Instant)>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
+
 // 刷新间隔：1秒
 const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+// 数据库版本缓存有效期：30秒
+const VERSION_CACHE_TTL: Duration = Duration::from_secs(30);
 
 pub fn show_status_bar(ctx: &Context, db: &mut DbManager, settings: &Settings) {
     TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
             // Database selection button and display
             ui.horizontal(|ui| {
-                if ui.button("Select Database").clicked() {
-                    db.show_manage_db = true;
-                }
-                ui.separator();
                 let active_id = db.active_db_config_id.clone();
-                let db_name = if let Some(ref id) = active_id {
-                    db.get_db_name(id).unwrap_or_else(|| id.clone())
-                } else {
-                    "<no db>".to_string()
-                };
-                ui.label(format!("Selected Database Config: {}", db_name));
-                ui.separator();
 
                 if active_id.is_some() {
+                    ui.separator();
                     db.ensure_storage();
                     if let Some(ref storage) = db.storage {
                         if let Ok(Some(cfg)) = futures::block_on_async(async {
@@ -51,14 +52,17 @@ pub fn show_status_bar(ctx: &Context, db: &mut DbManager, settings: &Settings) {
                                     ui.label(egui::RichText::new(&cfg.id).strong());
                                 });
                                 ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::GEAR);
                                     ui.label("Engine:");
                                     ui.label(&cfg.engine);
                                 });
                                 ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::GLOBE);
                                     ui.label("Host:");
                                     ui.label(&parsed.host);
                                 });
                                 ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::DATABASE);
                                     ui.label("Database:");
                                     ui.label(if parsed.database.is_empty() {
                                         "<default>"
@@ -66,6 +70,17 @@ pub fn show_status_bar(ctx: &Context, db: &mut DbManager, settings: &Settings) {
                                         &parsed.database
                                     });
                                 });
+                                
+                                // 获取并显示数据库版本信息
+                                let db_version = get_db_version(&cfg.dsn, &cfg.id);
+                                if let Some(version) = db_version {
+                                    let short_version = extract_version_info(&version);
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui_phosphor::regular::TAG);
+                                        ui.label("Version:");
+                                        ui.label(egui::RichText::new(short_version));
+                                    });
+                                }
                             }
                         }
                     }
@@ -116,12 +131,16 @@ pub fn show_status_bar(ctx: &Context, db: &mut DbManager, settings: &Settings) {
                         let network_info = "网络: 监控中".to_string();
                         
                         ui.horizontal(|ui| {
+                            ui.label(egui_phosphor::regular::DESKTOP);
                             ui.label(format!("进程: {}", process_name));
                             ui.separator();
+                            ui.label(egui_phosphor::regular::CHART_PIE);
                             ui.label(format!("CPU: {:.1}%", cpu_usage));
                             ui.separator();
+                            ui.label(egui_phosphor::regular::HARD_DRIVE);
                             ui.label(format!("内存: {}", memory_str));
                             ui.separator();
+                            ui.label(egui_phosphor::regular::NETWORK);
                             ui.label(&network_info);
                         });
                     }
@@ -129,5 +148,84 @@ pub fn show_status_bar(ctx: &Context, db: &mut DbManager, settings: &Settings) {
             }
         });
     });
+}
+
+// 静态正则表达式，用于提取版本信息
+static VERSION_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"PostgreSQL\s+(\d+\.\d+(?:\.\d+)?)").unwrap()
+});
+
+static ARCH_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b(64-bit|32-bit)\b").unwrap()
+});
+
+/// 从 PostgreSQL version() 输出中提取关键版本信息
+/// 例如: "PostgreSQL 10.12 (Debian 10.12-1.pgdg90+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 6.3.0-18+deb9u1) 6.3.0 20170516, 64-bit"
+/// 提取为: "PostgreSQL 10.12 (64-bit)"
+fn extract_version_info(full_version: &str) -> String {
+    // 提取版本号
+    let version_num = VERSION_RE
+        .captures(full_version)
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str())
+        .unwrap_or("");
+    
+    // 提取架构信息
+    let arch = ARCH_RE
+        .find(full_version)
+        .map(|m| m.as_str())
+        .unwrap_or("");
+    
+    // 组合结果
+    if version_num.is_empty() && arch.is_empty() {
+        // 如果无法解析，返回原始字符串的前50个字符
+        full_version.chars().take(50).collect::<String>()
+    } else if arch.is_empty() {
+        format!("PostgreSQL {}", version_num)
+    } else {
+        format!("PostgreSQL {} ({})", version_num, arch)
+    }
+}
+
+/// 获取数据库版本信息，使用缓存机制避免频繁查询
+fn get_db_version(dsn: &str, db_id: &str) -> Option<String> {
+    let mut cache = DB_VERSION_CACHE.lock().unwrap();
+    let now = Instant::now();
+    
+    // 检查缓存
+    if let Some((version, cached_time)) = cache.get(db_id) {
+        if now.duration_since(*cached_time) < VERSION_CACHE_TTL {
+            return Some(version.clone());
+        }
+    }
+    
+    // 缓存过期或不存在，查询数据库版本
+    let version_result = futures::block_on_async(async {
+        // 创建临时连接池查询版本
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(dsn)
+            .await?;
+        
+        // 执行 version() 函数查询
+        let row = sqlx::query("SELECT version() as version")
+            .fetch_one(&pool)
+            .await?;
+        
+        let version: String = row.get("version");
+        Ok::<String, sqlx::Error>(version)
+    });
+    
+    match version_result {
+        Ok(version) => {
+            // 更新缓存
+            cache.insert(db_id.to_string(), (version.clone(), now));
+            Some(version)
+        }
+        Err(_) => {
+            // 查询失败，如果有旧缓存则返回旧值
+            cache.get(db_id).map(|(v, _)| v.clone())
+        }
+    }
 }
 

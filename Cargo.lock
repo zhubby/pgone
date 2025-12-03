@@ -5123,6 +5123,7 @@ dependencies = [
  "pgone-storage",
  "pgone-util",
  "poll-promise",
+ "regex",
  "reqwest",
  "rfd",
  "rmcp",

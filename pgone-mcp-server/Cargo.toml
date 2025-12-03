@@ -32,6 +32,6 @@ clap = { workspace = true }
 pgone-util = { workspace = true }
 pgone-sql = { workspace = true }
 pgone-storage = { workspace = true }
-rmcp = { version = "0.10.0", features = ["transport-sse-server","transport-streamable-http-server"] }
+rmcp = { workspace = true, features = ["transport-sse-server","transport-streamable-http-server"] }
 axum = { workspace = true }
 tokio-util = { workspace = true }

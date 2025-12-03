@@ -73,6 +73,7 @@ tokio-postgres = "0.7"
 opentelemetry = "0.31"
 opentelemetry_sdk = "0.31"
 tracing-opentelemetry = "0.32"
+rmcp = { version = "0.10.0" }
 
 # Turso/libsql for local embedded storage
 libsql = { version = "0.4" }

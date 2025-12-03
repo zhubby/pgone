@@ -66,6 +66,7 @@ once_cell = { workspace = true }
 etl = { workspace = true }
 sea-query = "1.0.0-rc.1"
 sysinfo = "0.37.2"
+regex = "1"
 
 
 pgone-a2a = { workspace = true }
@@ -74,7 +75,7 @@ pgone-util = { workspace = true }
 pgone-llm = { workspace = true }
 pgone-storage = { workspace = true }
 pgone-mcp-client = { workspace = true }
-rmcp = { version = "0.10.0", features = ["client", "transport-async-rw"] }
+rmcp = { workspace = true, features = ["client", "transport-async-rw"] }
 
 # 添加以下配置
 [package.metadata.bundle]

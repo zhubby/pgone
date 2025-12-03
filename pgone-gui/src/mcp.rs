@@ -28,7 +28,6 @@ impl McpClientManager {
         // 启动子进程
         let mut child = Command::new(&server_path)
             .env("PGONE_MCP_STDIO", "1")
-            .env("PGONE_STORAGE_PATH", storage_path.to_string_lossy().as_ref())
             .env("RUST_LOG", "info")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -47,7 +46,6 @@ impl McpClientManager {
         // 将 ChildStdin/ChildStdout 转换为 AsyncRead/AsyncWrite
         // 注意：ChildStdin 实现了 AsyncWrite，ChildStdout 实现了 AsyncRead
         // 但我们需要交换它们：stdin 是写入到子进程，stdout 是从子进程读取
-        use tokio::io::{AsyncRead, AsyncWrite};
         let reader = tokio::io::BufReader::new(stdout);
         let writer = stdin;
 

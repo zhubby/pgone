@@ -1,9 +1,7 @@
-use tracing_subscriber::EnvFilter;
+use pgone_util::log;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
+    log::init_log_from_env()?;
     pgone_gui::run()
 }

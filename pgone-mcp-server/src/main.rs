@@ -35,14 +35,6 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // 从环境变量获取 storage 路径，如果没有则使用默认值
-    let storage_path = env::var("PGONE_STORAGE_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            // 默认使用 pgone_storage::DATABASE_PATH
-            PathBuf::from(DATABASE_PATH)
-        });
-
     // 确定协议类型
     // 优先级：命令行参数 > 环境变量 > 默认 streamable
     let protocol = if let Some(protocol) = args.protocol {
@@ -56,33 +48,27 @@ async fn main() -> anyhow::Result<()> {
                 Protocol::Streamable
             }
         }
-    } else if env::var("PGONE_MCP_STDIO").is_ok() {
-        // 向后兼容：支持 PGONE_MCP_STDIO 环境变量
-        Protocol::Stdio
     } else {
         Protocol::Streamable
     };
 
-    // 获取 streamable HTTP 服务器地址
-    let addr = env::var("PGONE_MCP_ADDR")
-        .unwrap_or_else(|_| args.addr.clone());
+    let addr = args.addr.clone();
 
     // 初始化日志（使用 pgone-util 的 log 模块）
     init_log_simple(&args.log_level)?;
 
     info!("pgone-mcp-server 启动中...");
-    info!("Storage 路径: {}", storage_path.display());
 
     // 根据协议类型启动相应的服务器
     match protocol {
         Protocol::Stdio => {
             info!("启动 STDIO 模式...");
-            mcp::run_stdio(storage_path).await?;
+            mcp::run_stdio().await?;
         }
         Protocol::Streamable => {
             info!("启动 Streamable HTTP 模式...");
             info!("监听地址: {}", addr);
-            mcp::run_streamable(storage_path, &addr).await?;
+            mcp::run_streamable(&addr).await?;
         }
     }
 
