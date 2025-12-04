@@ -10,6 +10,9 @@ pub struct Config {
     pub default_temperature: Option<f32>,
     pub default_top_p: Option<f32>,
     pub default_max_tokens: Option<u32>,
+    pub proxy_enabled: bool,
+    pub proxy_host: Option<String>,
+    pub proxy_port: Option<u16>,
 }
 
 impl Config {
@@ -23,6 +26,9 @@ impl Config {
             default_temperature: None,
             default_top_p: None,
             default_max_tokens: None,
+            proxy_enabled: false,
+            proxy_host: None,
+            proxy_port: None,
         }
     }
 
@@ -61,6 +67,25 @@ impl Config {
         self
     }
 
+    pub fn with_proxy(mut self, host: String, port: u16) -> Self {
+        self.proxy_enabled = true;
+        self.proxy_host = Some(host);
+        self.proxy_port = Some(port);
+        self
+    }
+
+    pub fn proxy_url(&self) -> Option<String> {
+        if self.proxy_enabled {
+            if let (Some(host), Some(port)) = (&self.proxy_host, &self.proxy_port) {
+                Some(format!("http://{}:{}", host, port))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.api_key.is_empty() {
             return Err(LlmError::InvalidApiKey);
@@ -80,6 +105,9 @@ impl Default for Config {
             default_temperature: None,
             default_top_p: None,
             default_max_tokens: None,
+            proxy_enabled: false,
+            proxy_host: None,
+            proxy_port: None,
         }
     }
 }

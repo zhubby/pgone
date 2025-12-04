@@ -85,6 +85,11 @@ impl StorageBlocking {
         crate::storage::list_messages(&mut conn, session_id, limit).await
     }
 
+    pub async fn query_messages_by_session(&self, session_id: &str) -> Result<Vec<Message>> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::query_messages_by_session(&mut conn, session_id).await
+    }
+
     // Auth helpers
     pub async fn upsert_auth_user(&self, u: &AuthUser) -> Result<()> {
         let mut conn = self.inner.conn().await?;

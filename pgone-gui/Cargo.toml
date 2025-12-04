@@ -15,28 +15,39 @@ name = "pgone-gui"
 path = "src/main.rs"
 
 [dependencies]
-emath = { version = "0.32.3", default-features = false }
-ecolor = { version = "0.32.3", default-features = false }
-epaint = { version = "0.32.3", default-features = false }
-egui-snarl = "0.8"
-catppuccin-egui = { version = "5.7.0", default-features = false, features = ["egui32"] }
-egui-data-table = {version = "0.8"}
-epaint_default_fonts = { version = "0.32.3" }
-egui_table = "0.4.0"
-egui-phosphor = "0.10"
-egui-notify = "0.20"
 egui = { version = "0.32.3", default-features = false }
 eframe = { version = "0.32.3" }
 egui_extras = { version = "0.32.3" }
+emath = { version = "0.32.3", default-features = false }
+ecolor = { version = "0.32.3", default-features = false }
+epaint = { version = "0.32.3", default-features = false }
+egui_plot = { version = "0.33.0", default-features = false }
+egui_commonmark = { version = "0.21", features = [
+    "svg",
+    "fetch",
+    "better_syntax_highlighting",
+    "embedded_image",
+] }
+egui-snarl = "0.8"
+catppuccin-egui = { version = "5.7.0", default-features = false, features = [
+    "egui32",
+] }
+egui-data-table = { version = "0.8" }
+epaint_default_fonts = { version = "0.32.1" }
+egui_table = "0.4.0"
+egui-phosphor = "0.10"
+egui-notify = "0.20"
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { workspace = true }
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["png"] }
 webbrowser = "1"
 rfd = "0.15"
 open = "5"
-pulldown-cmark = "0.12"
 sqlparser = "0.48"
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
@@ -44,7 +55,6 @@ sqlx = { workspace = true }
 hex = "0.4"
 csv = "1"
 async-openai = "0.25"
-pgone-storage = { workspace = true }
 urlencoding = "2"
 url = "2.5"
 icns = "0.3.1"
@@ -53,17 +63,22 @@ strum = { workspace = true }
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
-pgone-a2a = { workspace = true }
-pgone-sql = { workspace = true }
-pgone-util = { workspace = true }
-pgone-llm = { workspace = true }
 poll-promise = "0.3"
 once_cell = { workspace = true }
 etl = { workspace = true }
 sea-query = "1.0.0-rc.1"
 sysinfo = "0.37.2"
+regex = "1"
 
 
+pgone-a2a = { workspace = true }
+pgone-sql = { workspace = true }
+pgone-util = { workspace = true }
+pgone-llm = { workspace = true }
+pgone-storage = { workspace = true }
+pgone-mcp-client = { workspace = true }
+pgone-mcp-server = { workspace = true }
+rmcp = { workspace = true, features = ["client", "transport-async-rw"] }
 
 # 添加以下配置
 [package.metadata.bundle]
@@ -74,4 +89,4 @@ version = "0.1.0"
 copyright = "Copyright 2025 zhubby"
 category = "Developer Tool"
 short_description = "PGone is a suite of tools for PostgreSQL"
-resources = ["assets/icon.icns", "assets/fonts/*.ttf","pgone.db"]
+resources = ["assets/icon.icns", "assets/fonts/*.ttf", "pgone.db"]

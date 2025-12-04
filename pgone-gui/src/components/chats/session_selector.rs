@@ -40,7 +40,7 @@ impl SessionSelector {
         let new_id = ctxs.state.next_session_id.to_string();
         ctxs.state.next_session_id += 1;
         
-        let new_session = ChatSession::new(new_id.clone(), "新会话".to_string());
+        let new_session = ChatSession::default_with_timestamp(new_id.clone());
         
         ctxs.state.sessions.push(new_session.clone());
         ctxs.state.current_index = ctxs.state.sessions.len() - 1;

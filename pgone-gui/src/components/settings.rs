@@ -271,6 +271,41 @@ impl SettingsPanel {
         
         ui.add_space(5.0);
         
+        // Proxy Configuration
+        ui.checkbox(&mut settings.proxy_enabled, "启用网络代理");
+        if settings.proxy_enabled {
+            ui.group(|ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label("代理地址:");
+                    let mut proxy_host_str = settings.proxy_host.as_deref().unwrap_or("").to_string();
+                    let response = ui.text_edit_singleline(&mut proxy_host_str);
+                    if response.changed() {
+                        settings.proxy_host = if proxy_host_str.is_empty() {
+                            None
+                        } else {
+                            Some(proxy_host_str)
+                        };
+                    }
+                });
+                ui.add_space(5.0);
+                ui.horizontal(|ui| {
+                    ui.label("代理端口:");
+                    let mut proxy_port_str = settings.proxy_port.map(|p| p.to_string()).unwrap_or_default();
+                    let response = ui.text_edit_singleline(&mut proxy_port_str);
+                    if response.changed() {
+                        settings.proxy_port = if proxy_port_str.is_empty() {
+                            None
+                        } else {
+                            proxy_port_str.parse::<u16>().ok()
+                        };
+                    }
+                });
+            });
+        }
+        
+        ui.add_space(5.0);
+        
         // OpenAI Model
         ui.horizontal(|ui| {
             ui.label("模型:");
@@ -459,6 +494,9 @@ impl SettingsPanel {
 
         let provider = settings.llm_provider;
         let base_url = settings.openai_base_url.clone();
+        let proxy_enabled = settings.proxy_enabled;
+        let proxy_host = settings.proxy_host.clone();
+        let proxy_port = settings.proxy_port;
         let (sender, receiver) = mpsc::channel(1);
         self.models_receiver = Some(receiver);
         
@@ -466,6 +504,11 @@ impl SettingsPanel {
             let mut config = pgone_llm::Config::new(api_key);
             if let Some(url) = base_url {
                 config = config.with_base_url(url);
+            }
+            if proxy_enabled {
+                if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
+                    config = config.with_proxy(host, port);
+                }
             }
             
             let result = match pgone_llm::Client::new(config, provider) {

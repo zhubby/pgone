@@ -63,6 +63,9 @@ impl ModelLoader {
         };
         let base_url = ctxs.state.settings.openai_base_url.clone();
         let provider = ctxs.state.settings.llm_provider;
+        let proxy_enabled = ctxs.state.settings.proxy_enabled;
+        let proxy_host = ctxs.state.settings.proxy_host.clone();
+        let proxy_port = ctxs.state.settings.proxy_port;
         let (sender, receiver) = mpsc::channel(1);
         self.models_receiver = Some(receiver);
         
@@ -70,6 +73,11 @@ impl ModelLoader {
             let mut config = pgone_llm::Config::new(api_key);
             if let Some(url) = base_url {
                 config = config.with_base_url(url);
+            }
+            if proxy_enabled {
+                if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
+                    config = config.with_proxy(host, port);
+                }
             }
             
             let result = match pgone_llm::Client::new(config, provider) {

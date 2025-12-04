@@ -175,6 +175,22 @@ impl SessionStorage {
 
         Ok(())
     }
+
+    /// 查询会话的历史消息（最近10条，按时间降序）
+    pub fn query_messages_by_session(&mut self, session_id: &str) -> Result<Vec<Message>> {
+        let storage = self.ensure_storage()?;
+        
+        let storage_messages = futures::block_on_async(async {
+            storage.query_messages_by_session(session_id).await
+        })?;
+
+        let chat_messages: Vec<Message> = storage_messages
+            .into_iter()
+            .map(|m| storage_message_to_chat_message(m))
+            .collect();
+
+        Ok(chat_messages)
+    }
 }
 
 impl Default for SessionStorage {

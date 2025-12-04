@@ -21,6 +21,9 @@ async-stream = "0.3"
 reqwest = { workspace = true }
 gemini-rust = "1.5.1"
 strum = { workspace = true }
+tracing = { workspace = true }
+rig-core = "0.24.0"
+rmcp = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

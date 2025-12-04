@@ -19,8 +19,10 @@ impl Default for InputArea {
 
 impl InputArea {
     pub fn ui(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui, should_send: &mut bool) {
+        ui.separator();
+
         ui.horizontal(|ui| {
-            ui.label("Message");
+            ui.label(format!("{} Message", egui_phosphor::regular::PAPER_PLANE_TILT));
         });
 
         ui.separator();
@@ -99,16 +101,21 @@ impl InputArea {
         if editor.has_focus() {
             let input = ui.input(|i| i.clone());
             let enter_pressed = input.key_pressed(egui::Key::Enter);
-            let cmd_pressed = input.modifiers.command;
             let shift_pressed = input.modifiers.shift;
-            if !shift_pressed {
-                *should_send = match ctxs.send_shortcut {
-                    crate::models::SendShortcut::Enter => enter_pressed && !cmd_pressed,
-                    crate::models::SendShortcut::CmdEnter => {
-                        enter_pressed && cmd_pressed
-                    }
-                };
+            
+            // Enter 发送，Shift+Enter 换行
+            if enter_pressed && !shift_pressed {
+                // 阻止默认的换行行为
+                ui.ctx().input_mut(|i| {
+                    i.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
+                });
+                // 移除可能已经插入的换行符
+                if self.input.ends_with('\n') {
+                    self.input.pop();
+                }
+                *should_send = true;
             }
+            // Shift+Enter 时允许默认换行行为（不处理，让 TextEdit 正常换行）
         }
     }
 

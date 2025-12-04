@@ -70,3 +70,14 @@ pub struct AuthToken {
     pub created_at: i64,
     pub updated_at: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileIndex {
+    pub id: String,
+    pub current_path: String,
+    pub original_path: String,
+    pub file_size: i64,
+    pub file_type: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}

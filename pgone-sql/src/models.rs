@@ -111,6 +111,15 @@ pub struct ForeignKeyDetail {
     pub on_delete: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexInfo {
+    pub name: String,
+    pub unique: bool,
+    pub columns: Vec<String>,
+    pub definition: Option<String>,
+    pub description: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

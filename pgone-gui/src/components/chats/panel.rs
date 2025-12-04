@@ -2,7 +2,9 @@ use crate::components::ChatCtx;
 use crate::futures;
 use crate::models::{Message, MessageContent, Role};
 use chrono::Utc;
+use egui::Widget;
 use tokio::sync::mpsc;
+use pgone_llm::{Client, Config};
 
 use super::input_area::InputArea;
 use super::message_list::MessageList;
@@ -13,6 +15,9 @@ pub struct ChatPanel {
     pub input_area: InputArea,
     openai_receiver: Option<mpsc::Receiver<Result<String, String>>>,
     model_loader: ModelLoader,
+    enable_thinking: bool,
+    enable_search: bool,
+    show_delete_confirm: bool,
 }
 
 impl Default for ChatPanel {
@@ -21,6 +26,9 @@ impl Default for ChatPanel {
             input_area: InputArea::default(),
             openai_receiver: None,
             model_loader: ModelLoader::default(),
+            enable_thinking: false,
+            enable_search: false,
+            show_delete_confirm: false,
         }
     }
 }
@@ -38,6 +46,9 @@ impl Clone for ChatPanel {
                 models_receiver: None, // Receivers cannot be cloned, reset on clone
                 models_loaded: self.model_loader.models_loaded,
             },
+            enable_thinking: self.enable_thinking,
+            enable_search: self.enable_search,
+            show_delete_confirm: false, // 重置确认对话框状态
         }
     }
 }
@@ -51,6 +62,11 @@ impl ChatPanel {
         ui.horizontal(|ui| {
             ui.heading(format!("{} Chat", egui_phosphor::regular::CHATS));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // 关闭按钮
+                if ui.button(format!("{}", egui_phosphor::regular::X)).clicked() {
+                    self.show_delete_confirm = true;
+                }
+                ui.add_space(5.0);
                 SessionSelector::ui(ctxs, ui);
             });
         });
@@ -94,6 +110,8 @@ impl ChatPanel {
                                             if let Err(e) = ctxs.storage.save_session(sess) {
                                                 tracing::error!("保存会话失败: {}", e);
                                             }
+                                            // 设置滚动到底部标志
+                                            ctxs.should_scroll_to_bottom = true;
                                         }
                                     }
                                     Err(e) => {
@@ -118,9 +136,12 @@ impl ChatPanel {
                 // 底部按钮栏
                 strip.cell(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Send").clicked() {
+                        if ui.button(format!("{} Send", egui_phosphor::regular::PAPER_PLANE_RIGHT)).clicked() {
                             self.send_openai_with_tools(ctxs);
                         }
+
+                        egui::widgets::Checkbox::new(&mut self.enable_search, "联网搜索").ui(ui);
+                        egui::widgets::Checkbox::new(&mut self.enable_thinking, "深度思考").ui(ui);
                         
                         // 模型选择下拉框
                         ui.add_space(10.0);
@@ -159,86 +180,85 @@ impl ChatPanel {
                     });
                 })
             });
-    }
 
-    #[allow(dead_code)]
-    pub fn commit_input(&mut self, ctxs: &mut ChatCtx) {
-        let text = self.input_area.input.trim();
-        if !text.is_empty()
-            && let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index)
-        {
-            let message = Message {
-                role: Role::User,
-                timestamp: Utc::now(),
-                content: MessageContent::Markdown(text.to_owned()),
-            };
-            session.messages.push(message);
-            session.updated_at = Utc::now();
-            
-            if let Err(e) = ctxs.storage.save_session(session) {
-                tracing::error!("保存会话失败: {}", e);
-            }
-        }
-        self.input_area.input.clear();
-    }
+        // 显示删除确认对话框
+        if self.show_delete_confirm {
+            let mut open = true;
+            let center = ui.ctx().screen_rect().center();
+            let current_session_title = ctxs
+                .state
+                .sessions
+                .get(ctxs.state.current_index)
+                .map(|s| s.title.clone())
+                .unwrap_or_else(|| "当前会话".to_string());
 
-    #[allow(dead_code)]
-    pub fn add_image_message(&mut self, ctxs: &mut ChatCtx, path: std::path::PathBuf) {
-        // 直接添加到 pending_resources，让用户确认后再发送
-        self.input_area.pending_resources.push(path);
-    }
+            egui::Window::new("确认删除会话")
+                .open(&mut open)
+                .default_pos(center)
+                .pivot(egui::Align2::CENTER_CENTER)
+                .show(ui.ctx(), |ui| {
+                    ui.label(format!("确定要删除会话 '{}' 吗？", current_session_title));
+                    ui.label(egui::RichText::new("此操作不可恢复，会话及其所有消息将被永久删除。").color(egui::Color32::RED));
+                    ui.add_space(10.0);
 
-    #[allow(dead_code)]
-    pub fn add_video_message(&mut self, ctxs: &mut ChatCtx, path: std::path::PathBuf) {
-        if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-            let message = Message {
-                role: Role::User,
-                timestamp: Utc::now(),
-                content: MessageContent::Video {
-                    path,
-                    duration_ms: None,
-                    thumbnail: None,
-                },
-            };
-            session.messages.push(message);
-            session.updated_at = Utc::now();
-            
-            if let Err(e) = ctxs.storage.save_session(session) {
-                tracing::error!("保存会话失败: {}", e);
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn send_openai(&mut self, ctxs: &mut ChatCtx) {
-        let Some(key) = ctxs.openai_api_key.clone() else {
-            return;
-        };
-        let model = ctxs.openai_model.clone();
-        let prompt = self.input_area.input.trim().to_string();
-        if prompt.is_empty() {
-            return;
-        }
-        let mut session_id = None;
-        if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
-            session_id = Some(sess.id.clone());
-        }
-        let res: Result<String, String> = futures::block_on_async(async move {
-            pgone_llm::chat_once(key, model, prompt).await
-        });
-        match res {
-            Ok(answer) => {
-                if let Some(id) = session_id
-                    && let Some(sess) = ctxs.state.sessions.iter_mut().find(|s| s.id == id)
-                {
-                    sess.messages.push(Message {
-                        role: Role::Assistant,
-                        timestamp: Utc::now(),
-                        content: MessageContent::Markdown(answer),
+                    ui.horizontal(|ui| {
+                        if ui.button("取消").clicked() {
+                            self.show_delete_confirm = false;
+                        }
+                        if ui.button(egui::RichText::new("确认删除").color(egui::Color32::RED)).clicked() {
+                            self.delete_current_session(ctxs);
+                            self.show_delete_confirm = false;
+                        }
                     });
+                });
+
+            if !open {
+                self.show_delete_confirm = false;
+            }
+        }
+    }
+
+    fn delete_current_session(&mut self, ctxs: &mut ChatCtx) {
+        if ctxs.state.sessions.is_empty() {
+            return;
+        }
+
+        let current_index = ctxs.state.current_index;
+        if let Some(session) = ctxs.state.sessions.get(current_index) {
+            let session_id = session.id.clone();
+            
+            // 从存储中删除会话
+            if let Err(e) = ctxs.storage.delete_session(&session_id) {
+                tracing::error!("删除会话失败: {}", e);
+                crate::notify::error(&format!("删除会话失败: {}", e));
+                return;
+            }
+
+            // 从内存中删除会话
+            ctxs.state.sessions.remove(current_index);
+
+            // 调整当前索引
+            if ctxs.state.sessions.is_empty() {
+                // 如果没有会话了，创建一个新的默认会话
+                let new_id = ctxs.state.next_session_id.to_string();
+                ctxs.state.next_session_id += 1;
+                let new_session = crate::models::ChatSession::default_with_timestamp(new_id.clone());
+                ctxs.state.sessions.push(new_session.clone());
+                ctxs.state.current_index = 0;
+                
+                // 保存新会话
+                if let Err(e) = ctxs.storage.save_session(&new_session) {
+                    tracing::error!("保存新会话失败: {}", e);
+                }
+            } else {
+                // 如果删除的不是最后一个，保持索引不变（因为后面的元素会前移）
+                // 如果删除的是最后一个，需要将索引减1
+                if current_index >= ctxs.state.sessions.len() {
+                    ctxs.state.current_index = ctxs.state.sessions.len() - 1;
                 }
             }
-            Err(_e) => {}
+
+            crate::notify::info("会话已删除");
         }
     }
 
@@ -258,6 +278,31 @@ impl ChatPanel {
             return;
         }
         
+        // 查询历史消息（在保存当前消息之前）
+        let mut history_messages = Vec::new();
+        if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
+            match ctxs.storage.query_messages_by_session(&sess.id) {
+                Ok(messages) => {
+                    // 反转结果（查询结果是降序，需要转为升序）
+                    let reversed_messages: Vec<_> = messages.into_iter().rev().collect();
+                    // 转换为 ChatMessage，只处理 Markdown 类型
+                    for msg in reversed_messages {
+                        if let MessageContent::Markdown(content) = &msg.content {
+                            let chat_msg = match msg.role {
+                                Role::User => pgone_llm::chat::ChatMessage::user(content.clone()),
+                                Role::Assistant => pgone_llm::chat::ChatMessage::assistant(content.clone()),
+                                Role::System => pgone_llm::chat::ChatMessage::system(content.clone()),
+                            };
+                            history_messages.push(chat_msg);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("查询历史消息失败: {}", e);
+                }
+            }
+        }
+        
         // 保存用户消息（如果有文本）
         if !prompt.is_empty() {
             if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
@@ -272,6 +317,8 @@ impl ChatPanel {
                 if let Err(e) = ctxs.storage.save_session(sess) {
                     tracing::error!("保存用户消息失败: {}", e);
                 }
+                // 发送消息后也滚动到底部
+                ctxs.should_scroll_to_bottom = true;
             }
         }
         
@@ -279,18 +326,48 @@ impl ChatPanel {
         let key_clone = key.clone();
         let model_clone = model.clone();
         let prompt_clone = prompt.clone();
+        let provider = ctxs.state.settings.llm_provider;
+        let proxy_enabled = ctxs.state.settings.proxy_enabled;
+        let proxy_host = ctxs.state.settings.proxy_host.clone();
+        let proxy_port = ctxs.state.settings.proxy_port;
+        let tools = pgone_mcp_server::mcp::list_tools();
 
         let (sender, receiver) = mpsc::channel(1);
         self.openai_receiver = Some(receiver);
 
+        // 构建消息列表：系统提示 + 历史消息 + 当前用户输入
+        let mut chat_messages = vec![
+            pgone_llm::chat::ChatMessage::system(crate::prompt::system_prompt()),
+        ];
+        chat_messages.extend(history_messages);
+        if !prompt_clone.is_empty() {
+            chat_messages.push(pgone_llm::chat::ChatMessage::user(prompt_clone.clone()));
+        }
+
         futures::spawn(async move {
-            if let Some(base_url) = base_url {
-                let result = pgone_llm::chat_with_tools_custom_endpoint(key_clone, base_url, model_clone, prompt_clone).await;
-                let _ = sender.send(result).await;
-            } else {
-                let result = pgone_llm::chat_with_tools(key_clone, model_clone, prompt_clone).await;
-                let _ = sender.send(result).await;
+            let mut config = Config::new(key_clone);
+            if let Some(url) = base_url {
+                config = config.with_base_url(url);
             }
+            if proxy_enabled {
+                if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
+                    config = config.with_proxy(host, port);
+                }
+            }
+            let client = match Client::new(config, provider) {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = sender.send(Err(e.to_string())).await;
+                    return;
+                }
+            };
+            let request = pgone_llm::chat::ChatRequest::new(model_clone)
+                .with_messages(chat_messages).with_tools(tools.iter().map(|t| t.clone().into()).collect());
+            let result = match client.chat_create(request).await {
+                Ok(resp) => Ok(resp.content),
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = sender.send(result).await;
         });
     }
 }

@@ -80,3 +80,26 @@ pub fn create_json_schema_properties(properties: Value) -> Value {
     })
 }
 
+impl From<rmcp::model::Tool> for Tool {
+    fn from(rmcp_tool: rmcp::model::Tool) -> Self {
+        // 将 input_schema (Arc<Map<String, Value>>) 转换为 Value
+        let parameters = Value::Object(
+            (*rmcp_tool.input_schema)
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        );
+
+        let function = Function {
+            name: rmcp_tool.name.to_string(),
+            description: rmcp_tool.description.map(|d| d.to_string()),
+            parameters,
+        };
+
+        Tool {
+            tool_type: "function".to_string(),
+            function,
+        }
+    }
+}
+

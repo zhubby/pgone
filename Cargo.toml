@@ -4,7 +4,7 @@ edition = "2024"
 author = "zhubby <yanvalue@gmail.com>"
 description = "PGone is a suite of tools for PostgreSQL"
 repository = "https://github.com/zhubby/pgone"
-license = "MIT"
+license = "Apache-2.0"
 homepage = "https://pgone.io"
 documentation = "https://pgone.io/docs"
 keywords = ["postgresql", "database", "tools", "mcp", "gui"]
@@ -16,7 +16,7 @@ edition = "2024"
 authors = ["zhubby <yanvalue@gmail.com>"]
 description = "PGone is a suite of tools for PostgreSQL"
 repository = "https://github.com/zhubby/pgone"
-license = "MIT"
+license = "Apache-2.0"
 homepage = "https://pgone.io"
 documentation = "https://pgone.io/docs"
 keywords = ["postgresql", "database", "tools", "mcp", "gui"]
@@ -31,7 +31,7 @@ members = [
     "pgone-mcp-server",
     "pgone-auditor", 
     "pgone-util", 
-    "pgone-sql", "pgone-agent", "pgone-llm",
+    "pgone-sql", "pgone-agent", "pgone-llm", "pgone-vector", "pgone-mcp-client",
 ]
 
 resolver = "2"
@@ -73,6 +73,7 @@ tokio-postgres = "0.7"
 opentelemetry = "0.31"
 opentelemetry_sdk = "0.31"
 tracing-opentelemetry = "0.32"
+rmcp = { version = "0.10.0" }
 
 # Turso/libsql for local embedded storage
 libsql = { version = "0.4" }
@@ -80,6 +81,7 @@ turso = { version = "0.1.5" }
 etl = { git = "https://github.com/supabase/etl" }
 
 pgone-mcp-server = { path = "pgone-mcp-server" }
+pgone-mcp-client = { path = "pgone-mcp-client" }
 pgone-gui = { path = "pgone-gui" }
 pgone-auditor = { path = "pgone-auditor" }
 pgone-storage = { path = "pgone-storage" }

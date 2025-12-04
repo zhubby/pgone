@@ -5,9 +5,15 @@ pub struct MessageList;
 
 impl MessageList {
     pub fn ui(ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
+        let should_scroll = ctxs.should_scroll_to_bottom;
+        if should_scroll {
+            ctxs.should_scroll_to_bottom = false;
+        }
+        
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
+            .id_salt("message_list_scroll")
             .show(ui, |ui| {
                 let messages: Vec<Message> = ctxs
                     .state
@@ -18,9 +24,9 @@ impl MessageList {
                 for msg in &messages {
                     ui.horizontal(|ui| {
                         ui.strong(match msg.role {
-                            Role::User => "User",
-                            Role::Assistant => "Assistant",
-                            Role::System => "System",
+                            Role::User => format!("{} User",egui_phosphor::regular::USER),
+                            Role::Assistant => format!("{} Assistant",egui_phosphor::regular::ROBOT),
+                            Role::System => format!("{} System",egui_phosphor::regular::USER_GEAR),
                         });
                         ui.label(msg.timestamp.format("%Y-%m-%d %H:%M:%S").to_string());
                         if ui.small_button("Copy").clicked()
@@ -31,7 +37,7 @@ impl MessageList {
                     });
                     match &msg.content {
                         MessageContent::Markdown(text) => {
-                            crate::markdown::render_markdown(ui, text)
+                            crate::skeletons::formatters::md::render_markdown(ui, text)
                         }
                         MessageContent::Image {
                             path,
@@ -60,6 +66,11 @@ impl MessageList {
                         }
                     }
                     ui.separator();
+                }
+                // 如果需要滚动到底部，在最后添加一个标记并滚动到它
+                if should_scroll {
+                    ui.allocate_space(egui::Vec2::ZERO);
+                    ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
                 }
             });
     }

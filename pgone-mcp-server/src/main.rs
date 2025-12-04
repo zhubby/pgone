@@ -1,20 +1,30 @@
-use clap::Parser;
-use pgone_mcp_server::{config, mcp, registry::ConnectionRegistry};
+use clap::{Parser, ValueEnum};
+use pgone_mcp_server::mcp;
+use pgone_storage::DATABASE_PATH;
 use pgone_util::log::init_log_simple;
 use std::env;
-use tracing::{info, error};
+use std::path::PathBuf;
+use tracing::info;
+
+#[derive(ValueEnum, Clone, Debug)]
+enum Protocol {
+    /// STDIO 模式：通过标准输入输出进行通信
+    Stdio,
+    /// Streamable HTTP 模式：通过 HTTP 服务器提供 MCP 服务
+    Streamable,
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "pgone-mcp-server")]
 #[command(about = "PostgreSQL introspection MCP server", long_about = None)]
 struct Args {
-    /// 连接配置文件路径
-    #[arg(long)]
-    connections_path: Option<String>,
+    /// 协议类型：stdio 或 streamable
+    #[arg(long, value_enum)]
+    protocol: Option<Protocol>,
 
-    /// 启用 STDIO 模式
-    #[arg(long)]
-    stdio: bool,
+    /// Streamable HTTP 服务器绑定地址（仅在 streamable 模式下有效）
+    #[arg(long, default_value = "127.0.0.1:3000")]
+    addr: String,
 
     /// 日志级别 (trace, debug, info, warn, error)
     #[arg(long, default_value = "info")]
@@ -25,45 +35,41 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // 从环境变量或命令行参数获取配置
-    let connections_path = args.connections_path
-        .or_else(|| env::var("PGONE_CONNECTIONS_PATH").ok());
-    let stdio = args.stdio || env::var("PGONE_MCP_STDIO").is_ok();
+    // 确定协议类型
+    // 优先级：命令行参数 > 环境变量 > 默认 streamable
+    let protocol = if let Some(protocol) = args.protocol {
+        protocol
+    } else if let Ok(protocol_str) = env::var("PGONE_MCP_PROTOCOL") {
+        match protocol_str.as_str() {
+            "stdio" => Protocol::Stdio,
+            "streamable" => Protocol::Streamable,
+            _ => {
+                eprintln!("警告: 无效的协议类型 '{}'，使用默认值 streamable", protocol_str);
+                Protocol::Streamable
+            }
+        }
+    } else {
+        Protocol::Streamable
+    };
+
+    let addr = args.addr.clone();
 
     // 初始化日志（使用 pgone-util 的 log 模块）
     init_log_simple(&args.log_level)?;
 
     info!("pgone-mcp-server 启动中...");
 
-    // 创建连接注册表
-    let registry = ConnectionRegistry::new();
-
-    // 如果提供了连接配置文件路径，加载连接
-    if let Some(path) = connections_path {
-        info!("从文件加载连接配置: {}", path);
-        match config::load_connections_from_path(&path) {
-            Ok(connections) => {
-                for conn in connections {
-                    match registry.register(conn.clone()).await {
-                        Ok(_) => info!("已注册连接: {}", conn.id),
-                        Err(e) => error!("注册连接失败 {}: {}", conn.id, e),
-                    }
-                }
-            }
-            Err(e) => {
-                error!("加载连接配置失败: {}", e);
-                return Err(e);
-            }
+    // 根据协议类型启动相应的服务器
+    match protocol {
+        Protocol::Stdio => {
+            info!("启动 STDIO 模式...");
+            mcp::run_stdio().await?;
         }
-    }
-
-    // 如果启用了 STDIO 模式，运行 STDIO 服务器
-    if stdio {
-        info!("启动 STDIO 模式...");
-        mcp::run_stdio(registry).await?;
-    } else {
-        info!("未启用 STDIO 模式，程序退出");
-        info!("提示: 设置环境变量 PGONE_MCP_STDIO=1 或使用 --stdio 参数启用 STDIO 模式");
+        Protocol::Streamable => {
+            info!("启动 Streamable HTTP 模式...");
+            info!("监听地址: {}", addr);
+            mcp::run_streamable(&addr).await?;
+        }
     }
 
     Ok(())

@@ -6,19 +6,21 @@ use crate::futures;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbEngine {
     Postgresql,
-    Mysql,
+    TimescaleDB,
+    PgVector,
 }
 
 impl DbEngine {
     fn as_str(&self) -> &'static str {
         match self {
             DbEngine::Postgresql => "postgresql",
-            DbEngine::Mysql => "mysql",
+            DbEngine::TimescaleDB => "timescaledb",
+            DbEngine::PgVector => "pgvector",
         }
     }
     
     fn all() -> &'static [DbEngine] {
-        &[DbEngine::Postgresql, DbEngine::Mysql]
+        &[DbEngine::Postgresql, DbEngine::TimescaleDB, DbEngine::PgVector]
     }
 }
 
@@ -76,6 +78,8 @@ pub struct DbManager {
     pub edit_db_form: DbFormData,
     pub storage: Option<StorageBlocking>,
     pub pools: std::collections::HashMap<u64, PgPool>,
+    pub delete_confirm_id: Option<String>,
+    pub show_delete_confirm: bool,
 }
 
 impl Default for DbManager {
@@ -90,6 +94,8 @@ impl Default for DbManager {
             edit_db_form: DbFormData::default(),
             storage: None,
             pools: Default::default(),
+            delete_confirm_id: None,
+            show_delete_confirm: false,
         }
     }
 }
@@ -152,7 +158,7 @@ impl DbManager {
             return;
         }
         if let Ok(storage) = futures::block_on_async(async {
-            StorageBlocking::open_local("pgone.db").await
+            StorageBlocking::open_local(pgone_storage::DATABASE_PATH).await
         }) {
             self.storage = Some(storage);
         }
@@ -478,7 +484,6 @@ impl DbManager {
                         } else {
                             let mut to_select: Option<String> = None;
                             let mut to_edit: Option<String> = None;
-                            let mut to_delete: Vec<String> = Vec::new();
                             let active_id = self.active_db_config_id.clone();
                             
                             egui::ScrollArea::vertical()
@@ -503,23 +508,30 @@ impl DbManager {
                                             
                                             // Connection details
                                             if let Some(p) = parsed {
-                                                ui.horizontal(|ui| {
-                                                    ui.label("Host:");
-                                                    ui.label(&p.host);
-                                                    ui.add_space(20.0);
-                                                    ui.label("Port:");
-                                                    ui.label(&p.port);
-                                                });
-                                                ui.horizontal(|ui| {
-                                                    ui.label("Database:");
-                                                    ui.label(if p.database.is_empty() {
-                                                        "<default>"
-                                                    } else {
-                                                        &p.database
+                                                ui.columns(2, |columns| {
+                                                    // 左列
+                                                    columns[0].horizontal(|ui| {
+                                                        ui.label(format!("{} Host:", egui_phosphor::regular::GLOBE));
+                                                        ui.label(&p.host);
                                                     });
-                                                    ui.add_space(20.0);
-                                                    ui.label("User:");
-                                                    ui.label(&p.user);
+                                                    columns[0].horizontal(|ui| {
+                                                        ui.label(format!("{} Database:", egui_phosphor::regular::DATABASE));
+                                                        ui.label(if p.database.is_empty() {
+                                                            "<default>"
+                                                        } else {
+                                                            &p.database
+                                                        });
+                                                    });
+                                                    
+                                                    // 右列
+                                                    columns[1].horizontal(|ui| {
+                                                        ui.label(format!("{} Port:", egui_phosphor::regular::PLUG));
+                                                        ui.label(&p.port);
+                                                    });
+                                                    columns[1].horizontal(|ui| {
+                                                        ui.label(format!("{} User:", egui_phosphor::regular::USER));
+                                                        ui.label(&p.user);
+                                                    });
                                                 });
                                             }
 
@@ -527,14 +539,15 @@ impl DbManager {
                                             
                                             // Action buttons
                                             ui.horizontal(|ui| {
-                                                if ui.button("Select").clicked() {
+                                                if ui.button("选择").clicked() {
                                                     to_select = Some(cfg.id.clone());
                                                 }
-                                                if ui.button("Edit").clicked() {
+                                                if ui.button("编辑").clicked() {
                                                     to_edit = Some(cfg.id.clone());
                                                 }
-                                                if ui.button("Delete").clicked() {
-                                                    to_delete.push(cfg.id.clone());
+                                                if ui.button(egui::RichText::new("删除").color(egui::Color32::RED)).clicked() {
+                                                    self.delete_confirm_id = Some(cfg.id.clone());
+                                                    self.show_delete_confirm = true;
                                                 }
                                             });
                                             
@@ -554,18 +567,6 @@ impl DbManager {
                                     self.show_edit_db = true;
                                 }
                             }
-                            for id in to_delete {
-                                if let Some(ref storage) = self.storage {
-                                    let _ = futures::block_on_async(async {
-                                        storage.delete_db_config(&id).await
-                                    });
-                                    // Clear active if deleted
-                                    if self.active_db_config_id.as_ref() == Some(&id) {
-                                        self.active_db_config_id = None;
-                                    }
-                                    notify::info(format!("Deleted database: {}", id));
-                                }
-                            }
                         }
                     } else {
                         ui.label("Storage not ready");
@@ -573,6 +574,52 @@ impl DbManager {
                 });
             if !open {
                 self.show_manage_db = false;
+            }
+        }
+        
+        // Show delete confirmation dialog
+        if self.show_delete_confirm {
+            let mut open = true;
+            let id_to_delete = self.delete_confirm_id.clone();
+            let center = ctx.screen_rect().center();
+            
+            egui::Window::new("确认删除")
+                .open(&mut open)
+                .default_pos(center)
+                .pivot(egui::Align2::CENTER_CENTER)
+                .show(ctx, |ui| {
+                    if let Some(ref id) = id_to_delete {
+                        ui.label(format!("确定要删除数据库配置 '{}' 吗？", id));
+                        ui.label("此操作不可撤销。");
+                        ui.add_space(10.0);
+                        
+                        ui.horizontal(|ui| {
+                            if ui.button("取消").clicked() {
+                                self.show_delete_confirm = false;
+                                self.delete_confirm_id = None;
+                            }
+                            if ui.button(egui::RichText::new("确认删除").color(egui::Color32::RED)).clicked() {
+                                if let Some(ref storage) = self.storage {
+                                    let id_clone = id.clone();
+                                    let _ = futures::block_on_async(async {
+                                        storage.delete_db_config(&id_clone).await
+                                    });
+                                    // Clear active if deleted
+                                    if self.active_db_config_id.as_ref() == Some(id) {
+                                        self.active_db_config_id = None;
+                                    }
+                                    notify::info(format!("Deleted database: {}", id));
+                                }
+                                self.show_delete_confirm = false;
+                                self.delete_confirm_id = None;
+                            }
+                        });
+                    }
+                });
+            
+            if !open {
+                self.show_delete_confirm = false;
+                self.delete_confirm_id = None;
             }
         }
     }
@@ -761,7 +808,8 @@ impl DbManager {
             self.edit_db_form.name = cfg.id.clone();
             self.edit_db_form.engine = match parsed.engine.as_str() {
                 "postgresql" | "postgres" => DbEngine::Postgresql,
-                "mysql" => DbEngine::Mysql,
+                "timescaledb" => DbEngine::TimescaleDB,
+                "pgvector" => DbEngine::PgVector,
                 _ => DbEngine::Postgresql,
             };
             self.edit_db_form.host = parsed.host;

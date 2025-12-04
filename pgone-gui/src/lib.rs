@@ -10,7 +10,6 @@ use std::sync::Arc;
 mod futures;
 mod models;
 use models::*;
-mod markdown;
 mod notify;
 mod sql;
 mod storage;
@@ -21,7 +20,8 @@ use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, Sch
 mod skeletons;
 mod styles;
 mod media;
-mod agents;
+mod prompt;
+mod mcp;
 
 pub struct AppFrame {
     #[allow(dead_code)]
@@ -42,6 +42,8 @@ pub struct AppFrame {
     left_panel_width: f32,
     right_panel_width: f32,
     session_storage: SessionStorage,
+    show_monitor: Option<skeletons::monitors::MonitorMetric>,
+    // mcp_client: Option<McpClientManager>,
 }
 
 impl AppFrame {
@@ -58,7 +60,6 @@ impl AppFrame {
             }) {
                 let loaded_settings = Settings::from_kv_map(&kv_map);
                 tracing::debug!("Loaded settings from DB: {:?}", loaded_settings);
-                tracing::debug!("KV map: {:?}", kv_map);
                 loaded_settings
             } else {
                 tracing::warn!("Failed to load settings from database");
@@ -97,12 +98,36 @@ impl AppFrame {
                 }
             } else {
                 // 如果没有会话，创建一个默认会话
-                state.sessions = vec![ChatSession::new("0".to_string(), "新会话".to_string())];
+                state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
             }
         } else {
             // 如果加载失败，创建一个默认会话
-            state.sessions = vec![ChatSession::new("0".to_string(), "新会话".to_string())];
+            state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
         }
+
+        // 不需要初始化额外的进程来提供tools
+        // 初始化 MCP client
+        // let mcp_client = if db_manager.storage.is_some() {
+        //     // 使用 pgone_storage::DATABASE_PATH
+        //     let storage_path = std::path::PathBuf::from(pgone_storage::DATABASE_PATH);
+
+        //     // 启动 MCP server 并创建客户端
+        //     match futures::block_on_async(async {
+        //         McpClientManager::new(storage_path).await
+        //     }) {
+        //         Ok(client) => {
+        //             tracing::info!("MCP client 初始化成功");
+        //             Some(client)
+        //         }
+        //         Err(e) => {
+        //             tracing::warn!("MCP client 初始化失败: {}", e);
+        //             None
+        //         }
+        //     }
+        // } else {
+        //     tracing::warn!("Storage 不可用，跳过 MCP client 初始化");
+        //     None
+        // };
 
         Self {
             state,
@@ -122,6 +147,8 @@ impl AppFrame {
             left_panel_width: 250.0,
             right_panel_width: 300.0,
             session_storage,
+            show_monitor: None,
+            // mcp_client,
         }
     }
 
@@ -164,6 +191,7 @@ impl eframe::App for AppFrame {
             &mut self.right_panel_visible,
             &mut self.show_settings,
             &mut self.show_about,
+            &mut self.show_monitor,
         );
 
         // Status bar
@@ -187,6 +215,13 @@ impl eframe::App for AppFrame {
 
         // About window
         skeletons::windows::show_about_window(ctx, &mut self.show_about);
+
+        // Monitor window
+        skeletons::monitors::window::show_monitor_window(
+            ctx,
+            &mut self.show_monitor,
+            &mut self.db,
+        );
 
         // Check for pending graph window open
         if let Some(schema_info) = self.db_tree.take_pending_open_graph() {

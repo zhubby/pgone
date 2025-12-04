@@ -8,6 +8,11 @@ pub mod blocking;
 pub mod models;
 pub mod schema;
 pub mod storage;
+pub mod file_sys;
+pub mod query;
+
+
+pub const DATABASE_PATH: &str = "pgone.db";
 
 pub struct Storage {
     db: Database,
