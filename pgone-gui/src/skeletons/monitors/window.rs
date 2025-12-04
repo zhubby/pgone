@@ -31,8 +31,8 @@ pub fn show_monitor_window(
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)
-        .default_size([800.0, 600.0])
-        .min_size([600.0, 400.0])
+        // .default_size([800.0, 600.0])
+        // .min_size([600.0, 400.0])
         .show(ctx, |ui| {
             match metric {
                 MonitorMetric::Activity => {

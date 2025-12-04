@@ -59,7 +59,7 @@ impl ChatSession {
         let now = Utc::now();
         Self {
             id,
-            title: format!("新会话-{}", now.format("%Y/%m/%d %H:%M:%S").to_string()),
+            title: format!("新会话-{}", now.timestamp().to_string()),
             messages: Vec::new(),
             created_at: now,
             updated_at: now,
