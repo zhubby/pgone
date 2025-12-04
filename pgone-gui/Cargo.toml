@@ -15,9 +15,13 @@ name = "pgone-gui"
 path = "src/main.rs"
 
 [dependencies]
+egui = { version = "0.32.3", default-features = false }
+eframe = { version = "0.32.3" }
+egui_extras = { version = "0.32.3" }
 emath = { version = "0.32.3", default-features = false }
 ecolor = { version = "0.32.3", default-features = false }
 epaint = { version = "0.32.3", default-features = false }
+egui_plot = { version = "0.33.0", default-features = false }
 egui_commonmark = { version = "0.21", features = [
     "svg",
     "fetch",
@@ -29,13 +33,11 @@ catppuccin-egui = { version = "5.7.0", default-features = false, features = [
     "egui32",
 ] }
 egui-data-table = { version = "0.8" }
-epaint_default_fonts = { version = "0.32.3" }
+epaint_default_fonts = { version = "0.32.1" }
 egui_table = "0.4.0"
 egui-phosphor = "0.10"
 egui-notify = "0.20"
-egui = { version = "0.32.3", default-features = false }
-eframe = { version = "0.32.3" }
-egui_extras = { version = "0.32.3" }
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"

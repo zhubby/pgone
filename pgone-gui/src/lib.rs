@@ -22,7 +22,6 @@ mod styles;
 mod media;
 mod prompt;
 mod mcp;
-use mcp::McpClientManager;
 
 pub struct AppFrame {
     #[allow(dead_code)]
@@ -43,6 +42,7 @@ pub struct AppFrame {
     left_panel_width: f32,
     right_panel_width: f32,
     session_storage: SessionStorage,
+    show_monitor: Option<skeletons::monitors::MonitorMetric>,
     // mcp_client: Option<McpClientManager>,
 }
 
@@ -105,7 +105,7 @@ impl AppFrame {
             state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
         }
 
-        /// 不需要初始化额外的进程来提供tools
+        // 不需要初始化额外的进程来提供tools
         // 初始化 MCP client
         // let mcp_client = if db_manager.storage.is_some() {
         //     // 使用 pgone_storage::DATABASE_PATH
@@ -147,6 +147,7 @@ impl AppFrame {
             left_panel_width: 250.0,
             right_panel_width: 300.0,
             session_storage,
+            show_monitor: None,
             // mcp_client,
         }
     }
@@ -190,6 +191,7 @@ impl eframe::App for AppFrame {
             &mut self.right_panel_visible,
             &mut self.show_settings,
             &mut self.show_about,
+            &mut self.show_monitor,
         );
 
         // Status bar
@@ -213,6 +215,13 @@ impl eframe::App for AppFrame {
 
         // About window
         skeletons::windows::show_about_window(ctx, &mut self.show_about);
+
+        // Monitor window
+        skeletons::monitors::window::show_monitor_window(
+            ctx,
+            &mut self.show_monitor,
+            &mut self.db,
+        );
 
         // Check for pending graph window open
         if let Some(schema_info) = self.db_tree.take_pending_open_graph() {
