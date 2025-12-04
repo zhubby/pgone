@@ -573,7 +573,8 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
         // 尝试解析为 JSON（如果字符串看起来像 JSON）
         if (v.starts_with('{') && v.ends_with('}')) || (v.starts_with('[') && v.ends_with(']')) {
             if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&v) {
-                if let Ok(pretty) = serde_json::to_string_pretty(&json_val) {
+                // 不使用pretty，行内不需要格式
+                if let Ok(pretty) = serde_json::to_string(&json_val) {
                     return pretty;
                 }
             }

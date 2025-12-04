@@ -144,6 +144,9 @@ impl DbTree {
                 }
             }
 
+            // 收集需要加载表结构详情的表
+            let mut pending_design_loads = Vec::new();
+            
             for db in &self.databases {
                 let db_name = db.name.clone();
                 let is_expanded = self.expanded_databases.contains(&db_name);
@@ -301,44 +304,66 @@ impl DbTree {
                                             self.pending_query_table = Some((db_name_clone.clone(), schema_name_clone.clone(), table_name_clone.clone()));
                                         }
                                         
+                                        // 克隆需要的值以避免借用冲突
+                                        let db_name_menu = db_name.clone();
+                                        let schema_name_menu = schema_name.clone();
+                                        let table_name_menu = table_name.clone();
+                                        
                                         table_response.header_response.context_menu(|ui| {
                                             if ui.button("Query Table").clicked() {
-                                                self.pending_query_table = Some((db_name.clone(), schema_name.clone(), table_name.clone()));
+                                                self.pending_query_table = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone()));
                                                 ui.close();
                                             }
                                             if ui.button("New Query").clicked() {
                                                 self.pending_open_sql_editor = true;
                                                 ui.close();
                                             }
+                                            if ui.button("Design").clicked() {
+                                                use super::types::DialogType;
+                                                self.dialog = Some(DialogType::DesignTable {
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                    name: table_name_menu.clone(),
+                                                });
+                                                ui.close();
+                                            }
                                             if ui.button("Properties").clicked() {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::PropertiesTable {
-                                                    database: db_name.clone(),
-                                                    schema: schema_name.clone(),
-                                                    name: table_name.clone(),
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                    name: table_name_menu.clone(),
                                                 });
                                                 ui.close();
                                             }
                                             if ui.button("Rename").clicked() {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::RenameTable {
-                                                    database: db_name.clone(),
-                                                    schema: schema_name.clone(),
-                                                    old_name: table_name.clone(),
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                    old_name: table_name_menu.clone(),
                                                 });
-                                                self.dialog_input = table_name.clone();
+                                                self.dialog_input = table_name_menu.clone();
                                                 ui.close();
                                             }
                                             if ui.button("Delete").clicked() {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::DeleteTable {
-                                                    database: db_name.clone(),
-                                                    schema: schema_name.clone(),
-                                                    name: table_name.clone(),
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                    name: table_name_menu.clone(),
                                                 });
                                                 ui.close();
                                             }
                                         });
+                                        
+                                        // 收集需要加载的表设计信息
+                                        use super::types::DialogType;
+                                        if let Some(DialogType::DesignTable { database, schema, name }) = &self.dialog {
+                                            if *database == db_name && *schema == schema_name && *name == table_name {
+                                                pending_design_loads.push((db_name.clone(), schema_name.clone(), table_name.clone()));
+                                            }
+                                        }
                                     }
                                     
                                     // Add table button
@@ -443,6 +468,11 @@ impl DbTree {
                 });
             }
             
+            // 在循环外处理异步加载，避免借用冲突
+            for (db_name, schema_name, table_name) in pending_design_loads {
+                loading::load_table_detail_for_design(self, db_manager, &db_name, &schema_name, &table_name);
+            }
+            
             // Add database button
             if ui.button(format!("{} New Database", egui_phosphor::regular::PLUS)).clicked() {
                 use super::types::DialogType;
@@ -478,6 +508,9 @@ impl DbTree {
         self.selected_schema = None;
         self.selected_table = None;
         self.error = None;
+        self.design_table_detail = None;
+        self.design_table_columns.clear();
+        self.design_table_promise = None;
     }
 }
 

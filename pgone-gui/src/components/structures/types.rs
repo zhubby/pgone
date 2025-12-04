@@ -1,4 +1,4 @@
-use pgone_sql::{DatabaseInfo, SchemaInfo, TableInfo, IndexInfo, ForeignKeyDetail, TriggerInfo};
+use pgone_sql::{DatabaseInfo, SchemaInfo, TableInfo, IndexInfo, ForeignKeyDetail, TriggerInfo, TableDetail};
 use std::collections::{HashMap, HashSet};
 use poll_promise::Promise;
 
@@ -16,6 +16,23 @@ pub(super) enum DialogType {
     PropertiesDatabase { name: String },
     PropertiesSchema { database: String, name: String },
     PropertiesTable { database: String, schema: String, name: String },
+    DesignTable { database: String, schema: String, name: String },
+}
+
+/// 可编辑的列数据结构
+#[derive(Clone, Debug)]
+pub(super) struct EditableColumn {
+    pub name: String,
+    pub data_type: String,
+    pub character_maximum_length: Option<i32>,
+    pub numeric_precision: Option<i32>,
+    pub numeric_scale: Option<i32>,
+    pub nullable: bool,
+    pub default: Option<String>,
+    pub comment: Option<String>,
+    pub is_new: bool,      // 标记是否为新增列
+    pub is_deleted: bool,  // 标记是否为删除列
+    pub original_name: Option<String>, // 原始列名（用于重命名检测）
 }
 
 #[derive(Default)]
@@ -69,6 +86,11 @@ pub struct DbTree {
     pub(super) dialog_input: String,
     pub(super) dialog_ddl: String, // For create table DDL
     pub(super) dialog_cascade: bool, // For delete operations
+    
+    // Table design state
+    pub(super) design_table_detail: Option<TableDetail>, // 原始表结构
+    pub(super) design_table_columns: Vec<EditableColumn>, // 可编辑的列数据
+    pub(super) design_table_promise: Option<Promise<Result<TableDetail, String>>>, // 异步加载表结构的 Promise
     
     // Pending actions (to avoid borrow checker issues in context menus)
     pub(super) pending_query_table: Option<(String, String, String)>, // (database, schema, table)

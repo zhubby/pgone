@@ -293,3 +293,73 @@ pub(super) fn rename_table(tree: &mut DbTree, db_manager: &mut crate::components
     }
 }
 
+/// 执行表设计变更，使用事务确保原子性
+pub(super) fn design_table(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+    _table_name: &str,
+    statements: &[String],
+) {
+    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let dsn_clone = dsn.clone();
+    let statements_clone = statements.to_vec();
+    
+    let result = futures::block_on_async(async {
+        use tokio_postgres::NoTls;
+        
+        // 直接连接数据库以支持事务
+        let (mut client, connection) = tokio_postgres::connect(&dsn_clone, NoTls)
+            .await
+            .map_err(|e| format!("Failed to connect: {}", e))?;
+        
+        // 在后台运行连接任务
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::error!(error = ?e, "Database connection error");
+            }
+        });
+        
+        // 开始事务
+        let transaction = client
+            .transaction()
+            .await
+            .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+        
+        // 执行所有 SQL 语句
+        for sql in &statements_clone {
+            transaction
+                .execute(sql, &[])
+                .await
+                .map_err(|e| format!("Failed to execute SQL: {} - Error: {}", sql, e))?;
+        }
+        
+        // 提交事务
+        transaction
+            .commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {}", e))?;
+        
+        Ok::<(), String>(())
+    });
+    
+    match result {
+        Ok(_) => {
+            // 重新加载表结构
+            let key = format!("{}.{}", database, schema);
+            tree.loaded_tables.insert(key.clone(), false);
+            loading::load_tables(tree, db_manager, database, schema);
+            
+            // 清除设计状态
+            tree.design_table_detail = None;
+            tree.design_table_columns.clear();
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+

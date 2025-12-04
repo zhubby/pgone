@@ -1,5 +1,5 @@
 use super::types::DbTree;
-use pgone_sql::{DatabaseInfo, SchemaInfo, Session, TableInfo, IndexInfo, ForeignKeyDetail, TriggerInfo};
+use pgone_sql::{DatabaseInfo, SchemaInfo, Session, TableInfo, IndexInfo, ForeignKeyDetail, TriggerInfo, TableDetail};
 use poll_promise::Promise;
 use crate::components::ResultsTable;
 use crate::futures;
@@ -281,6 +281,42 @@ pub(super) fn query_table_data(_tree: &mut DbTree, _db_manager: &mut crate::comp
     
     // 请求执行 SQL，表格组件会在下次渲染时自动执行
     results_table.execute_sql_requested = true;
+}
+
+/// 加载表结构详情用于设计对话框
+pub(super) fn load_table_detail_for_design(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+    table: &str,
+) {
+    if tree.design_table_promise.is_some() {
+        return; // Already loading
+    }
+    
+    let dsn = get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let table_clone = table.to_string();
+    let (sender, promise) = Promise::new();
+    tree.design_table_promise = Some(promise);
+    
+    futures::spawn(async move {
+        let result: Result<TableDetail, String> = async {
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
+            session.get_table_detail(&schema_clone, &table_clone)
+                .await
+                .map_err(|e| format!("Failed to get table detail: {}", e))
+        }.await;
+        
+        sender.send(result);
+    });
 }
 
 pub(super) fn get_dsn_for_database(_tree: &DbTree, db_manager: &mut crate::components::DbManager, database: &str) -> Option<String> {
