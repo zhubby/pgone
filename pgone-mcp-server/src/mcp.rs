@@ -43,17 +43,19 @@ impl McpContext {
 #[derive(Clone)]
 pub struct PgoneMcpServer {
     context: McpContext,
+    dbconfig_id: String,
 }
 
 impl PgoneMcpServer {
-    pub async fn new() -> anyhow::Result<Self> {
+    pub async fn new(dbconfig_id: String) -> anyhow::Result<Self> {
         let storage_path = std::path::PathBuf::from(pgone_storage::DATABASE_PATH);
-        Self::with_path(storage_path).await
+        Self::with_path(storage_path, dbconfig_id).await
     }
 
-    pub async fn with_path(storage_path: PathBuf) -> anyhow::Result<Self> {
+    pub async fn with_path(storage_path: PathBuf, dbconfig_id: String) -> anyhow::Result<Self> {
         Ok(Self {
             context: McpContext::new(storage_path).await?,
+            dbconfig_id,
         })
     }
 
@@ -265,6 +267,7 @@ impl ServerHandler for PgoneMcpServer {
                 "introspect_all" => {
                     PgoneMcpServer {
                         context: context.clone(),
+                        dbconfig_id: self.dbconfig_id.clone(),
                     }
                     .handle_introspect_all(args_value.clone())
                     .await
@@ -272,6 +275,7 @@ impl ServerHandler for PgoneMcpServer {
                 "get_table" => {
                     PgoneMcpServer {
                         context: context.clone(),
+                        dbconfig_id: self.dbconfig_id.clone(),
                     }
                     .handle_get_table(args_value.clone())
                     .await
@@ -279,6 +283,7 @@ impl ServerHandler for PgoneMcpServer {
                 "list_triggers" => {
                     PgoneMcpServer {
                         context: context.clone(),
+                        dbconfig_id: self.dbconfig_id.clone(),
                     }
                     .handle_list_triggers(args_value.clone())
                     .await
@@ -286,6 +291,7 @@ impl ServerHandler for PgoneMcpServer {
                 "list_routines" => {
                     PgoneMcpServer {
                         context: context.clone(),
+                        dbconfig_id: self.dbconfig_id.clone(),
                     }
                     .handle_list_routines(args_value.clone())
                     .await
@@ -293,6 +299,7 @@ impl ServerHandler for PgoneMcpServer {
                 "list_types" => {
                     PgoneMcpServer {
                         context: context.clone(),
+                        dbconfig_id: self.dbconfig_id.clone(),
                     }
                     .handle_list_types(args_value.clone())
                     .await
@@ -300,6 +307,7 @@ impl ServerHandler for PgoneMcpServer {
                 "render_er" => {
                     PgoneMcpServer {
                         context: context.clone(),
+                        dbconfig_id: self.dbconfig_id.clone(),
                     }
                     .handle_render_er(args_value.clone())
                     .await
@@ -307,6 +315,7 @@ impl ServerHandler for PgoneMcpServer {
                 "render_dbml" => {
                     PgoneMcpServer {
                         context: context.clone(),
+                        dbconfig_id: self.dbconfig_id.clone(),
                     }
                     .handle_render_dbml(args_value.clone())
                     .await
@@ -314,6 +323,7 @@ impl ServerHandler for PgoneMcpServer {
                 "health_check" => {
                     PgoneMcpServer {
                         context: context.clone(),
+                        dbconfig_id: self.dbconfig_id.clone(),
                     }
                     .handle_health_check(args_value)
                     .await
@@ -361,7 +371,6 @@ impl PgoneMcpServer {
     async fn handle_introspect_all(&self, args: Value) -> anyhow::Result<Value> {
         #[derive(Deserialize)]
         struct Params {
-            dbconfig_id: String,
             schemas: Option<Vec<String>>,
             #[serde(default = "default_true")]
             with_indexes: bool,
@@ -381,7 +390,7 @@ impl PgoneMcpServer {
         }
 
         let params: Params = serde_json::from_value(args)?;
-        let session = self.context.get_session(&params.dbconfig_id).await?;
+        let session = self.context.get_session(&self.dbconfig_id).await?;
         let introspector = SqlSessionIntrospector::new(session);
 
         let opts = IntrospectOptions {
@@ -441,14 +450,13 @@ impl PgoneMcpServer {
     async fn handle_get_table(&self, args: Value) -> anyhow::Result<Value> {
         #[derive(Deserialize)]
         struct Params {
-            dbconfig_id: String,
             schema: String,
             table: String,
             format: Option<String>,
         }
 
         let params: Params = serde_json::from_value(args)?;
-        let session = self.context.get_session(&params.dbconfig_id).await?;
+        let session = self.context.get_session(&self.dbconfig_id).await?;
         let introspector = SqlSessionIntrospector::new(session);
 
         let table = introspector
@@ -466,12 +474,11 @@ impl PgoneMcpServer {
     async fn handle_list_triggers(&self, args: Value) -> anyhow::Result<Value> {
         #[derive(Deserialize)]
         struct Params {
-            dbconfig_id: String,
             schema: Option<String>,
         }
 
         let params: Params = serde_json::from_value(args)?;
-        let session = self.context.get_session(&params.dbconfig_id).await?;
+        let session = self.context.get_session(&self.dbconfig_id).await?;
         let introspector = SqlSessionIntrospector::new(session);
 
         let triggers = introspector.list_triggers(params.schema.as_deref()).await?;
@@ -481,13 +488,12 @@ impl PgoneMcpServer {
     async fn handle_list_routines(&self, args: Value) -> anyhow::Result<Value> {
         #[derive(Deserialize)]
         struct Params {
-            dbconfig_id: String,
             schema: Option<String>,
             kind: Option<String>,
         }
 
         let params: Params = serde_json::from_value(args)?;
-        let session = self.context.get_session(&params.dbconfig_id).await?;
+        let session = self.context.get_session(&self.dbconfig_id).await?;
         let introspector = SqlSessionIntrospector::new(session);
 
         let kind = match params.kind.as_deref() {
@@ -506,13 +512,12 @@ impl PgoneMcpServer {
     async fn handle_list_types(&self, args: Value) -> anyhow::Result<Value> {
         #[derive(Deserialize)]
         struct Params {
-            dbconfig_id: String,
             schema: Option<String>,
             kind: Option<String>,
         }
 
         let params: Params = serde_json::from_value(args)?;
-        let session = self.context.get_session(&params.dbconfig_id).await?;
+        let session = self.context.get_session(&self.dbconfig_id).await?;
         let introspector = SqlSessionIntrospector::new(session);
 
         let kind = match params.kind.as_deref() {
@@ -532,12 +537,11 @@ impl PgoneMcpServer {
     async fn handle_render_er(&self, args: Value) -> anyhow::Result<Value> {
         #[derive(Deserialize)]
         struct Params {
-            dbconfig_id: String,
             schemas: Option<Vec<String>>,
         }
 
         let params: Params = serde_json::from_value(args)?;
-        let session = self.context.get_session(&params.dbconfig_id).await?;
+        let session = self.context.get_session(&self.dbconfig_id).await?;
         let introspector = SqlSessionIntrospector::new(session);
 
         let opts = IntrospectOptions {
@@ -557,12 +561,11 @@ impl PgoneMcpServer {
     async fn handle_render_dbml(&self, args: Value) -> anyhow::Result<Value> {
         #[derive(Deserialize)]
         struct Params {
-            dbconfig_id: String,
             schemas: Option<Vec<String>>,
         }
 
         let params: Params = serde_json::from_value(args)?;
-        let session = self.context.get_session(&params.dbconfig_id).await?;
+        let session = self.context.get_session(&self.dbconfig_id).await?;
         let introspector = SqlSessionIntrospector::new(session);
 
         let opts = IntrospectOptions {
@@ -579,14 +582,8 @@ impl PgoneMcpServer {
         Ok(json!({"dbml": dbml::render_dbml(&db)}))
     }
 
-    async fn handle_health_check(&self, args: Value) -> anyhow::Result<Value> {
-        #[derive(Deserialize)]
-        struct Params {
-            dbconfig_id: String,
-        }
-
-        let params: Params = serde_json::from_value(args)?;
-        let session = self.context.get_session(&params.dbconfig_id).await?;
+    async fn handle_health_check(&self, _args: Value) -> anyhow::Result<Value> {
+        let session = self.context.get_session(&self.dbconfig_id).await?;
 
         // 执行简单查询来检查连接
         let _: String = session
@@ -598,13 +595,13 @@ impl PgoneMcpServer {
 }
 
 /// 运行 STDIO 模式的 MCP 服务器
-pub async fn run_stdio() -> anyhow::Result<()> {
+pub async fn run_stdio(dbconfig_id: String) -> anyhow::Result<()> {
     use rmcp::handler::server::router::Router;
     use rmcp::service::serve_server;
     use rmcp::transport::async_rw::AsyncRwTransport;
     use tokio::io;
 
-    let handler = PgoneMcpServer::new().await?;
+    let handler = PgoneMcpServer::new(dbconfig_id).await?;
     let service = Router::new(handler);
     let transport = AsyncRwTransport::new_server(io::stdin(), io::stdout());
 
@@ -616,7 +613,7 @@ pub async fn run_stdio() -> anyhow::Result<()> {
 }
 
 /// 运行 Streamable HTTP 模式的 MCP 服务器
-pub async fn run_streamable(addr: &str) -> anyhow::Result<()> {
+pub async fn run_streamable(addr: &str, dbconfig_id: String) -> anyhow::Result<()> {
     use rmcp::transport::streamable_http_server::{
         StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     };
@@ -624,7 +621,7 @@ pub async fn run_streamable(addr: &str) -> anyhow::Result<()> {
     use tokio_util::sync::CancellationToken;
 
     // 先创建 handler（async 初始化）
-    let handler = PgoneMcpServer::new().await?;
+    let handler = PgoneMcpServer::new(dbconfig_id).await?;
     let handler = Arc::new(handler);
 
     // 创建工厂函数，返回克隆的 handler

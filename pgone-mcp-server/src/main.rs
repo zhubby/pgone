@@ -1,9 +1,7 @@
 use clap::{Parser, ValueEnum};
 use pgone_mcp_server::mcp;
-use pgone_storage::DATABASE_PATH;
 use pgone_util::log::init_log_simple;
 use std::env;
-use std::path::PathBuf;
 use tracing::info;
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -29,6 +27,10 @@ struct Args {
     /// 日志级别 (trace, debug, info, warn, error)
     #[arg(long, default_value = "info")]
     log_level: String,
+
+    /// 数据库配置 ID（必填）
+    #[arg(long)]
+    dbconfig_id: String,
 }
 
 #[tokio::main]
@@ -59,16 +61,20 @@ async fn main() -> anyhow::Result<()> {
 
     info!("pgone-mcp-server 启动中...");
 
+    let dbconfig_id = args.dbconfig_id.clone();
+
     // 根据协议类型启动相应的服务器
     match protocol {
         Protocol::Stdio => {
             info!("启动 STDIO 模式...");
-            mcp::run_stdio().await?;
+            info!("使用数据库配置 ID: {}", dbconfig_id);
+            mcp::run_stdio(dbconfig_id).await?;
         }
         Protocol::Streamable => {
             info!("启动 Streamable HTTP 模式...");
             info!("监听地址: {}", addr);
-            mcp::run_streamable(&addr).await?;
+            info!("使用数据库配置 ID: {}", dbconfig_id);
+            mcp::run_streamable(&addr, dbconfig_id).await?;
         }
     }
 
