@@ -3,11 +3,13 @@ use super::ResultsTable;
 impl ResultsTable {
     /// Render SQL editor with syntax highlighting
     pub fn ui_sql_editor(&mut self, ui: &mut egui::Ui, show_execute: bool) {
+        // 标题栏：标题靠左，按钮在右侧垂直居中
         ui.horizontal(|ui| {
+            // 标题靠左显示
             ui.heading(format!("{} SQL Editor", egui_phosphor::regular::CODE));
-
+            
+            // 右侧按钮区域，垂直居中
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-
                 ui.add_space(4.0);
 
                 if show_execute {
@@ -79,24 +81,29 @@ impl ResultsTable {
         // Use available height minus header and separator space
         let available_height = ui.available_height() - 10.0;
 
-        let editor = ui.add_sized(
-            egui::Vec2::new(ui.available_width(), available_height),
-            egui::TextEdit::multiline(&mut self.sql_input)
-                .desired_rows((available_height / 20.0) as usize)
-                .layouter(&mut move |ui, _text, wrap_width| {
-                    let mut job = crate::sql::highlight_sql(&current_sql, ui.visuals());
-                    job.wrap.max_width = wrap_width;
-                    ui.fonts(|f| f.layout_job(job))
-                }),
-        );
+        // 添加左右边距（各 5）
+        ui.horizontal(|ui| {
+            ui.add_space(5.0);
+            
+            let editor = ui.add_sized(
+                egui::Vec2::new(ui.available_width() - 5.0, available_height),
+                egui::TextEdit::multiline(&mut self.sql_input)
+                    .desired_rows((available_height / 20.0) as usize)
+                    .layouter(&mut move |ui, _text, wrap_width| {
+                        let mut job = crate::sql::highlight_sql(&current_sql, ui.visuals());
+                        job.wrap.max_width = wrap_width;
+                        ui.fonts(|f| f.layout_job(job))
+                    }),
+            );
 
-        if let Some(err) = &self.sql_error {
-            ui.colored_label(egui::Color32::RED, err);
-        }
+            if let Some(err) = &self.sql_error {
+                ui.colored_label(egui::Color32::RED, err);
+            }
 
-        if editor.changed() {
-            self.sql_error = None;
-        }
+            if editor.changed() {
+                self.sql_error = None;
+            }
+        });
     }
 
     /// Check SQL syntax
