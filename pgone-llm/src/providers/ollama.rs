@@ -174,7 +174,7 @@ impl OllamaClient {
             content: ollama_response.message.content,
             role: ollama_response.message.role,
             finish_reason: ollama_response.done_reason,
-            function_call: None,
+            tool_calls: None,
         })
     }
 

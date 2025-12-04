@@ -150,10 +150,10 @@ pub fn init_log_simple(level: &str) -> Result<()> {
 
 /// 便捷函数：从环境变量初始化日志
 ///
-/// 读取环境变量 `LOG_LEVEL` 来设置日志级别
+/// 读取环境变量 `RUST_LOG` 来设置日志级别
 /// 如果未设置，默认使用 `info` 级别
 pub fn init_log_from_env() -> Result<()> {
-    let level = std::env::var("LOG_LEVEL")
+    let level = std::env::var("RUST_LOG")
         .unwrap_or_else(|_| "info".to_string());
     init_log_simple(&level)
 }

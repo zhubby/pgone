@@ -138,7 +138,7 @@ pub struct ChatResponse {
     pub content: String,
     pub role: String,
     pub finish_reason: Option<String>,
-    pub function_call: Option<FunctionCall>,
+    pub tool_calls: Option<Vec<FunctionCall>>,
 }
 
 impl Client {
@@ -204,18 +204,18 @@ impl Client {
                 let role = choice.message.role.to_string();
                 let finish_reason = choice.finish_reason.as_ref().map(|r| format!("{:?}", r));
 
-                let function_call = choice.message.tool_calls.as_ref()
-                    .and_then(|calls| calls.first())
-                    .map(|call| FunctionCall {
+                let tool_calls = choice.message.tool_calls.as_ref().map(|calls| {
+                    calls.iter().map(|call| FunctionCall {
                         name: call.function.name.clone(),
                         arguments: call.function.arguments.clone(),
-                    });
+                    }).collect()
+                });
 
                 Ok(ChatResponse {
                     content,
                     role,
                     finish_reason,
-                    function_call,
+                    tool_calls,
                 })
             }
         }

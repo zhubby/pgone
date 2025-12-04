@@ -258,6 +258,7 @@ impl eframe::App for AppFrame {
             &mut self.state,
             &mut self.preview,
             &mut self.session_storage,
+            &self.db,
         );
 
         skeletons::panels::show_center_panel(ctx, &mut self.db, &mut self.results_table, &self.state);

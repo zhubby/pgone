@@ -592,6 +592,21 @@ impl PgoneMcpServer {
             .map_err(|e| anyhow::anyhow!("Health check failed: {}", e))?;
         Ok(json!({"ok": true}))
     }
+
+    /// 直接调用工具（用于 GUI 等非 MCP 协议场景）
+    pub async fn call_tool_direct(&self, tool_name: &str, arguments: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+        match tool_name {
+            "introspect_all" => self.handle_introspect_all(arguments).await,
+            "get_table" => self.handle_get_table(arguments).await,
+            "list_triggers" => self.handle_list_triggers(arguments).await,
+            "list_routines" => self.handle_list_routines(arguments).await,
+            "list_types" => self.handle_list_types(arguments).await,
+            "render_er" => self.handle_render_er(arguments).await,
+            "render_dbml" => self.handle_render_dbml(arguments).await,
+            "health_check" => self.handle_health_check(arguments).await,
+            _ => Err(anyhow::anyhow!("Unknown tool: {}", tool_name)),
+        }
+    }
 }
 
 /// 运行 STDIO 模式的 MCP 服务器

@@ -90,7 +90,7 @@ impl GeminiClient {
             content,
             role: "assistant".to_string(),
             finish_reason: Some("stop".to_string()),
-            function_call: None,
+            tool_calls: None,
         })
     }
 }
