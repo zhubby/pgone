@@ -346,6 +346,13 @@ impl ChatPanel {
         let (sender, receiver) = mpsc::channel(1);
         self.openai_receiver = Some(receiver);
 
+        // 获取当前会话ID（在spawn之前）
+        let session_id = if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
+            Some(sess.id.clone())
+        } else {
+            None
+        };
+
         // 构建消息列表：系统提示 + 历史消息 + 当前用户输入
         let mut chat_messages = vec![
             pgone_llm::chat::ChatMessage::system(crate::prompt::system_prompt()),
@@ -393,9 +400,14 @@ impl ChatPanel {
                 }
                 max_iterations -= 1;
                 
-                let request = pgone_llm::chat::ChatRequest::new(model_clone.clone())
+                let mut request = pgone_llm::chat::ChatRequest::new(model_clone.clone())
                     .with_messages(current_messages.clone())
                     .with_tools(tools.iter().map(|t| t.clone().into()).collect());
+                
+                // 设置会话ID用于审计
+                if let Some(ref sid) = session_id {
+                    request = request.with_session_id(sid.clone());
+                }
                 
                 let resp = match client.chat_create(request).await {
                     Ok(resp) => resp,

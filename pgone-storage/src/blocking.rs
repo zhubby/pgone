@@ -131,4 +131,19 @@ impl StorageBlocking {
         let mut conn = self.inner.conn().await?;
         crate::storage::clear_settings(&mut conn).await
     }
+
+    // LLM Audit Log helpers
+    pub async fn insert_llm_audit_log(&self, log: &crate::models::LlmAuditLog) -> Result<()> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::insert_llm_audit_log(&mut conn, log).await
+    }
+
+    pub async fn query_llm_audit_logs(
+        &self,
+        session_id: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<Vec<crate::models::LlmAuditLog>> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::query_llm_audit_logs(&mut conn, session_id, limit).await
+    }
 }

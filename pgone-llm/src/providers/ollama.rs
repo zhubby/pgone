@@ -17,11 +17,33 @@ struct OllamaMessage {
 }
 
 #[derive(Debug, Serialize)]
+struct OllamaTool {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: OllamaToolFunction,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaToolFunction {
+    name: String,
+    description: Option<String>,
+    parameters: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
 struct OllamaRequest {
     model: String,
     messages: Vec<OllamaMessage>,
-    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<OllamaTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<OllamaOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keep_alive: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,27 +60,114 @@ struct OllamaOptions {
 struct OllamaResponse {
     #[allow(dead_code)]
     model: String,
+    #[serde(rename = "created_at", default)]
+    #[allow(dead_code)]
+    created_at: Option<String>,
     message: OllamaResponseMessage,
     #[allow(dead_code)]
     done: bool,
-    #[serde(rename = "done_reason")]
+    #[serde(rename = "done_reason", default)]
     done_reason: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    context: Option<Vec<u32>>,
+    #[serde(rename = "total_duration", default)]
+    #[allow(dead_code)]
+    total_duration: Option<u64>,
+    #[serde(rename = "load_duration", default)]
+    #[allow(dead_code)]
+    load_duration: Option<u64>,
+    #[serde(rename = "prompt_eval_count", default)]
+    #[allow(dead_code)]
+    prompt_eval_count: Option<u32>,
+    #[serde(rename = "prompt_eval_duration", default)]
+    #[allow(dead_code)]
+    prompt_eval_duration: Option<u64>,
+    #[serde(rename = "eval_count", default)]
+    #[allow(dead_code)]
+    eval_count: Option<u32>,
+    #[serde(rename = "eval_duration", default)]
+    #[allow(dead_code)]
+    eval_duration: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OllamaToolCall {
+    id: Option<String>,
+    #[serde(rename = "type")]
+    tool_type: Option<String>,
+    function: OllamaToolCallFunction,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaToolCallFunctionRaw {
+    #[serde(default)]
+    index: Option<u32>,
+    name: String,
+    arguments: serde_json::Value,
+}
+
+#[derive(Debug)]
+struct OllamaToolCallFunction {
+    index: Option<u32>,
+    name: String,
+    arguments: String,
+}
+
+impl<'de> Deserialize<'de> for OllamaToolCallFunction {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = OllamaToolCallFunctionRaw::deserialize(deserializer)?;
+        let arguments = match raw.arguments {
+            serde_json::Value::String(s) => s,
+            obj => serde_json::to_string(&obj)
+                .map_err(|e| serde::de::Error::custom(format!("Failed to serialize arguments: {}", e)))?,
+        };
+        Ok(OllamaToolCallFunction {
+            index: raw.index,
+            name: raw.name,
+            arguments,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
 struct OllamaResponseMessage {
     role: String,
     content: String,
+    #[serde(default)]
+    thinking: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<OllamaToolCall>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct OllamaStreamResponse {
     model: String,
+    #[serde(rename = "created_at", default)]
+    created_at: Option<String>,
     message: OllamaStreamMessage,
     done: bool,
-    #[serde(rename = "done_reason")]
+    #[serde(rename = "done_reason", default)]
     done_reason: Option<String>,
+    #[serde(default)]
+    context: Option<Vec<u32>>,
+    #[serde(rename = "total_duration", default)]
+    total_duration: Option<u64>,
+    #[serde(rename = "load_duration", default)]
+    load_duration: Option<u64>,
+    #[serde(rename = "prompt_eval_count", default)]
+    prompt_eval_count: Option<u32>,
+    #[serde(rename = "prompt_eval_duration", default)]
+    prompt_eval_duration: Option<u64>,
+    #[serde(rename = "eval_count", default)]
+    eval_count: Option<u32>,
+    #[serde(rename = "eval_duration", default)]
+    eval_duration: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +175,10 @@ struct OllamaStreamResponse {
 struct OllamaStreamMessage {
     role: String,
     content: String,
+    #[serde(default)]
+    thinking: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<OllamaToolCall>>,
 }
 
 impl OllamaClient {
@@ -113,9 +226,7 @@ impl OllamaClient {
                 ChatRole::System => "system".to_string(),
                 ChatRole::User => "user".to_string(),
                 ChatRole::Assistant => "assistant".to_string(),
-                ChatRole::Function => {
-                    return Err(LlmError::Api("Ollama does not support function calls".to_string()));
-                }
+                ChatRole::Function => "tool".to_string(),
             };
             
             ollama_messages.push(OllamaMessage {
@@ -141,12 +252,27 @@ impl OllamaClient {
             options.num_predict = Some(max_tokens);
         }
 
+        // 转换 tools
+        let ollama_tools = request.tools.map(|tools| {
+            tools.into_iter().map(|tool| OllamaTool {
+                tool_type: "function".to_string(),
+                function: OllamaToolFunction {
+                    name: tool.function.name,
+                    description: tool.function.description,
+                    parameters: tool.function.parameters,
+                },
+            }).collect()
+        });
+
         // 构建请求
         let ollama_request = OllamaRequest {
             model: request.model.clone(),
             messages: ollama_messages,
-            stream: false,
+            stream: Some(false),
+            format: None,
+            tools: ollama_tools,
             options: Some(options),
+            keep_alive: None,
         };
 
         // 发送请求
@@ -164,17 +290,32 @@ impl OllamaClient {
             return Err(LlmError::Api(format!("Ollama API error ({}): {}", status, error_text)));
         }
 
-        let ollama_response: OllamaResponse = response
-            .json()
-            .await
-            .map_err(|e| LlmError::Api(format!("Failed to parse Ollama response: {}", e)))?;
+        // 先获取响应文本用于调试
+        let response_text = response.text().await
+            .map_err(|e| LlmError::Api(format!("Failed to read Ollama response: {}", e)))?;
+        
+        // 尝试解析响应
+        let ollama_response: OllamaResponse = serde_json::from_str(&response_text)
+            .map_err(|e| {
+                tracing::error!("Failed to parse Ollama response. Response body: {}", response_text);
+                LlmError::Api(format!("Failed to parse Ollama response: {}. Response preview: {}", e, 
+                    if response_text.len() > 500 { &response_text[..500] } else { &response_text }))
+            })?;
+
+        // 转换 tool_calls
+        let tool_calls = ollama_response.message.tool_calls.map(|calls| {
+            calls.into_iter().map(|call| crate::tools::FunctionCall {
+                name: call.function.name,
+                arguments: call.function.arguments,
+            }).collect()
+        });
 
         // 转换响应
         Ok(ChatResponse {
             content: ollama_response.message.content,
             role: ollama_response.message.role,
             finish_reason: ollama_response.done_reason,
-            tool_calls: None,
+            tool_calls,
         })
     }
 
@@ -218,10 +359,7 @@ impl OllamaClient {
                     ChatRole::System => "system".to_string(),
                     ChatRole::User => "user".to_string(),
                     ChatRole::Assistant => "assistant".to_string(),
-                    ChatRole::Function => {
-                        yield Err(LlmError::Api("Ollama does not support function calls".to_string()).into());
-                        return;
-                    }
+                    ChatRole::Function => "tool".to_string(),
                 };
                 
                 ollama_messages.push(OllamaMessage {
@@ -247,12 +385,27 @@ impl OllamaClient {
                 options.num_predict = Some(max_tokens);
             }
 
+            // 转换 tools
+            let ollama_tools = request.tools.as_ref().map(|tools| {
+                tools.iter().map(|tool| OllamaTool {
+                    tool_type: "function".to_string(),
+                    function: OllamaToolFunction {
+                        name: tool.function.name.clone(),
+                        description: tool.function.description.clone(),
+                        parameters: tool.function.parameters.clone(),
+                    },
+                }).collect()
+            });
+
             // 构建请求
             let ollama_request = OllamaRequest {
                 model: request.model.clone(),
                 messages: ollama_messages,
-                stream: true,
+                stream: Some(true),
+                format: None,
+                tools: ollama_tools,
                 options: Some(options),
+                keep_alive: None,
             };
 
             // 发送请求
@@ -285,6 +438,7 @@ impl OllamaClient {
             use futures::StreamExt;
             let mut buffer = String::new();
             let mut index = 0u32;
+            let mut accumulated_tool_calls: Vec<crate::tools::FunctionCall> = Vec::new();
 
             while let Some(chunk_result) = stream.next().await {
                 let chunk = match chunk_result {
@@ -324,6 +478,16 @@ impl OllamaClient {
                         }
                     };
 
+                    // 累积 tool_calls（如果存在）
+                    if let Some(ref tool_calls) = stream_response.message.tool_calls {
+                        for tool_call in tool_calls {
+                            accumulated_tool_calls.push(crate::tools::FunctionCall {
+                                name: tool_call.function.name.clone(),
+                                arguments: tool_call.function.arguments.clone(),
+                            });
+                        }
+                    }
+
                     // 转换为 OpenAI 格式
                     let delta_content = stream_response.message.content;
                     let finish_reason = if stream_response.done {
@@ -338,6 +502,10 @@ impl OllamaClient {
                         None
                     };
 
+                    // 注意：Ollama 流式响应中的 tool_calls 处理较复杂
+                    // 目前先不处理流式响应中的 tool_calls，因为它们通常在非流式响应中返回
+                    // 如果需要支持，可以在最后一个 chunk 中处理
+
                     // 创建 delta 消息
                     let delta = async_openai::types::ChatCompletionStreamResponseDelta {
                         role: if stream_response.done && finish_reason.is_some() {
@@ -348,7 +516,7 @@ impl OllamaClient {
                         content: Some(delta_content),
                         #[allow(deprecated)]
                         function_call: None,
-                        tool_calls: None,
+                        tool_calls: None, // 流式响应中暂不处理 tool_calls
                         refusal: None,
                     };
 

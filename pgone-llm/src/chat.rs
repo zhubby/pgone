@@ -1,4 +1,5 @@
 use crate::{Client, LlmError, Result, LLMProvider};
+use crate::audit::{AuditLogger, AuditStatus};
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
     ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
@@ -6,15 +7,16 @@ use async_openai::types::{
 };
 use futures::Stream;
 use crate::tools::{Tool, FunctionCall};
+use serde_json;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub enum ChatMessageContent {
     Text(String),
     ImageUrl { url: String },
     ImageBase64 { data: String },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ChatMessage {
     pub role: ChatRole,
     pub content: Vec<ChatMessageContent>,
@@ -22,7 +24,7 @@ pub struct ChatMessage {
     pub function_call: Option<FunctionCall>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub enum ChatRole {
     System,
     User,
@@ -87,6 +89,7 @@ pub struct ChatRequest {
     pub top_p: Option<f32>,
     pub max_tokens: Option<u32>,
     pub stream: bool,
+    pub session_id: Option<String>,
 }
 
 impl ChatRequest {
@@ -99,6 +102,7 @@ impl ChatRequest {
             top_p: None,
             max_tokens: None,
             stream: false,
+            session_id: None,
         }
     }
 
@@ -131,9 +135,14 @@ impl ChatRequest {
         self.stream = stream;
         self
     }
+
+    pub fn with_session_id(mut self, session_id: String) -> Self {
+        self.session_id = Some(session_id);
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ChatResponse {
     pub content: String,
     pub role: String,
@@ -143,7 +152,25 @@ pub struct ChatResponse {
 
 impl Client {
     pub async fn chat_create(&self, request: ChatRequest) -> Result<ChatResponse> {
-        match self.provider() {
+        // 初始化审计日志记录器
+        let audit_logger = AuditLogger::with_default_path().await.unwrap_or_else(|_| {
+            tracing::warn!("Failed to initialize audit logger, continuing without audit");
+            AuditLogger::new()
+        });
+
+        // 记录请求开始
+        let request_json = serde_json::to_string(&request.messages).ok();
+        let request_size = request_json.as_ref().map(|s| s.len());
+        let log_id = audit_logger.record_request(
+            request.session_id.clone(),
+            self.provider(),
+            request.model.clone(),
+            request_json,
+            request_size,
+        );
+
+        // 执行请求
+        let result = match self.provider() {
             LLMProvider::Gemini => {
                 // 使用 Gemini 客户端
                 let gemini_client = crate::providers::gemini::GeminiClient::new(
@@ -162,7 +189,7 @@ impl Client {
                 // 使用 OpenAI 兼容的 API
                 let messages = self.convert_messages(&request.messages)?;
                 let mut req_builder = CreateChatCompletionRequestArgs::default();
-                req_builder.model(request.model);
+                req_builder.model(request.model.clone());
                 req_builder.messages(messages);
 
                 if let Some(tools) = request.tools {
@@ -218,13 +245,45 @@ impl Client {
                     tool_calls,
                 })
             }
+        };
+
+        // 记录响应或错误
+        match &result {
+            Ok(response) => {
+                let response_json = serde_json::to_string(response).ok();
+                let response_size = response_json.as_ref().map(|s| s.len());
+                audit_logger.record_response(
+                    &log_id,
+                    response_json,
+                    response_size,
+                    AuditStatus::Success,
+                    None,
+                );
+            }
+            Err(e) => {
+                audit_logger.record_error(
+                    &log_id,
+                    e.to_string(),
+                    None,
+                );
+            }
         }
+
+        result
     }
 
     pub fn chat_create_stream(
         &self,
         request: ChatRequest,
     ) -> Box<dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send> {
+        // 初始化审计日志记录器（异步，但不阻塞）
+        let audit_logger_future = AuditLogger::with_default_path();
+        let provider = self.provider();
+        let request_json = serde_json::to_string(&request.messages).ok();
+        let request_size = request_json.as_ref().map(|s| s.len());
+        let session_id = request.session_id.clone();
+        let model = request.model.clone();
+
         match self.provider() {
             LLMProvider::Ollama => {
                 // 使用 Ollama 客户端
@@ -233,6 +292,20 @@ impl Client {
                 ) {
                     Ok(c) => c,
                     Err(e) => {
+                        let error_msg = e.to_string();
+                        // 记录错误
+                        tokio::spawn(async move {
+                            if let Ok(audit_logger) = audit_logger_future.await {
+                                let log_id = audit_logger.record_request(
+                                    session_id,
+                                    provider,
+                                    model,
+                                    request_json,
+                                    request_size,
+                                );
+                                audit_logger.record_error(&log_id, error_msg, None);
+                            }
+                        });
                         let stream: Box<dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send> = 
                             Box::new(futures::stream::once(futures::future::ready(Err(e.into()))));
                         return stream;
@@ -246,6 +319,20 @@ impl Client {
                 let messages = match self.convert_messages(&request.messages) {
                     Ok(m) => m,
                     Err(e) => {
+                        let error_msg = e.to_string();
+                        // 记录错误
+                        tokio::spawn(async move {
+                            if let Ok(audit_logger) = audit_logger_future.await {
+                                let log_id = audit_logger.record_request(
+                                    session_id,
+                                    provider,
+                                    model,
+                                    request_json,
+                                    request_size,
+                                );
+                                audit_logger.record_error(&log_id, error_msg, None);
+                            }
+                        });
                         let stream: Box<dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send> = 
                             Box::new(futures::stream::once(futures::future::ready(Err(e))));
                         return stream;
@@ -288,28 +375,97 @@ impl Client {
                 let req = match req_builder.build() {
                     Ok(r) => r,
                     Err(e) => {
+                        let error_msg = e.to_string();
+                        let llm_error = LlmError::InvalidRequest(error_msg.clone());
+                        // 记录错误
+                        tokio::spawn(async move {
+                            if let Ok(audit_logger) = audit_logger_future.await {
+                                let log_id = audit_logger.record_request(
+                                    session_id,
+                                    provider,
+                                    model,
+                                    request_json,
+                                    request_size,
+                                );
+                                audit_logger.record_error(&log_id, error_msg, None);
+                            }
+                        });
                         let stream: Box<dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send> = 
                             Box::new(futures::stream::once(futures::future::ready(
-                                Err(LlmError::InvalidRequest(e.to_string()))
+                                Err(llm_error)
                             )));
                         return stream;
                     }
                 };
 
+                // 记录请求开始
+                let log_id = tokio::spawn(async move {
+                    if let Ok(audit_logger) = audit_logger_future.await {
+                        audit_logger.record_request(
+                            session_id,
+                            provider,
+                            model,
+                            request_json,
+                            request_size,
+                        )
+                    } else {
+                        String::new()
+                    }
+                });
+
                 Box::new(async_stream::stream! {
+                    use futures::StreamExt;
+                    let mut accumulated_content = String::new();
+                    let mut has_error = false;
+                    let mut error_msg = String::new();
+
                     let req_clone = req;
                     match client.chat().create_stream(req_clone).await {
                         Ok(stream) => {
-                            use futures::StreamExt;
                             let mut stream = Box::pin(stream);
                             while let Some(result) = stream.next().await {
                                 match result {
-                                    Ok(chunk) => yield Ok(chunk),
-                                    Err(e) => yield Err(e.into()),
+                                    Ok(chunk) => {
+                                        // 累积内容用于审计
+                                        if let Some(delta) = &chunk.choices.first().and_then(|c| c.delta.content.as_ref()) {
+                                            accumulated_content.push_str(delta);
+                                        }
+                                        yield Ok(chunk);
+                                    }
+                                    Err(e) => {
+                                        has_error = true;
+                                        error_msg = e.to_string();
+                                        yield Err(e.into());
+                                    }
                                 }
                             }
                         }
-                        Err(e) => yield Err(e.into()),
+                        Err(e) => {
+                            has_error = true;
+                            error_msg = e.to_string();
+                            yield Err(e.into());
+                        }
+                    }
+
+                    // 流完成后记录响应
+                    let log_id_result = log_id.await;
+                    if let Ok(log_id) = log_id_result {
+                        if !log_id.is_empty() {
+                            if let Ok(audit_logger) = AuditLogger::with_default_path().await {
+                                if has_error {
+                                    audit_logger.record_error(&log_id, error_msg, None);
+                                } else {
+                                    let response_size = Some(accumulated_content.len());
+                                    audit_logger.record_response(
+                                        &log_id,
+                                        Some(accumulated_content),
+                                        response_size,
+                                        AuditStatus::Success,
+                                        None,
+                                    );
+                                }
+                            }
+                        }
                     }
                 })
             }

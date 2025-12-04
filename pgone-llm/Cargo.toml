@@ -14,7 +14,7 @@ categories.workspace = true
 [dependencies]
 async-openai = "0.30.1"
 thiserror = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 futures = { workspace = true }
 async-stream = "0.3"
@@ -24,6 +24,9 @@ strum = { workspace = true }
 tracing = { workspace = true }
 rig-core = "0.24.0"
 rmcp = { workspace = true }
+pgone-storage = { path = "../pgone-storage" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -139,5 +139,42 @@ pub async fn migrate(conn: &mut Connection) -> Result<()> {
     )
     .await?;
 
+    // llm_audit_logs table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS llm_audit_logs (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            request_time INTEGER NOT NULL,
+            response_time INTEGER,
+            request_size INTEGER,
+            response_size INTEGER,
+            request_content TEXT,
+            response_content TEXT,
+            status TEXT NOT NULL,
+            error_message TEXT,
+            duration_ms INTEGER,
+            created_at INTEGER NOT NULL
+        )",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_audit_session_id ON llm_audit_logs(session_id)",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_audit_request_time ON llm_audit_logs(request_time)",
+        (),
+    )
+    .await?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_audit_provider_model ON llm_audit_logs(provider, model)",
+        (),
+    )
+    .await?;
+
     Ok(())
 }

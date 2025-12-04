@@ -2,6 +2,7 @@ mod config;
 mod error;
 mod providers;
 
+pub mod audit;
 pub mod chat;
 pub mod embeddings;
 pub mod images;

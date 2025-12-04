@@ -5163,10 +5163,12 @@ dependencies = [
 name = "pgone-llm"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-openai 0.30.1",
  "async-stream",
  "futures",
  "gemini-rust",
+ "pgone-storage",
  "reqwest",
  "rig-core",
  "rmcp",
