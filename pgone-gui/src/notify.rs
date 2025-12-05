@@ -31,15 +31,10 @@ fn truncate_message(message: impl Into<egui::WidgetText>) -> egui::WidgetText {
     let widget_text = message.into();
     
     // Convert WidgetText to string using Debug format, then clean it up
-    let debug_str = format!("{:?}", widget_text);
-    // Remove quotes and other debug formatting
-    let clean_str = debug_str
-        .trim_matches('"')
-        .replace("\\n", "\n")
-        .replace("\\\"", "\"");
+    let wstr = format!("{}", widget_text.text());
     
     // Truncate if needed
-    let truncated = truncate_text(&clean_str);
+    let truncated = truncate_text(&wstr);
     
     truncated.into()
 }
