@@ -211,25 +211,19 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
         let mut window = egui::Window::new(title)
             .open(&mut open)
             .default_pos(center)
-            .pivot(egui::Align2::CENTER_CENTER);
+            .pivot(egui::Align2::CENTER_CENTER)
+            .collapsible(false); // 所有对话框都不可折叠
         
         // 为 DesignTable 对话框设置合适的大小
         if matches!(dialog_type, DialogType::DesignTable { .. }) {
-            // 根据列数动态计算默认高度
-            // 优先使用已加载的列数据，否则使用默认值
-            let row_count = tree.design_table_columns.len()
-                .max(tree.design_table_detail.as_ref().map(|d| d.columns.len()).unwrap_or(0));
-            let default_height = if row_count == 0 {
-                300.0  // 默认高度，适用于加载中或空表
-            } else {
-                // 每行约35像素，加上表头、按钮等约150像素
-                (row_count as f32 * 35.0 + 150.0).min(600.0).max(300.0)
-            };
+            // 窗口高度设置为屏幕高度的一半
+            let screen_height = ui.ctx().screen_rect().height();
+            let window_height = screen_height * 0.5;
             
             window = window
-                .default_size([900.0, default_height])
+                .default_size([900.0, window_height])
                 .resizable(true)
-                .max_size([1200.0, 600.0])
+                .max_size([1200.0, screen_height * 0.8])
                 .min_size([600.0, 300.0]);
         }
         
@@ -409,7 +403,24 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                             // Will be handled by open = false
                         }
                     }
-                    DialogType::DesignTable { database: _, schema: _, name: _ } => {
+                    DialogType::DesignTable { database, schema, name } => {
+                        // 检查当前对话框的表是否与已加载的表匹配
+                        let current_table = (database.clone(), schema.clone(), name.clone());
+                        if let Some(ref loaded_table) = tree.design_table_loaded {
+                            if *loaded_table != current_table {
+                                // 表名不匹配，清空数据并触发重新加载
+                                tree.design_table_detail = None;
+                                tree.design_table_columns.clear();
+                                tree.design_table_promise = None;
+                                tree.design_table_loaded = None;
+                                // 触发重新加载
+                                use super::loading;
+                                loading::load_table_detail_for_design(tree, db_manager, database, schema, name);
+                                ui.label("Loading table structure...");
+                                return;
+                            }
+                        }
+                        
                         // 检查异步加载的表结构详情
                         if let Some(ref promise) = tree.design_table_promise {
                             if let Some(result) = promise.ready() {
@@ -436,12 +447,19 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                                     Err(e) => {
                                         ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
                                         tree.design_table_promise = None;
+                                        tree.design_table_loaded = None;
                                     }
                                 }
                             } else {
                                 ui.label("Loading table structure...");
                                 return;
                             }
+                        } else if tree.design_table_detail.is_none() {
+                            // 没有 promise 且没有已加载的数据，触发加载
+                            use super::loading;
+                            loading::load_table_detail_for_design(tree, db_manager, database, schema, name);
+                            ui.label("Loading table structure...");
+                            return;
                         }
                         
                         // 显示表设计界面
@@ -452,9 +470,9 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                             let mut data_table: DataTable<EditableColumn> = tree.design_table_columns.clone().into_iter().collect();
                             let mut viewer = ColumnRowViewer::new();
                             
-                            // 使用 ScrollArea 允许滚动，auto_shrink 让窗口根据内容自适应
+                            // 使用 ScrollArea 允许滚动，固定窗口高度时内容超出会显示滚动条
                             egui::ScrollArea::vertical()
-                                .auto_shrink([true; 2])
+                                .auto_shrink([false; 2])
                                 .show(ui, |ui| {
                                     Renderer::new(&mut data_table, &mut viewer).show(ui);
                                 });
@@ -506,6 +524,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                                     
                                     let mut ddl_text = ddl_content.clone();
                                     let ddl_text_ref = &mut ddl_text;
+                                    let ddl_for_highlight = ddl_content.clone();
                                     
                                     ui.add_sized(
                                         egui::Vec2::new(ui.available_width() - 5.0, available_height.max(200.0)),
@@ -513,7 +532,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                                             .desired_rows((available_height.max(200.0) / 20.0) as usize)
                                             .interactive(false) // 设置为只读
                                             .layouter(&mut move |ui, _text, wrap_width| {
-                                                let mut job = crate::sql::highlight_sql(&ddl_content, ui.visuals());
+                                                let mut job = crate::sql::highlight_sql(&ddl_for_highlight, ui.visuals());
                                                 job.wrap.max_width = wrap_width;
                                                 ui.fonts(|f| f.layout_job(job))
                                             }),
@@ -521,11 +540,17 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                                 });
                             });
                         
-                        // 关闭按钮
+                        // 关闭和复制按钮
                         ui.separator();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Close").clicked() {
                                 should_close = true;
+                            }
+                            ui.add_space(8.0);
+                            if ui.button("Copy").clicked() {
+                                // 复制 DDL 内容到剪贴板
+                                let ddl_to_copy = tree.dialog_ddl_content.clone();
+                                ui.ctx().copy_text(ddl_to_copy);
                             }
                         });
                     }
@@ -604,6 +629,9 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                                 tree.design_table_columns.clear();
                             }
                         }
+                        // 清空已加载表的记录，下次打开时会重新加载
+                        tree.design_table_loaded = None;
+                        tree.design_table_promise = None;
                         // 关闭对话框
                         tree.dialog = None;
                     }

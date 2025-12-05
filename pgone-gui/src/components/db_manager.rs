@@ -313,6 +313,7 @@ impl DbManager {
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     // 使用固定宽度的标签来对齐文本框
                     let label_width = 80.0;
@@ -518,6 +519,7 @@ impl DbManager {
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     let label_width = 80.0;
                     
@@ -721,6 +723,7 @@ impl DbManager {
                 .default_size(egui::vec2(600.0, 400.0))
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     self.ensure_storage();
                     if let Some(storage) = &self.storage {
@@ -855,6 +858,7 @@ impl DbManager {
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     if let Some(ref id) = id_to_delete {
                         ui.label(format!("确定要删除数据库配置 '{}' 吗？", id));

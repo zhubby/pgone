@@ -93,6 +93,7 @@ pub struct DbTree {
     pub(super) design_table_detail: Option<TableDetail>, // 原始表结构
     pub(super) design_table_columns: Vec<EditableColumn>, // 可编辑的列数据
     pub(super) design_table_promise: Option<Promise<Result<TableDetail, String>>>, // 异步加载表结构的 Promise
+    pub(super) design_table_loaded: Option<(String, String, String)>, // 当前已加载的表 (database, schema, name)
     
     // DDL state
     pub(super) ddl_promise: Option<Promise<Result<String, String>>>, // 异步加载DDL的 Promise

@@ -306,12 +306,31 @@ pub(super) fn load_table_detail_for_design(
     schema: &str,
     table: &str,
 ) {
-    if tree.design_table_promise.is_some() {
+    // 检查是否是同一个表，如果不是，清空旧数据
+    let current_table = (database.to_string(), schema.to_string(), table.to_string());
+    if let Some(ref loaded_table) = tree.design_table_loaded {
+        if *loaded_table != current_table {
+            // 切换了表，清空旧数据
+            tree.design_table_detail = None;
+            tree.design_table_columns.clear();
+            tree.design_table_promise = None;
+        } else if tree.design_table_promise.is_some() {
+            // 同一个表且正在加载中，不需要重新加载
+            return;
+        } else if tree.design_table_detail.is_some() {
+            // 同一个表且已加载完成，不需要重新加载
+            return;
+        }
+    } else if tree.design_table_promise.is_some() {
+        // 没有记录已加载的表，但 promise 存在，可能是第一次加载
         return; // Already loading
     }
     
     let dsn = get_dsn_for_database(tree, db_manager, database);
     let Some(dsn) = dsn else { return; };
+    
+    // 记录当前要加载的表
+    tree.design_table_loaded = Some(current_table.clone());
     
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
