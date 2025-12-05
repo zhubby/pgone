@@ -1,4 +1,5 @@
 use crate::{Client, Result, LLMProvider};
+use crate::providers::openrouter;
 use serde::Deserialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,6 +30,9 @@ impl Client {
         match self.provider() {
             LLMProvider::Ollama => {
                 self.models_list_ollama().await
+            }
+            LLMProvider::OpenRouter => {
+                self.models_list_openrouter().await
             }
             _ => {
                 // OpenAI 兼容的 API
@@ -92,10 +96,27 @@ impl Client {
         }).collect())
     }
 
+    async fn models_list_openrouter(&self) -> Result<Vec<ModelInfo>> {
+        let base_url = self.config().base_url.as_ref().map(|s| s.as_str());
+        let proxy_url = if self.config().proxy_enabled {
+            self.config().proxy_url()
+        } else {
+            None
+        };
+        openrouter::list_models(&self.config().api_key, base_url, proxy_url).await
+    }
+
     pub async fn models_retrieve(&self, model_id: String) -> Result<ModelInfo> {
         match self.provider() {
             LLMProvider::Ollama => {
                 // 对于 Ollama，从列表中查找指定模型
+                let models = self.models_list().await?;
+                models.into_iter()
+                    .find(|m| m.id == model_id)
+                    .ok_or_else(|| crate::LlmError::InvalidModel(format!("模型 {} 未找到", model_id)))
+            }
+            LLMProvider::OpenRouter => {
+                // 对于 OpenRouter，从列表中查找指定模型
                 let models = self.models_list().await?;
                 models.into_iter()
                     .find(|m| m.id == model_id)

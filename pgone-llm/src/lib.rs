@@ -35,6 +35,7 @@ pub enum LLMProvider {
     DeepSeek,
     Ollama,
     BigModel,
+    OpenRouter,
 }
 
 impl Client {
