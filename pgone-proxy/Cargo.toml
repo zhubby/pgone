@@ -1,5 +1,5 @@
 [package]
-name = "pgone-auditor"
+name = "pgone-proxy"
 version = { workspace = true }
 edition = { workspace = true }
 description = { workspace = true }
@@ -27,5 +27,5 @@ clap = { workspace = true }
 pgone-util = { workspace = true }
 
 [[bin]]
-name = "pgone-auditor"
+name = "pgone-proxy"
 path = "src/main.rs"

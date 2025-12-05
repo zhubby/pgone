@@ -29,7 +29,7 @@ members = [
     "pgone-gui",
     "pgone-storage",
     "pgone-mcp-server",
-    "pgone-auditor", 
+    "pgone-proxy", 
     "pgone-util", 
     "pgone-sql", "pgone-agent", "pgone-llm", "pgone-vector", "pgone-mcp-client",
 ]
@@ -84,7 +84,7 @@ etl = { git = "https://github.com/supabase/etl" }
 pgone-mcp-server = { path = "pgone-mcp-server" }
 pgone-mcp-client = { path = "pgone-mcp-client" }
 pgone-gui = { path = "pgone-gui" }
-pgone-auditor = { path = "pgone-auditor" }
+pgone-proxy = { path = "pgone-proxy" }
 pgone-storage = { path = "pgone-storage" }
 pgone-apiserver = { path = "pgone-apiserver" }
 pgone-a2a = { path = "pgone-a2a" }

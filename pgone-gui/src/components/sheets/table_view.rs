@@ -1,4 +1,4 @@
-use super::ResultsTable;
+use super::{ExplainInfo, ResultsTable};
 use crate::components::SqlCtx;
 use crate::futures;
 use egui_data_table::{DataTable, Renderer, RowViewer};
@@ -6,7 +6,6 @@ use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
 use std::collections::HashSet;
 use super::utils;
-use tracing::debug;
 
 /// 查询结果行数据结构
 /// 将动态的 Vec<String> 转换为结构化的行数据，便于 egui-data-table 使用
@@ -224,6 +223,9 @@ impl ResultsTable {
         // 尝试检测主键列
         let pk_cols = self.detect_primary_keys(sql, &dsn, &Some(pool.clone()));
 
+        // 克隆 pool 用于 EXPLAIN 查询（主查询会移动 pool）
+        let explain_pool = pool.clone();
+
         // 执行 SQL 查询
         let res: Result<(Vec<String>, Vec<Vec<String>>), String> =
             futures::block_on_async(async move {
@@ -265,6 +267,154 @@ impl ResultsTable {
                 self.sql_error = Some(e);
             }
         }
+
+        // 执行 EXPLAIN 查询以获取执行计划信息
+        self.execute_explain(sql, &explain_pool);
+    }
+
+    /// 执行 EXPLAIN 查询并解析结果
+    fn execute_explain(&mut self, sql: &str, pool: &sqlx::PgPool) {
+        // 清除之前的 EXPLAIN 信息
+        self.explain_info = None;
+        self.explain_error = None;
+
+        // 检查是否是 SELECT 查询（EXPLAIN 主要适用于 SELECT）
+        let sql_trimmed = sql.trim();
+        let sql_upper = sql_trimmed.to_uppercase();
+        
+        // 跳过非 SELECT 查询或已经是 EXPLAIN 的查询
+        if !sql_upper.starts_with("SELECT")
+            && !sql_upper.starts_with("WITH")
+            && !sql_upper.starts_with("VALUES")
+        {
+            return;
+        }
+
+        // 构建 EXPLAIN 查询
+        let explain_sql = format!("EXPLAIN (FORMAT TEXT) {}", sql_trimmed);
+        
+        // 执行 EXPLAIN 查询
+        let explain_result: Result<String, String> = futures::block_on_async(async {
+            let rows: Vec<PgRow> = sqlx::query(&explain_sql)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            
+            // 将 EXPLAIN 输出合并为字符串
+            let mut output = String::new();
+            for row in rows {
+                if let Ok(text) = row.try_get::<String, _>(0) {
+                    output.push_str(&text);
+                    output.push('\n');
+                }
+            }
+            Ok(output)
+        });
+
+        match explain_result {
+            Ok(output) => {
+                // 解析 EXPLAIN 输出
+                if let Some(info) = Self::parse_explain_output(&output) {
+                    self.explain_info = Some(info);
+                } else {
+                    self.explain_error = Some("Failed to parse EXPLAIN output".into());
+                }
+            }
+            Err(e) => {
+                self.explain_error = Some(e);
+            }
+        }
+    }
+
+    /// 解析 PostgreSQL EXPLAIN 输出，提取关键信息
+    fn parse_explain_output(output: &str) -> Option<ExplainInfo> {
+        // 获取第一行（通常是查询计划树的根节点）
+        let first_line = output.lines().next()?;
+        
+        // 提取扫描类型（操作名称）
+        // 匹配常见的操作类型：Seq Scan, Index Scan, Index Only Scan, Hash Join, Nested Loop, etc.
+        let scan_type = Self::extract_scan_type(first_line);
+        
+        // 提取成本信息：cost=X.XX..Y.YY
+        let cost = Self::extract_cost(first_line);
+        
+        // 提取行数：rows=XXXX
+        let rows = Self::extract_rows(first_line);
+        
+        Some(ExplainInfo {
+            scan_type,
+            cost,
+            rows,
+        })
+    }
+
+    /// 提取扫描类型
+    fn extract_scan_type(line: &str) -> String {
+        // 常见的扫描和连接操作类型
+        let patterns = [
+            "Seq Scan",
+            "Index Scan",
+            "Index Only Scan",
+            "Bitmap Index Scan",
+            "Bitmap Heap Scan",
+            "Hash Join",
+            "Nested Loop",
+            "Merge Join",
+            "Sort",
+            "Aggregate",
+            "Group",
+            "Limit",
+            "Subquery Scan",
+            "CTE Scan",
+            "Function Scan",
+            "Materialize",
+        ];
+        
+        for pattern in &patterns {
+            if line.contains(pattern) {
+                return pattern.to_string();
+            }
+        }
+        
+        // 如果没有匹配到已知类型，尝试提取第一个大写单词
+        if let Some(start) = line.find(|c: char| c.is_uppercase()) {
+            let end = line[start..]
+                .find(|c: char| c.is_whitespace() || c == '(')
+                .unwrap_or(line.len() - start);
+            return line[start..start + end].to_string();
+        }
+        
+        "Unknown".to_string()
+    }
+
+    /// 提取成本信息
+    fn extract_cost(line: &str) -> String {
+        // 匹配 cost=X.XX..Y.YY 格式
+        if let Some(start) = line.find("cost=") {
+            let cost_start = start + 5; // "cost=" 的长度
+            if let Some(end) = line[cost_start..].find(|c: char| c == ' ' || c == ')') {
+                return line[cost_start..cost_start + end].to_string();
+            } else {
+                // 如果没有找到结束位置，取到行尾
+                return line[cost_start..].trim().to_string();
+            }
+        }
+        "N/A".to_string()
+    }
+
+    /// 提取行数信息
+    fn extract_rows(line: &str) -> String {
+        // 匹配 rows=XXXX 格式
+        if let Some(start) = line.find("rows=") {
+            let rows_start = start + 5; // "rows=" 的长度
+            if let Some(end) = line[rows_start..].find(|c: char| c == ' ' || c == ')') {
+                return line[rows_start..rows_start + end].to_string();
+            } else {
+                // 如果没有找到结束位置，取到行尾
+                return line[rows_start..].trim().to_string();
+            }
+        }
+        "N/A".to_string()
     }
 
     /// 检测 SQL 查询中的主键列
@@ -402,13 +552,14 @@ impl ResultsTable {
         });
         ui.separator();
 
-        // SQL 语句预览工具栏
+        // SQL 语句预览工具栏：左侧固定宽度显示 SQL，右侧显示 EXPLAIN 信息
         ui.horizontal(|ui| {
+            // 左侧：SQL 显示区域
             if let Some(ref sql_str) = self.current_sql {
-                // 只显示第一行，最多 100 个字符
+                // 只显示第一行，最多 300 个字符
                 let first_line = sql_str.lines().next().unwrap_or("");
-                let truncated_sql = if first_line.len() > 100 {
-                    format!("{}...", &first_line[..100])
+                let truncated_sql = if first_line.chars().count() > 300 {
+                    format!("{}...", first_line.chars().take(300).collect::<String>())
                 } else {
                     first_line.to_string()
                 };
@@ -422,6 +573,38 @@ impl ResultsTable {
                         .color(egui::Color32::GRAY),
                 );
             }
+            
+            // 右侧：EXPLAIN 信息显示区域，固定宽度
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(ref explain_info) = self.explain_info {
+                    // 显示 EXPLAIN 信息：类型 | 成本 | 行数
+                    let info_text = format!(
+                        "{} {} | Cost: {} | Rows: {}",
+                        egui_phosphor::regular::INFO,
+                        explain_info.scan_type,
+                        explain_info.cost,
+                        explain_info.rows
+                    );
+                    ui.label(
+                        egui::RichText::new(info_text)
+                            .color(egui::Color32::from_rgb(100, 150, 200)),
+                    );
+                } else if let Some(ref error) = self.explain_error {
+                    // 显示 EXPLAIN 错误
+                    ui.label(
+                        egui::RichText::new(format!("{} {}", egui_phosphor::regular::WARNING, error))
+                            .color(egui::Color32::from_rgb(200, 100, 100))
+                            .small(),
+                    );
+                } else {
+                    // 没有 EXPLAIN 信息时显示占位符
+                    ui.label(
+                        egui::RichText::new(format!("{} No plan", egui_phosphor::regular::INFO))
+                            .color(egui::Color32::GRAY)
+                            .small(),
+                    );
+                }
+            });
         });
         ui.separator();
 

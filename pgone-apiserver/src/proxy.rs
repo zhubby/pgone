@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pgone_auditor::extractor::ConnectionExtractorConfig;
+use pgone_proxy::extractor::ConnectionExtractorConfig;
 use std::time::Instant;
 use tokio_postgres::NoTls;
 use tracing::{error, info, warn};

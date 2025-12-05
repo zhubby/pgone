@@ -1,10 +1,10 @@
 use axum::{extract::Json, response::IntoResponse, routing::post, Router};
 use http::StatusCode;
-use pgone_auditor::extractor::ConnectionExtractorConfig;
+use pgone_proxy::extractor::ConnectionExtractorConfig;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::auditor::execute_sqls;
+use crate::proxy::execute_sqls;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct AuditRequest {
@@ -66,7 +66,7 @@ pub async fn execute_audit(Json(req): Json<AuditRequest>) -> impl IntoResponse {
     let config = ConnectionExtractorConfig {
         dsn: req.config.dsn,
         sql: vec![], // SQL 从请求中获取
-        ssl: req.config.ssl.map(|s| pgone_auditor::extractor::SslExtractorConfig {
+        ssl: req.config.ssl.map(|s| pgone_proxy::extractor::SslExtractorConfig {
             cert: s.cert.map(|p| p.into()),
             key: s.key.map(|p| p.into()),
             ca: s.ca.map(|p| p.into()),

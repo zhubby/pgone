@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pgone_auditor::extractor::ConnectionExtractorConfig;
+use pgone_proxy::extractor::ConnectionExtractorConfig;
 use std::net::SocketAddr;
 use tonic::{transport::Server, Request, Response, Status};
 use tracing::info;
@@ -11,7 +11,7 @@ pub mod proto {
 use proto::auditor_service_server::{AuditorService, AuditorServiceServer};
 use proto::{AuditRequest, AuditResponse, ConnectionConfig, Row, StatementResult};
 
-use crate::auditor::execute_sqls;
+use crate::proxy::execute_sqls;
 
 #[derive(Debug, Default)]
 pub struct AuditorServiceImpl;
@@ -64,7 +64,7 @@ impl AuditorService for AuditorServiceImpl {
 
 fn convert_connection_config(config: &ConnectionConfig) -> Result<ConnectionExtractorConfig, Status> {
     let ssl = if let Some(s) = &config.ssl {
-        Some(pgone_auditor::extractor::SslExtractorConfig {
+        Some(pgone_proxy::extractor::SslExtractorConfig {
             cert: s.cert.as_ref()
                 .and_then(|path| path.parse::<std::path::PathBuf>().ok()),
             key: s.key.as_ref()

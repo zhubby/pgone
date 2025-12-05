@@ -1,4 +1,4 @@
-mod auditor;
+mod proxy;
 pub mod grpc;
 mod http;
 

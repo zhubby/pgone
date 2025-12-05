@@ -9,6 +9,17 @@ mod executor;
 mod table_view;
 mod database_loader;
 
+/// SQL 执行计划信息
+#[derive(Clone, Default)]
+pub struct ExplainInfo {
+    /// 扫描类型（如 "Seq Scan", "Index Scan", "Hash Join"）
+    pub scan_type: String,
+    /// 成本信息（如 "0.00..1234.56"）
+    pub cost: String,
+    /// 行数（如 "10000"）
+    pub rows: String,
+}
+
 #[derive(Default)]
 pub struct ResultsTable {
     // Refresh control
@@ -27,6 +38,10 @@ pub struct ResultsTable {
 
     // SQL execution flag
     pub execute_sql_requested: bool,
+
+    // EXPLAIN information
+    pub explain_info: Option<ExplainInfo>,
+    pub explain_error: Option<String>,
 
     // Database selection fields
     pub selected_database: Option<String>,
@@ -47,6 +62,8 @@ impl ResultsTable {
             query_rows: Vec::new(),
             primary_key_columns: HashSet::new(),
             execute_sql_requested: false,
+            explain_info: None,
+            explain_error: None,
             selected_database: None,
             available_databases: Vec::new(),
             databases_promise: None,

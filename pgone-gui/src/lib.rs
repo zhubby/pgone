@@ -19,7 +19,6 @@ mod components;
 use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
 mod skeletons;
 mod styles;
-mod media;
 mod prompt;
 mod mcp;
 

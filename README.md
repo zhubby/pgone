@@ -37,7 +37,7 @@ PGone provides:
 
 - **`pgone-sql`** — SQL parsing and database models
 - **`pgone-llm`** — LLM provider integrations (OpenAI, Gemini, Ollama)
-- **`pgone-auditor`** — Database auditing and query analysis
+- **`pgone-proxy`** — Database proxy and query analysis
 - **`pgone-apiserver`** — HTTP/gRPC API server
 - **`pgone-a2a`** — Agent-to-agent communication
 - **`pgone-util`** — Shared utilities and logging
