@@ -12,3 +12,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+lancedb = "0.22.3"
+rig-lancedb = "0.2.28"
+rig-core = { workspace = true }

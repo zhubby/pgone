@@ -3,3 +3,4 @@ pgone.db
 pgone.db-wal
 .DS_Store
 sessions.json
+/data/*

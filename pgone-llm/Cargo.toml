@@ -22,9 +22,10 @@ reqwest = { workspace = true }
 gemini-rust = "1.5.1"
 strum = { workspace = true }
 tracing = { workspace = true }
-rig-core = "0.24.0"
+rig-core = { workspace = true }
+
 rmcp = { workspace = true }
-pgone-storage = { path = "../pgone-storage" }
+pgone-storage = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 

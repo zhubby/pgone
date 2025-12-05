@@ -146,4 +146,25 @@ impl StorageBlocking {
         let mut conn = self.inner.conn().await?;
         crate::storage::query_llm_audit_logs(&mut conn, session_id, limit).await
     }
+
+    // File index helpers
+    pub async fn list_files(&self) -> Result<Vec<FileIndex>> {
+        let mut conn = self.inner.conn().await?;
+        crate::file_sys::query_files_by_date_range(&mut conn, None, None).await
+    }
+
+    pub async fn get_file(&self, id: &str) -> Result<Option<FileIndex>> {
+        let mut conn = self.inner.conn().await?;
+        crate::file_sys::get_file(&mut conn, id).await
+    }
+
+    pub async fn query_files_by_type(&self, mime_type: &str) -> Result<Vec<FileIndex>> {
+        let mut conn = self.inner.conn().await?;
+        crate::file_sys::query_files_by_type(&mut conn, mime_type).await
+    }
+
+    pub async fn copy_file_to_index(&self, source_path: &str) -> Result<FileIndex> {
+        let mut conn = self.inner.conn().await?;
+        crate::file_sys::copy_file_to_index(&mut conn, source_path).await
+    }
 }
