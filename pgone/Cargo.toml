@@ -1,7 +1,15 @@
 [package]
 name = "pgone"
-version = "0.0.0"
-edition = "2021"
+version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+documentation = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
 
 [lib]
 crate-type = ["cdylib", "lib"]
