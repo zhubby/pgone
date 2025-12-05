@@ -11,21 +11,40 @@ pub fn show_menu_bar(
     show_about: &mut bool,
     show_monitor: &mut Option<MonitorMetric>,
     show_export: &mut bool,
+    show_import: &mut bool,
 ) {
     TopBottomPanel::top("menu_top").show(ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.button("New Database...").clicked() {
+                if ui.button("New Connection").clicked() {
                     db.show_add_db = true;
                     ui.close();
                 }
-                if ui.button("Manage Databases...").clicked() {
+                if ui.button("Manage Connections").clicked() {
                     db.show_manage_db = true;
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("Export...").clicked() {
+                if ui.button("Export").clicked() {
                     *show_export = true;
+                    ui.close();
+                }
+                if ui.button("Import").clicked() {
+                    *show_import = true;
+                    ui.close();
+                }
+
+                ui.separator();
+
+                if ui.button("Preferences").clicked() {
+                    *show_settings = true;
+                    ui.close();
+                }
+
+                ui.separator();
+
+                if ui.button("Exit").clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     ui.close();
                 }
             });
@@ -43,41 +62,41 @@ pub fn show_menu_bar(
                 }
             });
             ui.menu_button("Monitor", |ui| {
-                if ui.button("连接状态").clicked() {
+                if ui.button("Activity").clicked() {
                     *show_monitor = Some(MonitorMetric::Activity);
                     ui.close();
                 }
-                if ui.button("查询性能").clicked() {
+                if ui.button("Statements").clicked() {
                     *show_monitor = Some(MonitorMetric::Statements);
                     ui.close();
                 }
-                if ui.button("表读写统计").clicked() {
+                if ui.button("Tables").clicked() {
                     *show_monitor = Some(MonitorMetric::Tables);
                     ui.close();
                 }
-                if ui.button("索引使用情况").clicked() {
+                if ui.button("Indexes").clicked() {
                     *show_monitor = Some(MonitorMetric::Indexes);
                     ui.close();
                 }
-                if ui.button("资源使用率").clicked() {
+                if ui.button("Bgwriter").clicked() {
                     *show_monitor = Some(MonitorMetric::Bgwriter);
                     ui.close();
                 }
-                if ui.button("复制状态（主从）").clicked() {
+                if ui.button("Replication").clicked() {
                     *show_monitor = Some(MonitorMetric::Replication);
                     ui.close();
                 }
-                if ui.button("锁状态").clicked() {
+                if ui.button("Locks").clicked() {
                     *show_monitor = Some(MonitorMetric::Locks);
                     ui.close();
                 }
             });
-            ui.menu_button("Settings", |ui| {
-                if ui.button("Open Settings").clicked() {
-                    *show_settings = true;
-                    ui.close();
-                }
-            });
+            // ui.menu_button("Settings", |ui| {
+            //     if ui.button("Open Settings").clicked() {
+            //         *show_settings = true;
+            //         ui.close();
+            //     }
+            // });
             ui.menu_button("Help", |ui| {
                 if ui.button("关于").clicked() {
                     *show_about = true;

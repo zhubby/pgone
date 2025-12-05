@@ -7,6 +7,7 @@ pub mod settings;
 pub mod graph;
 pub mod chats;
 pub mod export;
+pub mod import;
 
 pub use chats::ChatPanel;
 pub use context::{ChatCtx, SqlCtx};
@@ -17,3 +18,4 @@ pub use preview::PreviewManager;
 pub use sheets::ResultsTable;
 pub use settings::SettingsPanel;
 pub use export::ExportWindow;
+pub use import::ImportWindow;

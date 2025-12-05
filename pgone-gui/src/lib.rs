@@ -16,7 +16,7 @@ mod storage;
 use storage::SessionStorage;
 
 mod components;
-use components::{ChatPanel, DbManager, DbTree, ExportWindow, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
+use components::{ChatPanel, DbManager, DbTree, ExportWindow, ImportWindow, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
 mod skeletons;
 mod styles;
 mod prompt;
@@ -44,6 +44,8 @@ pub struct AppFrame {
     show_monitor: Option<skeletons::monitors::MonitorMetric>,
     show_export: bool,
     export_window: ExportWindow,
+    show_import: bool,
+    import_window: ImportWindow,
     // mcp_client: Option<McpClientManager>,
 }
 
@@ -174,6 +176,8 @@ impl AppFrame {
             show_monitor: None,
             show_export: false,
             export_window: ExportWindow::default(),
+            show_import: false,
+            import_window: ImportWindow::default(),
             // mcp_client,
         }
     }
@@ -230,6 +234,31 @@ impl AppFrame {
             }
         }
     }
+
+    fn show_import_window(&mut self, ctx: &Context) {
+        if !self.show_import {
+            return;
+        }
+
+        let mut open = true;
+        egui::Window::new("导入数据")
+            .open(&mut open)
+            .default_pos(ctx.screen_rect().center())
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_size([600.0, 700.0])
+            .show(ctx, |ui| {
+                self.import_window.check_import_progress();
+                self.import_window.ui(ui, &mut self.db);
+            });
+
+        if !open {
+            self.show_import = false;
+            // 如果导入完成，重置窗口状态
+            if !self.import_window.is_importing() {
+                self.import_window = ImportWindow::default();
+            }
+        }
+    }
 }
 
 impl eframe::App for AppFrame {
@@ -244,6 +273,7 @@ impl eframe::App for AppFrame {
             &mut self.show_about,
             &mut self.show_monitor,
             &mut self.show_export,
+            &mut self.show_import,
         );
 
         // Status bar
@@ -294,6 +324,9 @@ impl eframe::App for AppFrame {
 
         // Export window
         self.show_export_window(ctx);
+
+        // Import window
+        self.show_import_window(ctx);
 
         // Panels
         skeletons::panels::show_left_panel(
