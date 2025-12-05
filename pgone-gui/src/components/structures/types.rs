@@ -18,6 +18,7 @@ pub(super) enum DialogType {
     PropertiesTable { database: String, schema: String, name: String },
     DesignTable { database: String, schema: String, name: String },
     ShowDdl { database: String, schema: String, name: String },
+    DropTable { database: String, schema: String, name: String },
 }
 
 /// 可编辑的列数据结构

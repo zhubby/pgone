@@ -371,6 +371,15 @@ impl DbTree {
                                                 });
                                                 ui.close();
                                             }
+                                            if ui.button("Drop").clicked() {
+                                                use super::types::DialogType;
+                                                self.dialog = Some(DialogType::DropTable {
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                    name: table_name_menu.clone(),
+                                                });
+                                                ui.close();
+                                            }
                                         });
                                         
                                         // 收集需要加载的表设计信息

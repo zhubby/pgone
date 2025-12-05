@@ -197,6 +197,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
             DialogType::PropertiesTable { .. } => "Table Properties",
             DialogType::DesignTable { .. } => "Design Table",
             DialogType::ShowDdl { .. } => "Show DDL",
+            DialogType::DropTable { .. } => "Drop Table",
         };
         
         let mut open = true;
@@ -205,6 +206,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
         let mut should_rename = false;
         let mut should_save_design = false;
         let mut should_close = false;
+        let mut should_drop = false;
         let mut delete_cascade = tree.dialog_cascade;
         
         let center = ui.ctx().screen_rect().center();
@@ -554,11 +556,23 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                             }
                         });
                     }
+                    DialogType::DropTable { database: _, schema, name } => {
+                        ui.colored_label(egui::Color32::RED, format!("警告：此操作将清空表 '{}.{}' 中的所有数据，此操作不可撤销。", schema, name));
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Drop").clicked() {
+                                should_drop = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                // Will be handled by open = false
+                            }
+                        });
+                    }
                 }
             });
         
         // Close window if action was triggered
-        if should_create || should_delete || should_rename || should_save_design || should_close {
+        if should_create || should_delete || should_rename || should_save_design || should_close || should_drop {
             open = false; // Close window to trigger action execution
         }
         
@@ -582,7 +596,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::CreateTable { database, schema } => {
                         operations::create_table(tree, db_manager, &database, &schema, &dialog_ddl_clone);
                     }
-                    DialogType::DesignTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } => {}
+                    DialogType::DesignTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } | DialogType::DropTable { .. } => {}
                 }
             } else if should_delete {
                 tree.dialog_cascade = delete_cascade;
@@ -596,7 +610,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::DeleteTable { database, schema, name } => {
                         operations::delete_table(tree, db_manager, &database, &schema, &name, delete_cascade);
                     }
-                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } => {}
+                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } | DialogType::DropTable { .. } => {}
                 }
             } else if should_rename {
                 match dialog_type {
@@ -609,7 +623,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::RenameTable { database, schema, old_name } => {
                         operations::rename_table(tree, db_manager, &database, &schema, &old_name, &dialog_input_clone);
                     }
-                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } => {}
+                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } | DialogType::DropTable { .. } => {}
                 }
             } else if should_save_design {
                 match dialog_type {
@@ -635,7 +649,14 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                         // 关闭对话框
                         tree.dialog = None;
                     }
-                    DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } => {}
+                    DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } | DialogType::DropTable { .. } => {}
+                }
+            } else if should_drop {
+                match dialog_type {
+                    DialogType::DropTable { database, schema, name } => {
+                        operations::drop_table(tree, db_manager, &database, &schema, &name);
+                    }
+                    DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::DesignTable { .. } | DialogType::ShowDdl { .. } => {}
                 }
             }
         }

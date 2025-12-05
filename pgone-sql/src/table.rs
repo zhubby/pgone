@@ -196,6 +196,39 @@ impl Session {
         Ok(())
     }
 
+    /// Truncate a table (clear all data)
+    pub async fn truncate_table(
+        &self,
+        schema: &str,
+        table_name: &str,
+    ) -> Result<()> {
+        info!(
+            schema = schema,
+            table_name = table_name,
+            "Truncating table"
+        );
+
+        let sql = format!(
+            "TRUNCATE TABLE {}.{}",
+            quote_ident(schema),
+            quote_ident(table_name)
+        );
+
+        let conn = self.get_connection().await?;
+        conn.execute(&sql, &[])
+            .await
+            .map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("does not exist") {
+                    SqlError::NotFound(format!("Table '{}.{}' does not exist", schema, table_name))
+                } else {
+                    SqlError::Execution(format!("Failed to truncate table: {}", e))
+                }
+            })?;
+
+        Ok(())
+    }
+
     /// Query table data
     /// Returns (columns, rows) where rows are Vec<Vec<String>>
     pub async fn query_table_data(

@@ -363,3 +363,28 @@ pub(super) fn design_table(
     }
 }
 
+pub(super) fn drop_table(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, database: &str, schema: &str, name: &str) {
+    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let result = futures::block_on_async(async {
+        let session = Session::new(&dsn)
+            .await
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+        
+        session.truncate_table(schema, name)
+            .await
+            .map_err(|e| format!("Failed to truncate table: {}", e))
+    });
+    
+    match result {
+        Ok(_) => {
+            // TRUNCATE 不改变表结构，所以不需要重新加载表列表
+            // 但可以显示成功消息或更新错误状态
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+
