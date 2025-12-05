@@ -10,6 +10,7 @@ pub fn show_menu_bar(
     show_settings: &mut bool,
     show_about: &mut bool,
     show_monitor: &mut Option<MonitorMetric>,
+    show_export: &mut bool,
 ) {
     TopBottomPanel::top("menu_top").show(ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
@@ -20,6 +21,11 @@ pub fn show_menu_bar(
                 }
                 if ui.button("Manage Databases...").clicked() {
                     db.show_manage_db = true;
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Export...").clicked() {
+                    *show_export = true;
                     ui.close();
                 }
             });

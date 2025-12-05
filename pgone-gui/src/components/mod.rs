@@ -6,6 +6,7 @@ pub mod sheets;
 pub mod settings;
 pub mod graph;
 pub mod chats;
+pub mod export;
 
 pub use chats::ChatPanel;
 pub use context::{ChatCtx, SqlCtx};
@@ -15,3 +16,4 @@ pub use graph::SchemaGraph;
 pub use preview::PreviewManager;
 pub use sheets::ResultsTable;
 pub use settings::SettingsPanel;
+pub use export::ExportWindow;

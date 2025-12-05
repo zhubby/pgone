@@ -16,7 +16,7 @@ mod storage;
 use storage::SessionStorage;
 
 mod components;
-use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
+use components::{ChatPanel, DbManager, DbTree, ExportWindow, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
 mod skeletons;
 mod styles;
 mod prompt;
@@ -42,6 +42,8 @@ pub struct AppFrame {
     right_panel_width: f32,
     session_storage: SessionStorage,
     show_monitor: Option<skeletons::monitors::MonitorMetric>,
+    show_export: bool,
+    export_window: ExportWindow,
     // mcp_client: Option<McpClientManager>,
 }
 
@@ -170,6 +172,8 @@ impl AppFrame {
             right_panel_width: 300.0,
             session_storage,
             show_monitor: None,
+            show_export: false,
+            export_window: ExportWindow::default(),
             // mcp_client,
         }
     }
@@ -201,6 +205,31 @@ impl AppFrame {
             });
         }
     }
+
+    fn show_export_window(&mut self, ctx: &Context) {
+        if !self.show_export {
+            return;
+        }
+
+        let mut open = true;
+        egui::Window::new("导出数据")
+            .open(&mut open)
+            .default_pos(ctx.screen_rect().center())
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_size([550.0, 600.0])
+            .show(ctx, |ui| {
+                self.export_window.check_export_progress();
+                self.export_window.ui(ui, &mut self.db);
+            });
+
+        if !open {
+            self.show_export = false;
+            // 如果导出完成，重置窗口状态
+            if !self.export_window.is_exporting() {
+                self.export_window = ExportWindow::default();
+            }
+        }
+    }
 }
 
 impl eframe::App for AppFrame {
@@ -214,6 +243,7 @@ impl eframe::App for AppFrame {
             &mut self.show_settings,
             &mut self.show_about,
             &mut self.show_monitor,
+            &mut self.show_export,
         );
 
         // Status bar
@@ -261,6 +291,9 @@ impl eframe::App for AppFrame {
             &mut self.db,
             &mut self.graph,
         );
+
+        // Export window
+        self.show_export_window(ctx);
 
         // Panels
         skeletons::panels::show_left_panel(

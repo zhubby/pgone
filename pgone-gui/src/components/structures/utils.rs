@@ -1,9 +1,9 @@
-pub(super) fn quote_ident(ident: &str) -> String {
+pub fn quote_ident(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
 /// 转义 SQL 字符串字面量
-pub(super) fn quote_literal(literal: &str) -> String {
+pub fn quote_literal(literal: &str) -> String {
     format!("'{}'", literal.replace('\'', "''"))
 }
 
@@ -80,7 +80,7 @@ fn build_column_type_from_detail(col: &pgone_sql::ColumnDetail) -> String {
 }
 
 /// 生成完整的表DDL语句
-pub(super) fn generate_table_ddl(
+pub fn generate_table_ddl(
     schema: &str,
     table_name: &str,
     table_detail: &pgone_sql::TableDetail,
@@ -242,8 +242,62 @@ pub(super) fn generate_table_ddl(
     ddl
 }
 
+/// 生成表的 DML (INSERT) 语句
+pub fn generate_table_dml(
+    schema: &str,
+    table_name: &str,
+    columns: &[String],
+    rows: &[Vec<String>],
+) -> String {
+    if rows.is_empty() {
+        return String::new();
+    }
+
+    let mut dml = String::new();
+    let quoted_table = format!("{}.{}", quote_ident(schema), quote_ident(table_name));
+    let quoted_columns: Vec<String> = columns.iter().map(|c| quote_ident(c)).collect();
+    let columns_str = quoted_columns.join(", ");
+
+    // 批量生成 INSERT 语句，每100条一个批次
+    const BATCH_SIZE: usize = 100;
+    
+    for batch_start in (0..rows.len()).step_by(BATCH_SIZE) {
+        let batch_end = (batch_start + BATCH_SIZE).min(rows.len());
+        let batch = &rows[batch_start..batch_end];
+        
+        if batch_start == 0 {
+            dml.push_str(&format!("INSERT INTO {} ({}) VALUES\n", quoted_table, columns_str));
+        } else {
+            dml.push_str(&format!("\nINSERT INTO {} ({}) VALUES\n", quoted_table, columns_str));
+        }
+
+        for (idx, row) in batch.iter().enumerate() {
+            let values: Vec<String> = row.iter().map(|val| {
+                if val.trim().is_empty() || val == "NULL" {
+                    "NULL".to_string()
+                } else {
+                    // 转义单引号并添加引号
+                    quote_literal(val)
+                }
+            }).collect();
+            
+            dml.push_str("    (");
+            dml.push_str(&values.join(", "));
+            dml.push_str(")");
+            
+            if idx < batch.len() - 1 {
+                dml.push_str(",\n");
+            } else {
+                dml.push_str(";\n");
+            }
+        }
+    }
+
+    dml
+}
+
 /// Replace database name in DSN while preserving password and other parameters
-pub(super) fn replace_database_in_dsn(dsn: &str, new_database: &str) -> Option<String> {
+pub fn replace_database_in_dsn(dsn: &str, new_database: &str) -> Option<String> {
     // Try to parse as URL first - this preserves password and all query parameters
     if let Ok(mut url) = url::Url::parse(dsn) {
         // Set the new database path (url::Url handles encoding automatically)
