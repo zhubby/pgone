@@ -1,14 +1,11 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod error;
+pub mod store;
+pub mod table;
+pub mod types;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub use error::{Result, VectorStoreError};
+pub use store::ChatVectorStore;
+pub use types::{ChatVectorRecord, QueryOptions, QueryResult};
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+/// 默认向量数据库路径
+pub const VECTOR_DATABASE_PATH: &str = "vector.db";

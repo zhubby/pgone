@@ -1,6 +1,7 @@
 /target
 pgone.db
 pgone.db-wal
+vector.db
 .DS_Store
 sessions.json
 /data/*

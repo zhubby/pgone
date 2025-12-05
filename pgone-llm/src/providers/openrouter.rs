@@ -1,5 +1,6 @@
 use crate::{LlmError, Result};
 use serde::Deserialize;
+use rig::providers::openrouter::Client;
 
 /// OpenRouter Models API 响应结构
 #[derive(Debug, Deserialize)]
