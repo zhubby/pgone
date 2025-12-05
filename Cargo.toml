@@ -29,9 +29,14 @@ members = [
     "pgone-gui",
     "pgone-storage",
     "pgone-mcp-server",
-    "pgone-proxy", 
-    "pgone-util", 
-    "pgone-sql", "pgone-agent", "pgone-llm", "pgone-vector", "pgone-mcp-client",
+    "pgone-proxy",
+    "pgone-util",
+    "pgone-sql",
+    "pgone-agent",
+    "pgone-llm",
+    "pgone-vector",
+    "pgone-mcp-client",
+    "pgone",
 ]
 
 resolver = "2"
@@ -62,7 +67,10 @@ rand = "0.8"
 axum = { version = "0.8.1" }
 async-trait = "0.1"
 moka = { version = "0.12", features = ["future"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+sqlx = { version = "0.8.6", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+] }
 prometheus-client = "0.23.1"
 prometheus-client-derive-encode = { version = "0.4.2" }
 strum = { version = "0.27", features = ["derive"] }
@@ -88,6 +96,6 @@ pgone-proxy = { path = "pgone-proxy" }
 pgone-storage = { path = "pgone-storage" }
 pgone-apiserver = { path = "pgone-apiserver" }
 pgone-a2a = { path = "pgone-a2a" }
-pgone-util= { path = "pgone-util" }
+pgone-util = { path = "pgone-util" }
 pgone-sql = { path = "pgone-sql" }
 pgone-llm = { path = "pgone-llm" }
