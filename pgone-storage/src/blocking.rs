@@ -32,6 +32,11 @@ impl StorageBlocking {
         crate::storage::delete_db_config(&mut conn, id).await
     }
 
+    pub async fn get_default_db_config(&self) -> Result<Option<DbConfig>> {
+        let mut conn = self.inner.conn().await?;
+        crate::storage::get_default_db_config(&mut conn).await
+    }
+
     pub async fn create_session(&self, s: &Session) -> Result<()> {
         let mut conn = self.inner.conn().await?;
         crate::storage::create_session(&mut conn, s).await

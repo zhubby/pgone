@@ -52,6 +52,16 @@ impl AppFrame {
         let mut db_manager = components::DbManager::default();
         db_manager.ensure_storage();
         
+        // Load default database config if exists
+        if let Some(ref storage) = db_manager.storage {
+            if let Ok(Some(default_cfg)) = futures::block_on_async(async {
+                storage.get_default_db_config().await
+            }) {
+                db_manager.active_db_config_id = Some(default_cfg.id.clone());
+                tracing::info!("Loaded default database config: {}", default_cfg.id);
+            }
+        }
+        
         // Load settings from database
         let settings = if let Some(ref storage) = db_manager.storage {
             if let Ok(kv_map) = futures::block_on_async(async {

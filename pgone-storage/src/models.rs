@@ -7,6 +7,7 @@ pub struct DbConfig {
     pub dsn: String,
     pub default_schemas: Option<String>,
     pub include_system: Option<bool>,
+    pub default_config: Option<bool>,
     pub created_at: i64,
     pub updated_at: i64,
 }

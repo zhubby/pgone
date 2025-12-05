@@ -13,12 +13,22 @@ pub async fn migrate(conn: &mut Connection) -> Result<()> {
             dsn TEXT NOT NULL,
             default_schemas TEXT,
             include_system INTEGER,
+            default_config INTEGER,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         )",
         (),
     )
     .await?;
+
+    // Migration: Add default_config column if it doesn't exist
+    // This is safe to run multiple times as it checks for column existence
+    conn.execute(
+        "ALTER TABLE db_configs ADD COLUMN default_config INTEGER DEFAULT 0",
+        (),
+    )
+    .await
+    .ok(); // Ignore error if column already exists
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sessions (
