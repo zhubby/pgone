@@ -1,4 +1,5 @@
 use crate::models::*;
+use crate::models::LlmAuditLog;
 use anyhow::Result;
 #[cfg(feature = "backend-libsql")]
 use libsql::{Connection, params};
@@ -390,6 +391,99 @@ pub async fn delete_setting(conn: &mut Connection, key: &str) -> Result<()> {
 pub async fn clear_settings(conn: &mut Connection) -> Result<()> {
     conn.execute("DELETE FROM settings", params![]).await?;
     Ok(())
+}
+
+// =====================
+// LLM Audit Log storage helpers
+// =====================
+
+pub async fn insert_llm_audit_log(conn: &mut Connection, log: &LlmAuditLog) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO llm_audit_logs (
+            id, session_id, provider, model, request_time, response_time,
+            request_size, response_size, request_content, response_content,
+            status, error_message, duration_ms, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            log.id.as_str(),
+            log.session_id.as_deref(),
+            log.provider.as_str(),
+            log.model.as_str(),
+            log.request_time,
+            log.response_time,
+            log.request_size,
+            log.response_size,
+            log.request_content.as_deref(),
+            log.response_content.as_deref(),
+            log.status.as_str(),
+            log.error_message.as_deref(),
+            log.duration_ms,
+            log.created_at,
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn query_llm_audit_logs(
+    conn: &mut Connection,
+    session_id: Option<&str>,
+    limit: Option<i64>,
+) -> Result<Vec<LlmAuditLog>> {
+    let sql = match (session_id, limit) {
+        (Some(_), Some(_)) => {
+            "SELECT id, session_id, provider, model, request_time, response_time,
+             request_size, response_size, request_content, response_content,
+             status, error_message, duration_ms, created_at
+             FROM llm_audit_logs WHERE session_id=?1 ORDER BY request_time DESC LIMIT ?2"
+        }
+        (Some(_), None) => {
+            "SELECT id, session_id, provider, model, request_time, response_time,
+             request_size, response_size, request_content, response_content,
+             status, error_message, duration_ms, created_at
+             FROM llm_audit_logs WHERE session_id=?1 ORDER BY request_time DESC"
+        }
+        (None, Some(_)) => {
+            "SELECT id, session_id, provider, model, request_time, response_time,
+             request_size, response_size, request_content, response_content,
+             status, error_message, duration_ms, created_at
+             FROM llm_audit_logs ORDER BY request_time DESC LIMIT ?1"
+        }
+        (None, None) => {
+            "SELECT id, session_id, provider, model, request_time, response_time,
+             request_size, response_size, request_content, response_content,
+             status, error_message, duration_ms, created_at
+             FROM llm_audit_logs ORDER BY request_time DESC"
+        }
+    };
+
+    let mut rows = match (session_id, limit) {
+        (Some(sid), Some(l)) => conn.query(sql, params![sid, l]).await?,
+        (Some(sid), None) => conn.query(sql, params![sid]).await?,
+        (None, Some(l)) => conn.query(sql, params![l]).await?,
+        (None, None) => conn.query(sql, params![]).await?,
+    };
+
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().await? {
+        out.push(LlmAuditLog {
+            id: r.get::<String>(0)?,
+            session_id: r.get::<Option<String>>(1)?,
+            provider: r.get::<String>(2)?,
+            model: r.get::<String>(3)?,
+            request_time: r.get::<i64>(4)?,
+            response_time: r.get::<Option<i64>>(5)?,
+            request_size: r.get::<Option<i64>>(6)?,
+            response_size: r.get::<Option<i64>>(7)?,
+            request_content: r.get::<Option<String>>(8)?,
+            response_content: r.get::<Option<String>>(9)?,
+            status: r.get::<String>(10)?,
+            error_message: r.get::<Option<String>>(11)?,
+            duration_ms: r.get::<Option<i64>>(12)?,
+            created_at: r.get::<i64>(13)?,
+        });
+    }
+    Ok(out)
 }
 
 

@@ -44,6 +44,12 @@ pub struct DbFormData {
     pub password: String,
     pub error: Option<String>,
     pub test_status: Option<bool>, // None = not tested, Some(true) = success, Some(false) = failed
+    // SSL configuration
+    pub ssl_enabled: bool,
+    pub ssl_mode: String,
+    pub ssl_cert_file_id: Option<String>,
+    pub ssl_key_file_id: Option<String>,
+    pub ssl_rootcert_file_id: Option<String>,
 }
 
 impl Default for DbFormData {
@@ -58,6 +64,11 @@ impl Default for DbFormData {
             password: String::new(),
             error: None,
             test_status: None,
+            ssl_enabled: false,
+            ssl_mode: "prefer".to_string(),
+            ssl_cert_file_id: None,
+            ssl_key_file_id: None,
+            ssl_rootcert_file_id: None,
         }
     }
 }
@@ -82,6 +93,16 @@ pub struct DbManager {
     pub show_delete_confirm: bool,
 }
 
+#[derive(Debug, Clone)]
+pub enum FilePickerTarget {
+    AddSslCert,
+    AddSslKey,
+    AddSslRootcert,
+    EditSslCert,
+    EditSslKey,
+    EditSslRootcert,
+}
+
 impl Default for DbManager {
     fn default() -> Self {
         Self {
@@ -101,6 +122,82 @@ impl Default for DbManager {
 }
 
 impl DbManager {
+    /// Build DSN with SSL parameters if enabled
+    fn build_dsn(
+        engine: &str,
+        user: &str,
+        password: &str,
+        host: &str,
+        port: u16,
+        database: &str,
+        ssl_enabled: bool,
+        ssl_mode: &str,
+        ssl_cert_file_id: Option<&String>,
+        ssl_key_file_id: Option<&String>,
+        ssl_rootcert_file_id: Option<&String>,
+        storage: Option<&StorageBlocking>,
+    ) -> Result<String, String> {
+        let dbname = if database.trim().is_empty() {
+            String::new()
+        } else {
+            database.trim().to_string()
+        };
+        
+        let mut dsn = format!(
+            "{}://{}:{}@{}:{}{}",
+            engine,
+            urlencoding::encode(user.trim()),
+            urlencoding::encode(password.trim()),
+            host.trim(),
+            port,
+            if dbname.is_empty() {
+                String::new()
+            } else {
+                format!("/{}", dbname)
+            }
+        );
+        
+        // Add SSL parameters if enabled
+        if ssl_enabled {
+            let mut params = vec![format!("sslmode={}", urlencoding::encode(ssl_mode))];
+            
+            // Get file paths from file IDs
+            if let Some(storage) = storage {
+                if let Some(cert_id) = ssl_cert_file_id {
+                    if let Ok(Some(file)) = futures::block_on_async(async {
+                        storage.get_file(cert_id).await
+                    }) {
+                        let cert_path = format!("./data/{}", file.current_path);
+                        params.push(format!("sslcert={}", urlencoding::encode(&cert_path)));
+                    }
+                }
+                
+                if let Some(key_id) = ssl_key_file_id {
+                    if let Ok(Some(file)) = futures::block_on_async(async {
+                        storage.get_file(key_id).await
+                    }) {
+                        let key_path = format!("./data/{}", file.current_path);
+                        params.push(format!("sslkey={}", urlencoding::encode(&key_path)));
+                    }
+                }
+                
+                if let Some(rootcert_id) = ssl_rootcert_file_id {
+                    if let Ok(Some(file)) = futures::block_on_async(async {
+                        storage.get_file(rootcert_id).await
+                    }) {
+                        let rootcert_path = format!("./data/{}", file.current_path);
+                        params.push(format!("sslrootcert={}", urlencoding::encode(&rootcert_path)));
+                    }
+                }
+            }
+            
+            dsn.push('?');
+            dsn.push_str(&params.join("&"));
+        }
+        
+        Ok(dsn)
+    }
+
     /// Parse DSN to extract connection information
     pub fn parse_dsn(dsn: &str) -> Option<ParsedDsn> {
         // DSN format: postgresql://user:password@host:port/database
@@ -282,6 +379,82 @@ impl DbManager {
                         );
                     });
                     
+                    // SSL Configuration Section
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.set_width(label_width);
+                            ui.label("SSL");
+                        });
+                        ui.checkbox(&mut self.add_db_form.ssl_enabled, "启用SSL");
+                    });
+                    
+                    if self.add_db_form.ssl_enabled {
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_width(label_width);
+                                ui.label("SSL Mode");
+                            });
+                            egui::ComboBox::from_id_salt("add_ssl_mode")
+                                .selected_text(&self.add_db_form.ssl_mode)
+                                .show_ui(ui, |ui| {
+                                    for mode in ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] {
+                                        ui.selectable_value(
+                                            &mut self.add_db_form.ssl_mode,
+                                            mode.to_string(),
+                                            mode,
+                                        );
+                                    }
+                                });
+                        });
+                        
+                        // SSL Certificate files
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_width(label_width);
+                                ui.label("客户端证书");
+                            });
+                            if ui.button("选择文件").clicked() {
+                                self.select_and_upload_file(FilePickerTarget::AddSslCert);
+                            }
+                            if let Some(ref file_id) = self.add_db_form.ssl_cert_file_id {
+                                if let Some(file_name) = self.get_file_name(file_id) {
+                                    ui.label(format!("已选择: {}", file_name));
+                                }
+                            }
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_width(label_width);
+                                ui.label("客户端密钥");
+                            });
+                            if ui.button("选择文件").clicked() {
+                                self.select_and_upload_file(FilePickerTarget::AddSslKey);
+                            }
+                            if let Some(ref file_id) = self.add_db_form.ssl_key_file_id {
+                                if let Some(file_name) = self.get_file_name(file_id) {
+                                    ui.label(format!("已选择: {}", file_name));
+                                }
+                            }
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_width(label_width);
+                                ui.label("根证书");
+                            });
+                            if ui.button("选择文件").clicked() {
+                                self.select_and_upload_file(FilePickerTarget::AddSslRootcert);
+                            }
+                            if let Some(ref file_id) = self.add_db_form.ssl_rootcert_file_id {
+                                if let Some(file_name) = self.get_file_name(file_id) {
+                                    ui.label(format!("已选择: {}", file_name));
+                                }
+                            }
+                        });
+                    }
+                    
                     if let Some(err) = &self.add_db_form.error {
                         ui.colored_label(egui::Color32::RED, err);
                     }
@@ -411,6 +584,82 @@ impl DbManager {
                                 .hint_text("Leave empty to keep existing"),
                         );
                     });
+                    
+                    // SSL Configuration Section
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.set_width(label_width);
+                            ui.label("SSL");
+                        });
+                        ui.checkbox(&mut self.edit_db_form.ssl_enabled, "启用SSL");
+                    });
+                    
+                    if self.edit_db_form.ssl_enabled {
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_width(label_width);
+                                ui.label("SSL Mode");
+                            });
+                            egui::ComboBox::from_id_salt("edit_ssl_mode")
+                                .selected_text(&self.edit_db_form.ssl_mode)
+                                .show_ui(ui, |ui| {
+                                    for mode in ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] {
+                                        ui.selectable_value(
+                                            &mut self.edit_db_form.ssl_mode,
+                                            mode.to_string(),
+                                            mode,
+                                        );
+                                    }
+                                });
+                        });
+                        
+                        // SSL Certificate files
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_width(label_width);
+                                ui.label("客户端证书");
+                            });
+                            if ui.button("选择文件").clicked() {
+                                self.select_and_upload_file(FilePickerTarget::EditSslCert);
+                            }
+                            if let Some(ref file_id) = self.edit_db_form.ssl_cert_file_id {
+                                if let Some(file_name) = self.get_file_name(file_id) {
+                                    ui.label(format!("已选择: {}", file_name));
+                                }
+                            }
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_width(label_width);
+                                ui.label("客户端密钥");
+                            });
+                            if ui.button("选择文件").clicked() {
+                                self.select_and_upload_file(FilePickerTarget::EditSslKey);
+                            }
+                            if let Some(ref file_id) = self.edit_db_form.ssl_key_file_id {
+                                if let Some(file_name) = self.get_file_name(file_id) {
+                                    ui.label(format!("已选择: {}", file_name));
+                                }
+                            }
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_width(label_width);
+                                ui.label("根证书");
+                            });
+                            if ui.button("选择文件").clicked() {
+                                self.select_and_upload_file(FilePickerTarget::EditSslRootcert);
+                            }
+                            if let Some(ref file_id) = self.edit_db_form.ssl_rootcert_file_id {
+                                if let Some(file_name) = self.get_file_name(file_id) {
+                                    ui.label(format!("已选择: {}", file_name));
+                                }
+                            }
+                        });
+                    }
                     
                     if let Some(err) = &self.edit_db_form.error {
                         ui.colored_label(egui::Color32::RED, err);
@@ -667,24 +916,31 @@ impl DbManager {
         };
         
         // 构建 DSN
-        let dbname = if self.add_db_form.database.trim().is_empty() {
-            String::new()
-        } else {
-            self.add_db_form.database.trim().to_string()
-        };
-        let dsn = format!(
-            "{}://{}:{}@{}:{}{}",
+        let dsn = match Self::build_dsn(
             self.add_db_form.engine.as_str(),
-            urlencoding::encode(self.add_db_form.user.trim()),
-            urlencoding::encode(self.add_db_form.password.trim()),
-            self.add_db_form.host.trim(),
+            &self.add_db_form.user,
+            &self.add_db_form.password,
+            &self.add_db_form.host,
             port,
-            if dbname.is_empty() {
-                String::new()
-            } else {
-                format!("/{}", dbname)
+            &self.add_db_form.database,
+            self.add_db_form.ssl_enabled,
+            &self.add_db_form.ssl_mode,
+            self.add_db_form.ssl_cert_file_id.as_ref(),
+            self.add_db_form.ssl_key_file_id.as_ref(),
+            self.add_db_form.ssl_rootcert_file_id.as_ref(),
+            self.storage.as_ref(),
+        ) {
+            Ok(dsn) => dsn,
+            Err(e) => {
+                self.add_db_form.test_status = Some(false);
+                self.add_db_form.error = Some(e.clone());
+                notify::db_connection_error(
+                    &self.add_db_form.name.trim().to_string(),
+                    &e
+                );
+                return;
             }
-        );
+        };
         
         // 获取数据库名称用于通知
         let db_name = if self.add_db_form.name.trim().is_empty() {
@@ -752,24 +1008,21 @@ impl DbManager {
         if self.add_db_form.user.trim().is_empty() {
             return Err("User is required".into());
         }
-        let dbname = if self.add_db_form.database.trim().is_empty() {
-            String::new()
-        } else {
-            self.add_db_form.database.trim().to_string()
-        };
-        let dsn = format!(
-            "{}://{}:{}@{}:{}{}",
+        let dsn = Self::build_dsn(
             self.add_db_form.engine.as_str(),
-            urlencoding::encode(self.add_db_form.user.trim()),
-            urlencoding::encode(self.add_db_form.password.trim()),
-            self.add_db_form.host.trim(),
+            &self.add_db_form.user,
+            &self.add_db_form.password,
+            &self.add_db_form.host,
             port,
-            if dbname.is_empty() {
-                String::new()
-            } else {
-                format!("/{}", dbname)
-            }
-        );
+            &self.add_db_form.database,
+            self.add_db_form.ssl_enabled,
+            &self.add_db_form.ssl_mode,
+            self.add_db_form.ssl_cert_file_id.as_ref(),
+            self.add_db_form.ssl_key_file_id.as_ref(),
+            self.add_db_form.ssl_rootcert_file_id.as_ref(),
+            self.storage.as_ref(),
+        ).map_err(|e| format!("Failed to build DSN: {}", e))?;
+        
         let now = Self::now_ts();
         let cfg = pgone_storage::models::DbConfig {
             id: self.add_db_form.name.trim().to_string(),
@@ -818,6 +1071,47 @@ impl DbManager {
             self.edit_db_form.user = parsed.user;
             // Password is not stored, leave it empty
             self.edit_db_form.password = String::new();
+            
+            // Parse SSL parameters from DSN
+            if let Ok(url) = url::Url::parse(&cfg.dsn) {
+                let query_pairs: std::collections::HashMap<String, String> = url
+                    .query_pairs()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect();
+                
+                // Check if SSL is enabled
+                if let Some(ssl_mode) = query_pairs.get("sslmode") {
+                    self.edit_db_form.ssl_enabled = true;
+                    self.edit_db_form.ssl_mode = ssl_mode.clone();
+                    
+                    // Try to find file IDs from paths
+                    self.ensure_storage();
+                    if let Some(storage) = &self.storage {
+                        // Find SSL cert file ID
+                        if let Some(cert_path) = query_pairs.get("sslcert") {
+                            if let Some(file_id) = Self::find_file_id_by_path(storage, cert_path) {
+                                self.edit_db_form.ssl_cert_file_id = Some(file_id);
+                            }
+                        }
+                        
+                        // Find SSL key file ID
+                        if let Some(key_path) = query_pairs.get("sslkey") {
+                            if let Some(file_id) = Self::find_file_id_by_path(storage, key_path) {
+                                self.edit_db_form.ssl_key_file_id = Some(file_id);
+                            }
+                        }
+                        
+                        // Find SSL rootcert file ID
+                        if let Some(rootcert_path) = query_pairs.get("sslrootcert") {
+                            if let Some(file_id) = Self::find_file_id_by_path(storage, rootcert_path) {
+                                self.edit_db_form.ssl_rootcert_file_id = Some(file_id);
+                            }
+                        }
+                    }
+                } else {
+                    self.edit_db_form.ssl_enabled = false;
+                }
+            }
         } else {
             return Err("Failed to parse DSN".into());
         }
@@ -872,24 +1166,20 @@ impl DbManager {
             self.edit_db_form.password.trim().to_string()
         };
         
-        let dbname = if self.edit_db_form.database.trim().is_empty() {
-            String::new()
-        } else {
-            self.edit_db_form.database.trim().to_string()
-        };
-        let dsn = format!(
-            "{}://{}:{}@{}:{}{}",
+        let dsn = Self::build_dsn(
             self.edit_db_form.engine.as_str(),
-            urlencoding::encode(self.edit_db_form.user.trim()),
-            urlencoding::encode(&password),
-            self.edit_db_form.host.trim(),
+            &self.edit_db_form.user,
+            &password,
+            &self.edit_db_form.host,
             port,
-            if dbname.is_empty() {
-                String::new()
-            } else {
-                format!("/{}", dbname)
-            }
-        );
+            &self.edit_db_form.database,
+            self.edit_db_form.ssl_enabled,
+            &self.edit_db_form.ssl_mode,
+            self.edit_db_form.ssl_cert_file_id.as_ref(),
+            self.edit_db_form.ssl_key_file_id.as_ref(),
+            self.edit_db_form.ssl_rootcert_file_id.as_ref(),
+            self.storage.as_ref(),
+        ).map_err(|e| format!("Failed to build DSN: {}", e))?;
         
         let cfg = pgone_storage::models::DbConfig {
             id: self.edit_db_form.name.trim().to_string(),
@@ -914,6 +1204,96 @@ impl DbManager {
             },
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    /// Open file picker dialog and upload selected file
+    pub fn select_and_upload_file(&mut self, target: FilePickerTarget) {
+        self.ensure_storage();
+        
+        // Open file dialog
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Certificate Files", &["crt", "cer", "pem", "key", "p12", "pfx"])
+            .add_filter("All Files", &["*"])
+            .pick_file()
+        {
+            // Upload file to storage
+            if let Some(storage) = &self.storage {
+                let file_path = path.to_string_lossy().to_string();
+                match futures::block_on_async(async {
+                    storage.copy_file_to_index(&file_path).await
+                }) {
+                    Ok(file_index) => {
+                        // Set the file ID based on target
+                        match target {
+                            FilePickerTarget::AddSslCert => {
+                                self.add_db_form.ssl_cert_file_id = Some(file_index.id.clone());
+                            }
+                            FilePickerTarget::AddSslKey => {
+                                self.add_db_form.ssl_key_file_id = Some(file_index.id.clone());
+                            }
+                            FilePickerTarget::AddSslRootcert => {
+                                self.add_db_form.ssl_rootcert_file_id = Some(file_index.id.clone());
+                            }
+                            FilePickerTarget::EditSslCert => {
+                                self.edit_db_form.ssl_cert_file_id = Some(file_index.id.clone());
+                            }
+                            FilePickerTarget::EditSslKey => {
+                                self.edit_db_form.ssl_key_file_id = Some(file_index.id.clone());
+                            }
+                            FilePickerTarget::EditSslRootcert => {
+                                self.edit_db_form.ssl_rootcert_file_id = Some(file_index.id.clone());
+                            }
+                        }
+                        notify::info(format!("文件已上传: {}", file_index.original_path));
+                    }
+                    Err(e) => {
+                        notify::error(format!("上传文件失败: {}", e));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get file name by ID
+    fn get_file_name(&self, file_id: &str) -> Option<String> {
+        if let Some(storage) = &self.storage {
+            if let Ok(Some(file)) = futures::block_on_async(async {
+                storage.get_file(file_id).await
+            }) {
+                return Some(
+                    std::path::Path::new(&file.original_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(&file.original_path)
+                        .to_string()
+                );
+            }
+        }
+        None
+    }
+
+
+    /// Find file ID by path (supports both ./data/xxx and xxx formats)
+    fn find_file_id_by_path(storage: &StorageBlocking, path: &str) -> Option<String> {
+        // Remove ./data/ prefix if present
+        let normalized_path = path.strip_prefix("./data/").unwrap_or(path);
+        
+        // List all files and search by path
+        if let Ok(files) = futures::block_on_async(async {
+            storage.list_files().await
+        }) {
+            // Try to find by current_path
+            if let Some(file) = files.iter().find(|f| f.current_path == normalized_path) {
+                return Some(file.id.clone());
+            }
+            
+            // Try to find by original_path
+            if let Some(file) = files.iter().find(|f| f.original_path == path || f.original_path == normalized_path) {
+                return Some(file.id.clone());
+            }
+        }
+        
+        None
     }
 
     /// Test connection for edit form
@@ -964,24 +1344,31 @@ impl DbManager {
             self.edit_db_form.password.trim().to_string()
         };
         
-        let dbname = if self.edit_db_form.database.trim().is_empty() {
-            String::new()
-        } else {
-            self.edit_db_form.database.trim().to_string()
-        };
-        let dsn = format!(
-            "{}://{}:{}@{}:{}{}",
+        let dsn = match Self::build_dsn(
             self.edit_db_form.engine.as_str(),
-            urlencoding::encode(self.edit_db_form.user.trim()),
-            urlencoding::encode(&password),
-            self.edit_db_form.host.trim(),
+            &self.edit_db_form.user,
+            &password,
+            &self.edit_db_form.host,
             port,
-            if dbname.is_empty() {
-                String::new()
-            } else {
-                format!("/{}", dbname)
+            &self.edit_db_form.database,
+            self.edit_db_form.ssl_enabled,
+            &self.edit_db_form.ssl_mode,
+            self.edit_db_form.ssl_cert_file_id.as_ref(),
+            self.edit_db_form.ssl_key_file_id.as_ref(),
+            self.edit_db_form.ssl_rootcert_file_id.as_ref(),
+            self.storage.as_ref(),
+        ) {
+            Ok(dsn) => dsn,
+            Err(e) => {
+                self.edit_db_form.test_status = Some(false);
+                self.edit_db_form.error = Some(e.clone());
+                notify::db_connection_error(
+                    &self.edit_db_form.name.trim().to_string(),
+                    &e
+                );
+                return;
             }
-        );
+        };
         
         let db_name = if self.edit_db_form.name.trim().is_empty() {
             format!("{}@{}:{}", self.edit_db_form.user.trim(), self.edit_db_form.host.trim(), port)

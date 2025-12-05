@@ -444,8 +444,8 @@ impl ResultsTable {
             return;
         }
 
-        debug!("query_columns: {:?}", self.query_columns);
-        debug!("query_rows: {:?}", self.query_rows);
+        // debug!("query_columns: {:?}", self.query_columns);
+        // debug!("query_rows: {:?}", self.query_rows);
 
         // 将查询结果转换为 QueryRow 格式
         let table_data: Vec<QueryRow> = self

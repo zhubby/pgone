@@ -16,6 +16,7 @@ pub struct ChatCtx<'a> {
     pub openai_model: String,
     pub storage: &'a mut SessionStorage,
     pub should_scroll_to_bottom: bool,
+    pub active_db_config_id: Option<String>,
 }
 
 #[derive(Default)]

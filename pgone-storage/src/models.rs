@@ -81,3 +81,21 @@ pub struct FileIndex {
     pub created_at: i64,
     pub updated_at: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmAuditLog {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub provider: String,
+    pub model: String,
+    pub request_time: i64,
+    pub response_time: Option<i64>,
+    pub request_size: Option<i64>,
+    pub response_size: Option<i64>,
+    pub request_content: Option<String>,
+    pub response_content: Option<String>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub created_at: i64,
+}

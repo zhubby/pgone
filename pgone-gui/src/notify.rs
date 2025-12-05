@@ -16,11 +16,39 @@ pub fn show(ctx: &egui::Context) {
     }
 }
 
+/// Truncate message to maximum length (100 characters)
+fn truncate_text(text: &str) -> String {
+    const MAX_LENGTH: usize = 100;
+    if text.len() <= MAX_LENGTH {
+        text.to_string()
+    } else {
+        format!("{}...", &text[..MAX_LENGTH])
+    }
+}
+
+/// Extract text content from WidgetText and truncate if needed
+fn truncate_message(message: impl Into<egui::WidgetText>) -> egui::WidgetText {
+    let widget_text = message.into();
+    
+    // Convert WidgetText to string using Debug format, then clean it up
+    let debug_str = format!("{:?}", widget_text);
+    // Remove quotes and other debug formatting
+    let clean_str = debug_str
+        .trim_matches('"')
+        .replace("\\n", "\n")
+        .replace("\\\"", "\"");
+    
+    // Truncate if needed
+    let truncated = truncate_text(&clean_str);
+    
+    truncated.into()
+}
+
 /// Show success notification (green)
 #[allow(dead_code)]
 pub fn success(message: impl Into<egui::WidgetText>) {
     if let Ok(mut toasts) = get_toasts().lock() {
-        toasts.success(message);
+        toasts.success(truncate_message(message));
     }
 }
 
@@ -28,7 +56,7 @@ pub fn success(message: impl Into<egui::WidgetText>) {
 #[allow(dead_code)]
 pub fn error(message: impl Into<egui::WidgetText>) {
     if let Ok(mut toasts) = get_toasts().lock() {
-        toasts.error(message);
+        toasts.error(truncate_message(message));
     }
 }
 
@@ -36,7 +64,7 @@ pub fn error(message: impl Into<egui::WidgetText>) {
 #[allow(dead_code)]
 pub fn warning(message: impl Into<egui::WidgetText>) {
     if let Ok(mut toasts) = get_toasts().lock() {
-        toasts.warning(message);
+        toasts.warning(truncate_message(message));
     }
 }
 
@@ -44,7 +72,7 @@ pub fn warning(message: impl Into<egui::WidgetText>) {
 #[allow(dead_code)]
 pub fn info(message: impl Into<egui::WidgetText>) {
     if let Ok(mut toasts) = get_toasts().lock() {
-        toasts.info(message);
+        toasts.info(truncate_message(message));
     }
 }
 
@@ -141,12 +169,7 @@ pub fn network_error(message: &str) {
 /// Copy success notification
 #[allow(dead_code)]
 pub fn copy_success(content: &str) {
-    let display_content = if content.len() > 50 {
-        format!("{}...", &content[..50])
-    } else {
-        content.to_string()
-    };
-    info(format!("Copied to clipboard: {}", display_content));
+    info(format!("Copied to clipboard: {}", content));
 }
 
 /// Copy error notification

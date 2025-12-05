@@ -17,7 +17,7 @@ impl SessionStorage {
     fn ensure_storage(&mut self) -> Result<&mut StorageBlocking> {
         if self.storage.is_none() {
             let storage = futures::block_on_async(async {
-                StorageBlocking::open_local("pgone.db").await
+                StorageBlocking::open_local(pgone_storage::DATABASE_PATH).await
             })?;
             self.storage = Some(storage);
         }

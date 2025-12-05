@@ -86,6 +86,7 @@ impl SettingsPanel {
             LLMProvider::DeepSeek,
             LLMProvider::Ollama,
             LLMProvider::BigModel,
+            LLMProvider::OpenRouter,
         ]
     }
     
@@ -98,6 +99,7 @@ impl SettingsPanel {
             LLMProvider::DeepSeek => "DeepSeek",
             LLMProvider::Ollama => "Ollama",
             LLMProvider::BigModel => "BigModel",
+            LLMProvider::OpenRouter => "OpenRouter",
         }
     }
 
@@ -155,7 +157,9 @@ impl SettingsPanel {
                             self.models_loaded = true;
                         }
                         Err(e) => {
-                            tracing::error!("加载模型列表失败: {}", e);
+                            let message = format!("加载模型列表失败: {}", e);
+                            crate::notify::error(&message);
+                            tracing::error!("{}", message);
                             // 如果加载失败，使用默认模型列表
                             self.available_models = vec![
                                 "gpt-4o-mini".to_string(),

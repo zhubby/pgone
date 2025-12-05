@@ -2,6 +2,7 @@ mod config;
 mod error;
 mod providers;
 
+pub mod audit;
 pub mod chat;
 pub mod embeddings;
 pub mod images;
@@ -34,6 +35,7 @@ pub enum LLMProvider {
     DeepSeek,
     Ollama,
     BigModel,
+    OpenRouter,
 }
 
 impl Client {

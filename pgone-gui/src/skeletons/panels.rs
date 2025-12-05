@@ -29,6 +29,7 @@ pub fn show_right_panel(
     state: &mut PersistedState,
     preview: &mut PreviewManager,
     storage: &mut SessionStorage,
+    db: &DbManager,
 ) {
     SidePanel::right("right_panel")
         .resizable(true)
@@ -45,6 +46,7 @@ pub fn show_right_panel(
                 openai_model: settings.openai_model.clone(),
                 storage,
                 should_scroll_to_bottom: false,
+                active_db_config_id: db.active_db_config_id.clone(),
             };
             chat.ui(&mut chat_ctx, ui);
         });
