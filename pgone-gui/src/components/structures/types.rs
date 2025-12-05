@@ -17,6 +17,7 @@ pub(super) enum DialogType {
     PropertiesSchema { database: String, name: String },
     PropertiesTable { database: String, schema: String, name: String },
     DesignTable { database: String, schema: String, name: String },
+    ShowDdl { database: String, schema: String, name: String },
 }
 
 /// 可编辑的列数据结构
@@ -85,12 +86,16 @@ pub struct DbTree {
     pub(super) dialog: Option<DialogType>,
     pub(super) dialog_input: String,
     pub(super) dialog_ddl: String, // For create table DDL
+    pub(super) dialog_ddl_content: String, // For show DDL content
     pub(super) dialog_cascade: bool, // For delete operations
     
     // Table design state
     pub(super) design_table_detail: Option<TableDetail>, // 原始表结构
     pub(super) design_table_columns: Vec<EditableColumn>, // 可编辑的列数据
     pub(super) design_table_promise: Option<Promise<Result<TableDetail, String>>>, // 异步加载表结构的 Promise
+    
+    // DDL state
+    pub(super) ddl_promise: Option<Promise<Result<String, String>>>, // 异步加载DDL的 Promise
     
     // Pending actions (to avoid borrow checker issues in context menus)
     pub(super) pending_query_table: Option<(String, String, String)>, // (database, schema, table)
@@ -99,6 +104,7 @@ pub struct DbTree {
     pub(super) pending_query_trigger: Option<(String, String, String, String)>, // (database, schema, table, trigger)
     pub(super) pending_open_sql_editor: bool, // Flag to open SQL editor
     pub(super) pending_open_graph: Option<(String, String)>, // (database, schema) - Flag to open graph window
+    pub(super) pending_load_ddl: Option<(String, String, String)>, // (database, schema, table) - Flag to load DDL
     
     // Error state
     pub(super) error: Option<String>,

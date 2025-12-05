@@ -122,6 +122,21 @@ pub(super) fn check_promises(tree: &mut DbTree) {
     for key in completed_triggers {
         tree.triggers_promises.remove(&key);
     }
+
+    // Check DDL promise
+    if let Some(ref promise) = tree.ddl_promise {
+        if let Some(result) = promise.ready() {
+            match result {
+                Ok(ddl) => {
+                    tree.dialog_ddl_content = ddl.clone();
+                }
+                Err(e) => {
+                    tree.error = Some(format!("Failed to load DDL: {}", e));
+                }
+            }
+            tree.ddl_promise = None;
+        }
+    }
 }
 
 pub(super) fn load_databases(tree: &mut DbTree, db_manager: &mut crate::components::DbManager) {
@@ -313,6 +328,51 @@ pub(super) fn load_table_detail_for_design(
             session.get_table_detail(&schema_clone, &table_clone)
                 .await
                 .map_err(|e| format!("Failed to get table detail: {}", e))
+        }.await;
+        
+        sender.send(result);
+    });
+}
+
+/// 加载表DDL
+pub(super) fn load_table_ddl(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+    table: &str,
+) {
+    if tree.ddl_promise.is_some() {
+        return; // Already loading
+    }
+    
+    let dsn = get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let table_clone = table.to_string();
+    let (sender, promise) = Promise::new();
+    tree.ddl_promise = Some(promise);
+    
+    futures::spawn(async move {
+        let result: Result<String, String> = async {
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
+            // 获取表结构详情
+            let table_detail = session.get_table_detail(&schema_clone, &table_clone)
+                .await
+                .map_err(|e| format!("Failed to get table detail: {}", e))?;
+            
+            // 获取索引信息
+            let indexes = session.list_table_indexes(&schema_clone, &table_clone)
+                .await
+                .map_err(|e| format!("Failed to list indexes: {}", e))?;
+            
+            // 生成DDL
+            Ok(utils::generate_table_ddl(&schema_clone, &table_clone, &table_detail, &indexes))
         }.await;
         
         sender.send(result);

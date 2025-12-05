@@ -58,6 +58,11 @@ impl DbTree {
             loading::query_trigger_detail(self, db_manager, results_table, &database, &schema, &table, &trigger);
         }
 
+        // Handle pending load DDL action
+        if let Some((database, schema, table)) = self.pending_load_ddl.take() {
+            loading::load_table_ddl(self, db_manager, &database, &schema, &table);
+        }
+
         // Render tree
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
@@ -318,6 +323,17 @@ impl DbTree {
                                                 self.pending_open_sql_editor = true;
                                                 ui.close();
                                             }
+                                            if ui.button("Show DDL").clicked() {
+                                                use super::types::DialogType;
+                                                self.dialog = Some(DialogType::ShowDdl {
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                    name: table_name_menu.clone(),
+                                                });
+                                                self.dialog_ddl_content.clear();
+                                                self.pending_load_ddl = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone()));
+                                                ui.close();
+                                            }
                                             if ui.button("Design").clicked() {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::DesignTable {
@@ -511,6 +527,9 @@ impl DbTree {
         self.design_table_detail = None;
         self.design_table_columns.clear();
         self.design_table_promise = None;
+        self.ddl_promise = None;
+        self.dialog_ddl_content.clear();
+        self.pending_load_ddl = None;
     }
 }
 

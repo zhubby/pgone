@@ -196,6 +196,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
             DialogType::PropertiesSchema { .. } => "Schema Properties",
             DialogType::PropertiesTable { .. } => "Table Properties",
             DialogType::DesignTable { .. } => "Design Table",
+            DialogType::ShowDdl { .. } => "Show DDL",
         };
         
         let mut open = true;
@@ -203,6 +204,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
         let mut should_delete = false;
         let mut should_rename = false;
         let mut should_save_design = false;
+        let mut should_close = false;
         let mut delete_cascade = tree.dialog_cascade;
         
         let center = ui.ctx().screen_rect().center();
@@ -227,8 +229,17 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
             window = window
                 .default_size([900.0, default_height])
                 .resizable(true)
-                .max_size([1400.0, 900.0])
+                .max_size([1200.0, 600.0])
                 .min_size([600.0, 300.0]);
+        }
+        
+        // 为 ShowDdl 对话框设置合适的大小
+        if matches!(dialog_type, DialogType::ShowDdl { .. }) {
+            window = window
+                .default_size([800.0, 300.0])
+                .resizable(true)
+                .max_size([1200.0, 600.0])
+                .min_size([600.0, 250.0]);
         }
         
         window.show(ui.ctx(), |ui| {
@@ -464,11 +475,65 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                             });
                         }
                     }
+                    DialogType::ShowDdl { database: _, schema: _, name: _ } => {
+                        // 检查异步加载的DDL
+                        if let Some(ref promise) = tree.ddl_promise {
+                            if let Some(result) = promise.ready() {
+                                match result {
+                                    Ok(_) => {
+                                        // DDL已加载到dialog_ddl_content
+                                    }
+                                    Err(e) => {
+                                        ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
+                                        tree.ddl_promise = None;
+                                    }
+                                }
+                            } else {
+                                ui.label("Loading DDL...");
+                                return;
+                            }
+                        }
+                        
+                        // 显示DDL内容，使用SQL高亮
+                        let ddl_content = tree.dialog_ddl_content.clone();
+                        let available_height = ui.available_height() - 60.0; // 为按钮预留空间
+                        
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(5.0);
+                                    
+                                    let mut ddl_text = ddl_content.clone();
+                                    let ddl_text_ref = &mut ddl_text;
+                                    
+                                    ui.add_sized(
+                                        egui::Vec2::new(ui.available_width() - 5.0, available_height.max(200.0)),
+                                        egui::TextEdit::multiline(ddl_text_ref)
+                                            .desired_rows((available_height.max(200.0) / 20.0) as usize)
+                                            .interactive(false) // 设置为只读
+                                            .layouter(&mut move |ui, _text, wrap_width| {
+                                                let mut job = crate::sql::highlight_sql(&ddl_content, ui.visuals());
+                                                job.wrap.max_width = wrap_width;
+                                                ui.fonts(|f| f.layout_job(job))
+                                            }),
+                                    );
+                                });
+                            });
+                        
+                        // 关闭按钮
+                        ui.separator();
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Close").clicked() {
+                                should_close = true;
+                            }
+                        });
+                    }
                 }
             });
         
         // Close window if action was triggered
-        if should_create || should_delete || should_rename || should_save_design {
+        if should_create || should_delete || should_rename || should_save_design || should_close {
             open = false; // Close window to trigger action execution
         }
         
@@ -492,7 +557,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::CreateTable { database, schema } => {
                         operations::create_table(tree, db_manager, &database, &schema, &dialog_ddl_clone);
                     }
-                    DialogType::DesignTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } => {}
+                    DialogType::DesignTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } => {}
                 }
             } else if should_delete {
                 tree.dialog_cascade = delete_cascade;
@@ -506,7 +571,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::DeleteTable { database, schema, name } => {
                         operations::delete_table(tree, db_manager, &database, &schema, &name, delete_cascade);
                     }
-                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } => {}
+                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } => {}
                 }
             } else if should_rename {
                 match dialog_type {
@@ -519,7 +584,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::RenameTable { database, schema, old_name } => {
                         operations::rename_table(tree, db_manager, &database, &schema, &old_name, &dialog_input_clone);
                     }
-                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } => {}
+                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } => {}
                 }
             } else if should_save_design {
                 match dialog_type {
@@ -542,7 +607,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                         // 关闭对话框
                         tree.dialog = None;
                     }
-                    DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } => {}
+                    DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::ShowDdl { .. } => {}
                 }
             }
         }
