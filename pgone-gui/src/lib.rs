@@ -52,13 +52,26 @@ impl AppFrame {
         let mut db_manager = components::DbManager::default();
         db_manager.ensure_storage();
         
-        // Load default database config if exists
+        // Load default database config if exists and verify connection
         if let Some(ref storage) = db_manager.storage {
             if let Ok(Some(default_cfg)) = futures::block_on_async(async {
                 storage.get_default_db_config().await
             }) {
-                db_manager.active_db_config_id = Some(default_cfg.id.clone());
-                tracing::info!("Loaded default database config: {}", default_cfg.id);
+                // Verify connection before setting as active
+                match components::DbManager::verify_connection_quickly(&default_cfg.dsn) {
+                    Ok(()) => {
+                        db_manager.active_db_config_id = Some(default_cfg.id.clone());
+                        tracing::info!("Loaded default database config: {}", default_cfg.id);
+                    }
+                    Err(e) => {
+                        notify::db_connection_error(&default_cfg.id, &e);
+                        tracing::warn!(
+                            "Default database config '{}' is not available: {}",
+                            default_cfg.id,
+                            e
+                        );
+                    }
+                }
             }
         }
         
@@ -313,21 +326,23 @@ pub fn run() -> anyhow::Result<()> {
             if let Ok(entries) = fs::read_dir(fonts_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("ttf") {
-                        if let Ok(font_data) = fs::read(&path) {
-                            // Extract font name from filename (without extension)
-                            let font_name = path
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("Unknown")
-                                .to_string();
+                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                        if ext == "ttf" || ext == "otf" {
+                            if let Ok(font_data) = fs::read(&path) {
+                                // Extract font name from filename (without extension)
+                                let font_name = path
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("Unknown")
+                                    .to_string();
 
-                            fonts.font_data.insert(
-                                font_name.clone(),
-                                Arc::new(egui::FontData::from_owned(font_data)),
-                            );
+                                fonts.font_data.insert(
+                                    font_name.clone(),
+                                    Arc::new(egui::FontData::from_owned(font_data)),
+                                );
 
-                            loaded_fonts.push(font_name);
+                                loaded_fonts.push(font_name);
+                            }
                         }
                     }
                 }

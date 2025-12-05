@@ -1010,6 +1010,41 @@ impl DbManager {
         }
     }
 
+    /// Quickly verify database connection with timeout
+    /// Returns Ok(()) if connection is successful, Err(error_message) if failed
+    pub fn verify_connection_quickly(dsn: &str) -> Result<(), String> {
+        use std::time::Duration;
+        use tokio::time::timeout;
+
+        // Set timeout to 5 seconds
+        let timeout_duration = Duration::from_secs(5);
+
+        futures::block_on_async(async {
+            match timeout(timeout_duration, async {
+                // Try to connect
+                let pool = PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(dsn)
+                    .await
+                    .map_err(|e| format!("Connection failed: {}", e))?;
+
+                // Try to execute a simple query
+                sqlx::query("SELECT 1")
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| format!("Query execution failed: {}", e))?;
+
+                Ok::<(), String>(())
+            })
+            .await
+            {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err("Connection timeout: database is not reachable".to_string()),
+            }
+        })
+    }
+
     pub fn save_new_database(&mut self) -> Result<(), String> {
         self.ensure_storage();
         let Some(storage) = self.storage.as_ref() else {
