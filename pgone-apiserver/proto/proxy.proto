@@ -1,15 +1,15 @@
 syntax = "proto3";
 
-package pgone.auditor.v1;
+package pgone.proxy.v1;
 
-// 审计服务
-service AuditorService {
-  // 执行 SQL 审计
-  rpc Execute(AuditRequest) returns (AuditResponse);
+// 代理服务
+service ProxyService {
+  // 执行 SQL 代理
+  rpc Execute(ProxyRequest) returns (ProxyResponse);
 }
 
-// 审计请求
-message AuditRequest {
+// 代理请求
+message ProxyRequest {
   // 连接配置
   ConnectionConfig config = 1;
   // SQL 语句列表
@@ -20,7 +20,7 @@ message AuditRequest {
 message ConnectionConfig {
   // 数据库连接字符串 (DSN)
   string dsn = 1;
-  // SQL 语句列表（已废弃，使用 AuditRequest.sql）
+  // SQL 语句列表（已废弃，使用 ProxyRequest.sql）
   repeated string sql = 2 [deprecated = true];
   // SSL/TLS 配置
   optional SslConfig ssl = 3;
@@ -38,8 +38,8 @@ message SslConfig {
   string mode = 4;
 }
 
-// 审计响应
-message AuditResponse {
+// 代理响应
+message ProxyResponse {
   // 执行结果列表
   repeated StatementResult results = 1;
 }

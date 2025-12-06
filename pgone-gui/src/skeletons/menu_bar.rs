@@ -98,11 +98,11 @@ pub fn show_menu_bar(
             //     }
             // });
             ui.menu_button("Help", |ui| {
-                if ui.button("关于").clicked() {
+                if ui.button("About").clicked() {
                     *show_about = true;
                     ui.close();
                 }
-                if ui.button("项目地址").clicked() {
+                if ui.button("Project Address").clicked() {
                     let _ = webbrowser::open("https://github.com/zhubby/pgone");
                     ui.close();
                 }

@@ -5,28 +5,28 @@ use tonic::{transport::Server, Request, Response, Status};
 use tracing::info;
 
 pub mod proto {
-    tonic::include_proto!("pgone.auditor.v1");
+    tonic::include_proto!("pgone.proxy.v1");
 }
 
-use proto::auditor_service_server::{AuditorService, AuditorServiceServer};
-use proto::{AuditRequest, AuditResponse, ConnectionConfig, Row, StatementResult};
+use proto::proxy_service_server::{ProxyService, ProxyServiceServer};
+use proto::{ProxyRequest, ProxyResponse, ConnectionConfig, Row, StatementResult};
 
 use crate::proxy::execute_sqls;
 
 #[derive(Debug, Default)]
-pub struct AuditorServiceImpl;
+pub struct ProxyServiceImpl;
 
 #[tonic::async_trait]
-impl AuditorService for AuditorServiceImpl {
+impl ProxyService for ProxyServiceImpl {
     async fn execute(
         &self,
-        request: Request<AuditRequest>,
-    ) -> Result<Response<AuditResponse>, Status> {
+        request: Request<ProxyRequest>,
+    ) -> Result<Response<ProxyResponse>, Status> {
         let req = request.into_inner();
         
         info!(
             sql_count = req.sql.len(),
-            "Received gRPC audit request"
+            "Received gRPC proxy request"
         );
 
         // 转换 ConnectionConfig 为 ConnectionExtractorConfig
@@ -56,7 +56,7 @@ impl AuditorService for AuditorServiceImpl {
             })
             .collect();
 
-        Ok(Response::new(AuditResponse {
+        Ok(Response::new(ProxyResponse {
             results: proto_results,
         }))
     }
@@ -88,10 +88,10 @@ fn convert_connection_config(config: &ConnectionConfig) -> Result<ConnectionExtr
 pub async fn serve_grpc(addr: SocketAddr, shutdown: impl std::future::Future<Output = ()> + Send + 'static) -> Result<()> {
     info!("Starting gRPC server on {}", addr);
 
-    let auditor_service = AuditorServiceImpl::default();
+    let proxy_service = ProxyServiceImpl::default();
 
     Server::builder()
-        .add_service(AuditorServiceServer::new(auditor_service))
+        .add_service(ProxyServiceServer::new(proxy_service))
         .serve_with_shutdown(addr, shutdown)
         .await?;
 
