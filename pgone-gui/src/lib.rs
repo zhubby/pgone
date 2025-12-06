@@ -16,10 +16,9 @@ mod storage;
 use storage::SessionStorage;
 
 mod components;
-use components::{ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
+use components::{ChatPanel, DbManager, DbTree, ExportWindow, ImportWindow, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
 mod skeletons;
 mod styles;
-mod media;
 mod prompt;
 mod mcp;
 
@@ -43,6 +42,10 @@ pub struct AppFrame {
     right_panel_width: f32,
     session_storage: SessionStorage,
     show_monitor: Option<skeletons::monitors::MonitorMetric>,
+    show_export: bool,
+    export_window: ExportWindow,
+    show_import: bool,
+    import_window: ImportWindow,
     // mcp_client: Option<McpClientManager>,
 }
 
@@ -52,6 +55,29 @@ impl AppFrame {
         // Initialize storage first to load settings
         let mut db_manager = components::DbManager::default();
         db_manager.ensure_storage();
+        
+        // Load default database config if exists and verify connection
+        if let Some(ref storage) = db_manager.storage {
+            if let Ok(Some(default_cfg)) = futures::block_on_async(async {
+                storage.get_default_db_config().await
+            }) {
+                // Verify connection before setting as active
+                match components::DbManager::verify_connection_quickly(&default_cfg.dsn) {
+                    Ok(()) => {
+                        db_manager.active_db_config_id = Some(default_cfg.id.clone());
+                        tracing::info!("Loaded default database config: {}", default_cfg.id);
+                    }
+                    Err(e) => {
+                        notify::db_connection_error(&default_cfg.id, &e);
+                        tracing::warn!(
+                            "Default database config '{}' is not available: {}",
+                            default_cfg.id,
+                            e
+                        );
+                    }
+                }
+            }
+        }
         
         // Load settings from database
         let settings = if let Some(ref storage) = db_manager.storage {
@@ -148,6 +174,10 @@ impl AppFrame {
             right_panel_width: 300.0,
             session_storage,
             show_monitor: None,
+            show_export: false,
+            export_window: ExportWindow::default(),
+            show_import: false,
+            import_window: ImportWindow::default(),
             // mcp_client,
         }
     }
@@ -179,6 +209,56 @@ impl AppFrame {
             });
         }
     }
+
+    fn show_export_window(&mut self, ctx: &Context) {
+        if !self.show_export {
+            return;
+        }
+
+        let mut open = true;
+        egui::Window::new("导出数据")
+            .open(&mut open)
+            .default_pos(ctx.screen_rect().center())
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_size([550.0, 600.0])
+            .show(ctx, |ui| {
+                self.export_window.check_export_progress();
+                self.export_window.ui(ui, &mut self.db);
+            });
+
+        if !open {
+            self.show_export = false;
+            // 如果导出完成，重置窗口状态
+            if !self.export_window.is_exporting() {
+                self.export_window = ExportWindow::default();
+            }
+        }
+    }
+
+    fn show_import_window(&mut self, ctx: &Context) {
+        if !self.show_import {
+            return;
+        }
+
+        let mut open = true;
+        egui::Window::new("导入数据")
+            .open(&mut open)
+            .default_pos(ctx.screen_rect().center())
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_size([600.0, 700.0])
+            .show(ctx, |ui| {
+                self.import_window.check_import_progress();
+                self.import_window.ui(ui, &mut self.db);
+            });
+
+        if !open {
+            self.show_import = false;
+            // 如果导入完成，重置窗口状态
+            if !self.import_window.is_importing() {
+                self.import_window = ImportWindow::default();
+            }
+        }
+    }
 }
 
 impl eframe::App for AppFrame {
@@ -192,6 +272,8 @@ impl eframe::App for AppFrame {
             &mut self.show_settings,
             &mut self.show_about,
             &mut self.show_monitor,
+            &mut self.show_export,
+            &mut self.show_import,
         );
 
         // Status bar
@@ -239,6 +321,12 @@ impl eframe::App for AppFrame {
             &mut self.db,
             &mut self.graph,
         );
+
+        // Export window
+        self.show_export_window(ctx);
+
+        // Import window
+        self.show_import_window(ctx);
 
         // Panels
         skeletons::panels::show_left_panel(
@@ -304,21 +392,23 @@ pub fn run() -> anyhow::Result<()> {
             if let Ok(entries) = fs::read_dir(fonts_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("ttf") {
-                        if let Ok(font_data) = fs::read(&path) {
-                            // Extract font name from filename (without extension)
-                            let font_name = path
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("Unknown")
-                                .to_string();
+                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                        if ext == "ttf" || ext == "otf" {
+                            if let Ok(font_data) = fs::read(&path) {
+                                // Extract font name from filename (without extension)
+                                let font_name = path
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("Unknown")
+                                    .to_string();
 
-                            fonts.font_data.insert(
-                                font_name.clone(),
-                                Arc::new(egui::FontData::from_owned(font_data)),
-                            );
+                                fonts.font_data.insert(
+                                    font_name.clone(),
+                                    Arc::new(egui::FontData::from_owned(font_data)),
+                                );
 
-                            loaded_fonts.push(font_name);
+                                loaded_fonts.push(font_name);
+                            }
                         }
                     }
                 }

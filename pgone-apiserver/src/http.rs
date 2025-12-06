@@ -1,13 +1,13 @@
 use axum::{extract::Json, response::IntoResponse, routing::post, Router};
 use http::StatusCode;
-use pgone_auditor::extractor::ConnectionExtractorConfig;
+use pgone_proxy::extractor::ConnectionExtractorConfig;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::auditor::execute_sqls;
+use crate::proxy::execute_sqls;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct AuditRequest {
+pub struct ProxyRequest {
     pub config: ConnectionConfigRequest,
     pub sql: Vec<String>,
 }
@@ -31,7 +31,7 @@ pub struct SslConfigRequest {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct AuditResponse {
+pub struct ProxyResponse {
     pub results: Vec<StatementResultResponse>,
 }
 
@@ -54,19 +54,19 @@ pub struct RowResponse {
 
 #[utoipa::path(
     post,
-    path = "/api/v1/audit/execute",
-    request_body = AuditRequest,
+    path = "/api/v1/proxy/execute",
+    request_body = ProxyRequest,
     responses(
-        (status = 200, description = "Audit execution result", body = AuditResponse)
+        (status = 200, description = "Proxy execution result", body = ProxyResponse)
     ),
-    tag = "auditor"
+    tag = "proxy"
 )]
-pub async fn execute_audit(Json(req): Json<AuditRequest>) -> impl IntoResponse {
+pub async fn execute_proxy(Json(req): Json<ProxyRequest>) -> impl IntoResponse {
     // 转换请求配置
     let config = ConnectionExtractorConfig {
         dsn: req.config.dsn,
         sql: vec![], // SQL 从请求中获取
-        ssl: req.config.ssl.map(|s| pgone_auditor::extractor::SslExtractorConfig {
+        ssl: req.config.ssl.map(|s| pgone_proxy::extractor::SslExtractorConfig {
             cert: s.cert.map(|p| p.into()),
             key: s.key.map(|p| p.into()),
             ca: s.ca.map(|p| p.into()),
@@ -94,15 +94,15 @@ pub async fn execute_audit(Json(req): Json<AuditRequest>) -> impl IntoResponse {
                 })
                 .collect();
 
-            (StatusCode::OK, Json(AuditResponse {
+            (StatusCode::OK, Json(ProxyResponse {
                 results: response_results,
             }))
         }
         Err(e) => {
-            tracing::error!(error = ?e, "Failed to execute audit");
+            tracing::error!(error = ?e, "Failed to execute proxy");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AuditResponse {
+                Json(ProxyResponse {
                     results: vec![],
                 }),
             )
@@ -111,6 +111,6 @@ pub async fn execute_audit(Json(req): Json<AuditRequest>) -> impl IntoResponse {
 }
 
 pub fn router() -> Router {
-    Router::new().route("/api/v1/audit/execute", post(execute_audit))
+    Router::new().route("/api/v1/proxy/execute", post(execute_proxy))
 }
 

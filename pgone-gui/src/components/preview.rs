@@ -1,4 +1,4 @@
-use crate::media::MediaCache;
+use crate::styles::media::MediaCache;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]

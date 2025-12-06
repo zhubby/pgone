@@ -313,6 +313,7 @@ impl DbManager {
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     // 使用固定宽度的标签来对齐文本框
                     let label_width = 80.0;
@@ -518,6 +519,7 @@ impl DbManager {
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     let label_width = 80.0;
                     
@@ -721,6 +723,7 @@ impl DbManager {
                 .default_size(egui::vec2(600.0, 400.0))
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     self.ensure_storage();
                     if let Some(storage) = &self.storage {
@@ -733,6 +736,7 @@ impl DbManager {
                         } else {
                             let mut to_select: Option<String> = None;
                             let mut to_edit: Option<String> = None;
+                            let mut to_set_default: Option<String> = None;
                             let active_id = self.active_db_config_id.clone();
                             
                             egui::ScrollArea::vertical()
@@ -751,6 +755,12 @@ impl DbManager {
                                                     ui.colored_label(
                                                         egui::Color32::GREEN,
                                                         "(Active)"
+                                                    );
+                                                }
+                                                if cfg.default_config == Some(true) {
+                                                    ui.colored_label(
+                                                        egui::Color32::BLUE,
+                                                        "(默认)"
                                                     );
                                                 }
                                             });
@@ -794,6 +804,11 @@ impl DbManager {
                                                 if ui.button("编辑").clicked() {
                                                     to_edit = Some(cfg.id.clone());
                                                 }
+                                                if cfg.default_config != Some(true) {
+                                                    if ui.button("设为默认").clicked() {
+                                                        to_set_default = Some(cfg.id.clone());
+                                                    }
+                                                }
                                                 if ui.button(egui::RichText::new("删除").color(egui::Color32::RED)).clicked() {
                                                     self.delete_confirm_id = Some(cfg.id.clone());
                                                     self.show_delete_confirm = true;
@@ -816,6 +831,13 @@ impl DbManager {
                                     self.show_edit_db = true;
                                 }
                             }
+                            if let Some(id) = to_set_default {
+                                if let Err(e) = self.set_default_db_config(&id) {
+                                    notify::error(format!("设置默认配置失败: {}", e));
+                                } else {
+                                    notify::info(format!("已将 '{}' 设为默认配置", id));
+                                }
+                            }
                         }
                     } else {
                         ui.label("Storage not ready");
@@ -836,6 +858,7 @@ impl DbManager {
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
+                .collapsible(false)
                 .show(ctx, |ui| {
                     if let Some(ref id) = id_to_delete {
                         ui.label(format!("确定要删除数据库配置 '{}' 吗？", id));
@@ -987,6 +1010,41 @@ impl DbManager {
         }
     }
 
+    /// Quickly verify database connection with timeout
+    /// Returns Ok(()) if connection is successful, Err(error_message) if failed
+    pub fn verify_connection_quickly(dsn: &str) -> Result<(), String> {
+        use std::time::Duration;
+        use tokio::time::timeout;
+
+        // Set timeout to 5 seconds
+        let timeout_duration = Duration::from_secs(5);
+
+        futures::block_on_async(async {
+            match timeout(timeout_duration, async {
+                // Try to connect
+                let pool = PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(dsn)
+                    .await
+                    .map_err(|e| format!("Connection failed: {}", e))?;
+
+                // Try to execute a simple query
+                sqlx::query("SELECT 1")
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| format!("Query execution failed: {}", e))?;
+
+                Ok::<(), String>(())
+            })
+            .await
+            {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err("Connection timeout: database is not reachable".to_string()),
+            }
+        })
+    }
+
     pub fn save_new_database(&mut self) -> Result<(), String> {
         self.ensure_storage();
         let Some(storage) = self.storage.as_ref() else {
@@ -1030,6 +1088,7 @@ impl DbManager {
             dsn,
             default_schemas: None,
             include_system: Some(false),
+            default_config: Some(false),
             created_at: now,
             updated_at: now,
         };
@@ -1187,6 +1246,7 @@ impl DbManager {
             dsn,
             default_schemas: existing_cfg.default_schemas.clone(),
             include_system: existing_cfg.include_system,
+            default_config: existing_cfg.default_config,
             created_at: existing_cfg.created_at,
             updated_at: Self::now_ts(),
         };
@@ -1409,6 +1469,48 @@ impl DbManager {
                 self.edit_db_form.error = Some(error_msg.clone());
                 notify::db_connection_error(&db_name, &error_msg);
             }
+        }
+    }
+
+    /// Set a database config as default
+    /// This will set the specified config's default_config to true
+    /// and set all other configs' default_config to false
+    pub fn set_default_db_config(&mut self, id: &str) -> Result<(), String> {
+        self.ensure_storage();
+        let Some(storage) = self.storage.as_ref() else {
+            return Err("storage not ready".into());
+        };
+
+        // Get all configs
+        let all_configs = futures::block_on_async(async {
+            storage.list_db_configs(None).await
+        }).map_err(|e| format!("Failed to list configs: {}", e))?;
+
+        let now = Self::now_ts();
+
+        // First, set all configs' default_config to false
+        for cfg in &all_configs {
+            let mut updated_cfg = cfg.clone();
+            updated_cfg.default_config = Some(false);
+            updated_cfg.updated_at = now;
+            let _ = futures::block_on_async(async {
+                storage.upsert_db_config(&updated_cfg).await
+            });
+        }
+
+        // Then, set the specified config's default_config to true
+        if let Some(mut target_cfg) = all_configs.iter().find(|c| c.id == id).cloned() {
+            target_cfg.default_config = Some(true);
+            target_cfg.updated_at = now;
+            let res = futures::block_on_async(async {
+                storage.upsert_db_config(&target_cfg).await
+            });
+            match res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("Failed to set default config: {}", e)),
+            }
+        } else {
+            Err(format!("Database config '{}' not found", id))
         }
     }
 }

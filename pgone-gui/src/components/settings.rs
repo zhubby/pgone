@@ -55,13 +55,15 @@ impl SettingsPanel {
         if let Ok(entries) = fs::read_dir(fonts_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("ttf") {
-                    if let Some(font_name) = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .map(|s| s.to_string())
-                    {
-                        fonts.push(font_name);
+                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    if ext == "ttf" || ext == "otf" {
+                        if let Some(font_name) = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .map(|s| s.to_string())
+                        {
+                            fonts.push(font_name);
+                        }
                     }
                 }
             }

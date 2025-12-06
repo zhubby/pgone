@@ -43,6 +43,21 @@ impl DbTree {
             loading::query_table_data(self, db_manager, results_table, &database, &schema, &table);
         }
 
+        // Handle pending query view action
+        if let Some((database, schema, view)) = self.pending_query_view.take() {
+            loading::query_view_detail(self, db_manager, results_table, &database, &schema, &view);
+        }
+
+        // Handle pending query materialized view action
+        if let Some((database, schema, matview)) = self.pending_query_materialized_view.take() {
+            loading::query_materialized_view_detail(self, db_manager, results_table, &database, &schema, &matview);
+        }
+
+        // Handle pending query function action
+        if let Some((database, schema, function)) = self.pending_query_function.take() {
+            loading::query_function_detail(self, db_manager, results_table, &database, &schema, &function);
+        }
+
         // Handle pending query index action
         if let Some((database, schema, table, index)) = self.pending_query_index.take() {
             loading::query_index_detail(self, db_manager, results_table, &database, &schema, &table, &index);
@@ -56,6 +71,11 @@ impl DbTree {
         // Handle pending query trigger action
         if let Some((database, schema, table, trigger)) = self.pending_query_trigger.take() {
             loading::query_trigger_detail(self, db_manager, results_table, &database, &schema, &table, &trigger);
+        }
+
+        // Handle pending load DDL action
+        if let Some((database, schema, table)) = self.pending_load_ddl.take() {
+            loading::load_table_ddl(self, db_manager, &database, &schema, &table);
         }
 
         // Render tree
@@ -82,9 +102,9 @@ impl DbTree {
                 }
             }
             
-            // Pre-load tables for expanded schemas
+            // Pre-load tables, views, materialized views, and functions for expanded schemas
             let databases_clone2 = self.databases.clone();
-            let mut tables_to_load = Vec::new();
+            let mut items_to_load = Vec::new();
             for db in &databases_clone2 {
                 let db_name = db.name.clone();
                 let schemas_clone = self.schemas.get(&db_name).cloned();
@@ -94,16 +114,31 @@ impl DbTree {
                         let schema_name = schema.name.clone();
                         let should_load = expanded_schemas.map(|s| s.contains(&schema_name)).unwrap_or(false);
                         if should_load {
-                            let tables_key = format!("{}.{}", db_name, schema_name);
-                            if !self.loaded_tables.get(&tables_key).copied().unwrap_or(false) {
-                                tables_to_load.push((db_name.clone(), schema_name));
+                            let key = format!("{}.{}", db_name, schema_name);
+                            if !self.loaded_tables.get(&key).copied().unwrap_or(false) {
+                                items_to_load.push(("tables", db_name.clone(), schema_name.clone()));
+                            }
+                            if !self.loaded_views.get(&key).copied().unwrap_or(false) {
+                                items_to_load.push(("views", db_name.clone(), schema_name.clone()));
+                            }
+                            if !self.loaded_materialized_views.get(&key).copied().unwrap_or(false) {
+                                items_to_load.push(("materialized_views", db_name.clone(), schema_name.clone()));
+                            }
+                            if !self.loaded_functions.get(&key).copied().unwrap_or(false) {
+                                items_to_load.push(("functions", db_name.clone(), schema_name.clone()));
                             }
                         }
                     }
                 }
             }
-            for (db_name, schema_name) in tables_to_load {
-                loading::load_tables(self, db_manager, &db_name, &schema_name);
+            for (item_type, db_name, schema_name) in items_to_load {
+                match item_type {
+                    "tables" => loading::load_tables(self, db_manager, &db_name, &schema_name),
+                    "views" => loading::load_views(self, db_manager, &db_name, &schema_name),
+                    "materialized_views" => loading::load_materialized_views(self, db_manager, &db_name, &schema_name),
+                    "functions" => loading::load_functions(self, db_manager, &db_name, &schema_name),
+                    _ => {}
+                }
             }
 
             // Pre-load indexes, foreign keys, and triggers for expanded tables
@@ -180,13 +215,34 @@ impl DbTree {
                                     expanded_schemas.insert(schema_name.clone());
                                 }
                                 
-                                // Show tables
-                                if let Some(tables) = self.tables.get(&tables_key) {
-                                    let expanded_tables = self.expanded_tables.entry(tables_key.clone()).or_insert_with(HashSet::new);
+                                // Show Tables category
+                                let tables_expanded_key = format!("{}_tables", tables_key);
+                                let is_tables_category_expanded = self.expanded_tables
+                                    .get(&tables_key)
+                                    .map(|s| s.contains(&tables_expanded_key))
+                                    .unwrap_or(false);
+                                
+                                let tables_category_response = egui::CollapsingHeader::new(
+                                    format!("{} Tables", egui_phosphor::regular::TABLE)
+                                )
+                                .default_open(is_tables_category_expanded)
+                                .show(ui, |ui| {
+                                    if !is_tables_category_expanded {
+                                        self.expanded_tables
+                                            .entry(tables_key.clone())
+                                            .or_insert_with(HashSet::new)
+                                            .insert(tables_expanded_key.clone());
+                                    }
                                     
-                                    for table in tables {
-                                        let table_name = table.name.clone();
-                                        let is_table_expanded = expanded_tables.contains(&table_name);
+                                    if let Some(tables) = self.tables.get(&tables_key) {
+                                        let expanded_tables_set = self.expanded_tables
+                                            .entry(tables_key.clone())
+                                            .or_insert_with(HashSet::new);
+                                        
+                                        for table in tables {
+                                            let table_name = table.name.clone();
+                                            let table_expanded_key = format!("table_{}", table_name);
+                                            let is_table_expanded = expanded_tables_set.contains(&table_expanded_key);
                                         
                                         let table_response = egui::CollapsingHeader::new(
                                             format!("{} {}", egui_phosphor::regular::TABLE, table_name)
@@ -194,15 +250,17 @@ impl DbTree {
                                         .default_open(is_table_expanded)
                                                 .show(ui, |ui| {
                                             if !is_table_expanded {
-                                                expanded_tables.insert(table_name.clone());
+                                                expanded_tables_set.insert(table_expanded_key.clone());
                                             }
                                             
                                             let item_key = format!("{}.{}.{}", db_name, schema_name, table_name);
                                             
                                             // Show indexes
                                             let indexes_key = format!("{}_indexes", item_key);
-                                            let expanded_indexes = self.expanded_indexes.entry(item_key.clone()).or_insert_with(HashSet::new);
-                                            let is_indexes_expanded = expanded_indexes.contains(&indexes_key);
+                                            let is_indexes_expanded = self.expanded_indexes
+                                                .get(&item_key)
+                                                .map(|s| s.contains(&indexes_key))
+                                                .unwrap_or(false);
                                             
                                             let indexes_response = egui::CollapsingHeader::new(
                                                 format!("{} Indexes", egui_phosphor::regular::LIST_BULLETS)
@@ -210,7 +268,10 @@ impl DbTree {
                                             .default_open(is_indexes_expanded)
                                             .show(ui, |ui| {
                                                 if !is_indexes_expanded {
-                                                    expanded_indexes.insert(indexes_key.clone());
+                                                    self.expanded_indexes
+                                                        .entry(item_key.clone())
+                                                        .or_insert_with(HashSet::new)
+                                                        .insert(indexes_key.clone());
                                                 }
                                                 
                                                 if let Some(indexes) = self.indexes.get(&item_key) {
@@ -226,13 +287,18 @@ impl DbTree {
                                             });
                                             
                                             if !is_indexes_expanded && indexes_response.header_response.clicked() {
-                                                expanded_indexes.insert(indexes_key.clone());
+                                                self.expanded_indexes
+                                                    .entry(item_key.clone())
+                                                    .or_insert_with(HashSet::new)
+                                                    .insert(indexes_key.clone());
                                             }
                                             
                                             // Show foreign keys
                                             let fks_key = format!("{}_foreign_keys", item_key);
-                                            let expanded_foreign_keys = self.expanded_foreign_keys.entry(item_key.clone()).or_insert_with(HashSet::new);
-                                            let is_fks_expanded = expanded_foreign_keys.contains(&fks_key);
+                                            let is_fks_expanded = self.expanded_foreign_keys
+                                                .get(&item_key)
+                                                .map(|s| s.contains(&fks_key))
+                                                .unwrap_or(false);
                                             
                                             let fks_response = egui::CollapsingHeader::new(
                                                 format!("{} Foreign Keys", egui_phosphor::regular::LINK)
@@ -240,7 +306,10 @@ impl DbTree {
                                             .default_open(is_fks_expanded)
                                             .show(ui, |ui| {
                                                 if !is_fks_expanded {
-                                                    expanded_foreign_keys.insert(fks_key.clone());
+                                                    self.expanded_foreign_keys
+                                                        .entry(item_key.clone())
+                                                        .or_insert_with(HashSet::new)
+                                                        .insert(fks_key.clone());
                                                 }
                                                 
                                                 if let Some(foreign_keys) = self.foreign_keys.get(&item_key) {
@@ -260,13 +329,18 @@ impl DbTree {
                                             });
                                             
                                             if !is_fks_expanded && fks_response.header_response.clicked() {
-                                                expanded_foreign_keys.insert(fks_key.clone());
+                                                self.expanded_foreign_keys
+                                                    .entry(item_key.clone())
+                                                    .or_insert_with(HashSet::new)
+                                                    .insert(fks_key.clone());
                                             }
                                             
                                             // Show triggers
                                             let triggers_key = format!("{}_triggers", item_key);
-                                            let expanded_triggers = self.expanded_triggers.entry(item_key.clone()).or_insert_with(HashSet::new);
-                                            let is_triggers_expanded = expanded_triggers.contains(&triggers_key);
+                                            let is_triggers_expanded = self.expanded_triggers
+                                                .get(&item_key)
+                                                .map(|s| s.contains(&triggers_key))
+                                                .unwrap_or(false);
                                             
                                             let triggers_response = egui::CollapsingHeader::new(
                                                 format!("{} Triggers", egui_phosphor::regular::LIGHTNING)
@@ -274,7 +348,10 @@ impl DbTree {
                                             .default_open(is_triggers_expanded)
                                             .show(ui, |ui| {
                                                 if !is_triggers_expanded {
-                                                    expanded_triggers.insert(triggers_key.clone());
+                                                    self.expanded_triggers
+                                                        .entry(item_key.clone())
+                                                        .or_insert_with(HashSet::new)
+                                                        .insert(triggers_key.clone());
                                                 }
                                                 
                                                 if let Some(triggers) = self.triggers.get(&item_key) {
@@ -290,7 +367,10 @@ impl DbTree {
                                             });
                                             
                                             if !is_triggers_expanded && triggers_response.header_response.clicked() {
-                                                expanded_triggers.insert(triggers_key.clone());
+                                                self.expanded_triggers
+                                                    .entry(item_key.clone())
+                                                    .or_insert_with(HashSet::new)
+                                                    .insert(triggers_key.clone());
                                             }
                                         });
                                         
@@ -316,6 +396,17 @@ impl DbTree {
                                             }
                                             if ui.button("New Query").clicked() {
                                                 self.pending_open_sql_editor = true;
+                                                ui.close();
+                                            }
+                                            if ui.button("Show DDL").clicked() {
+                                                use super::types::DialogType;
+                                                self.dialog = Some(DialogType::ShowDdl {
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                    name: table_name_menu.clone(),
+                                                });
+                                                self.dialog_ddl_content.clear();
+                                                self.pending_load_ddl = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone()));
                                                 ui.close();
                                             }
                                             if ui.button("Design").clicked() {
@@ -355,6 +446,15 @@ impl DbTree {
                                                 });
                                                 ui.close();
                                             }
+                                            if ui.button("Drop").clicked() {
+                                                use super::types::DialogType;
+                                                self.dialog = Some(DialogType::DropTable {
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                    name: table_name_menu.clone(),
+                                                });
+                                                ui.close();
+                                            }
                                         });
                                         
                                         // 收集需要加载的表设计信息
@@ -366,17 +466,199 @@ impl DbTree {
                                         }
                                     }
                                     
-                                    // Add table button
-                                    if ui.button(format!("{} New Table", egui_phosphor::regular::PLUS)).clicked() {
-                                        use super::types::DialogType;
-                                        self.dialog = Some(DialogType::CreateTable {
-                                            database: db_name.clone(),
-                                            schema: schema_name.clone(),
-                                        });
-                                        self.dialog_ddl = format!("CREATE TABLE {}.{} (\n    id SERIAL PRIMARY KEY\n);", schema_name, "new_table");
+                                        // Add table button
+                                        if ui.button(format!("{} New Table", egui_phosphor::regular::PLUS)).clicked() {
+                                            use super::types::DialogType;
+                                            self.dialog = Some(DialogType::CreateTable {
+                                                database: db_name.clone(),
+                                                schema: schema_name.clone(),
+                                            });
+                                            self.dialog_ddl = format!("CREATE TABLE {}.{} (\n    id SERIAL PRIMARY KEY\n);", schema_name, "new_table");
+                                        }
+                                    } else {
+                                        ui.label("Loading tables...");
                                     }
-                                } else {
-                                    ui.label("Loading tables...");
+                                });
+                                
+                                if !is_tables_category_expanded && tables_category_response.header_response.clicked() {
+                                    self.expanded_tables
+                                        .entry(tables_key.clone())
+                                        .or_insert_with(HashSet::new)
+                                        .insert(tables_expanded_key.clone());
+                                }
+                                
+                                // Show Views category
+                                let views_expanded_key = format!("{}_views", tables_key);
+                                let expanded_views_category = self.expanded_views.entry(tables_key.clone()).or_insert_with(HashSet::new);
+                                let is_views_category_expanded = expanded_views_category.contains(&views_expanded_key);
+                                
+                                let views_category_response = egui::CollapsingHeader::new(
+                                    format!("{} Views", egui_phosphor::regular::EYE)
+                                )
+                                .default_open(is_views_category_expanded)
+                                .show(ui, |ui| {
+                                    if !is_views_category_expanded {
+                                        expanded_views_category.insert(views_expanded_key.clone());
+                                    }
+                                    
+                                    if let Some(views) = self.views.get(&tables_key) {
+                                        for view in views {
+                                            let view_name = view.name.clone();
+                                            let db_name_menu = db_name.clone();
+                                            let schema_name_menu = schema_name.clone();
+                                            let view_name_menu = view_name.clone();
+                                            
+                                            let view_response = ui.selectable_label(false, &view_name);
+                                            if view_response.clicked() {
+                                                self.pending_query_view = Some((db_name_menu.clone(), schema_name_menu.clone(), view_name_menu.clone()));
+                                            }
+                                            
+                                            // Context menu for view
+                                            view_response.context_menu(|ui| {
+                                                if ui.button("Properties").clicked() {
+                                                    use super::types::DialogType;
+                                                    self.dialog = Some(DialogType::PropertiesView {
+                                                        database: db_name_menu.clone(),
+                                                        schema: schema_name_menu.clone(),
+                                                        name: view_name_menu.clone(),
+                                                    });
+                                                    ui.close();
+                                                }
+                                            });
+                                        }
+                                        
+                                        // Add view button
+                                        if ui.button(format!("{} New View", egui_phosphor::regular::PLUS)).clicked() {
+                                            use super::types::DialogType;
+                                            self.dialog = Some(DialogType::CreateView {
+                                                database: db_name.clone(),
+                                                schema: schema_name.clone(),
+                                            });
+                                            self.dialog_ddl = format!("CREATE VIEW {}.{} AS\nSELECT * FROM {};", schema_name, "new_view", "table_name");
+                                        }
+                                    } else {
+                                        ui.label("Loading views...");
+                                    }
+                                });
+                                
+                                if !is_views_category_expanded && views_category_response.header_response.clicked() {
+                                    expanded_views_category.insert(views_expanded_key.clone());
+                                }
+                                
+                                // Show Materialized Views category
+                                let matviews_expanded_key = format!("{}_materialized_views", tables_key);
+                                let expanded_matviews_category = self.expanded_materialized_views.entry(tables_key.clone()).or_insert_with(HashSet::new);
+                                let is_matviews_category_expanded = expanded_matviews_category.contains(&matviews_expanded_key);
+                                
+                                let matviews_category_response = egui::CollapsingHeader::new(
+                                    format!("{} Materialized Views", egui_phosphor::regular::STACK)
+                                )
+                                .default_open(is_matviews_category_expanded)
+                                .show(ui, |ui| {
+                                    if !is_matviews_category_expanded {
+                                        expanded_matviews_category.insert(matviews_expanded_key.clone());
+                                    }
+                                    
+                                    if let Some(materialized_views) = self.materialized_views.get(&tables_key) {
+                                        for matview in materialized_views {
+                                            let matview_name = matview.name.clone();
+                                            let db_name_menu = db_name.clone();
+                                            let schema_name_menu = schema_name.clone();
+                                            let matview_name_menu = matview_name.clone();
+                                            
+                                            let matview_response = ui.selectable_label(false, &matview_name);
+                                            if matview_response.clicked() {
+                                                self.pending_query_materialized_view = Some((db_name_menu.clone(), schema_name_menu.clone(), matview_name_menu.clone()));
+                                            }
+                                            
+                                            // Context menu for materialized view
+                                            matview_response.context_menu(|ui| {
+                                                if ui.button("Properties").clicked() {
+                                                    use super::types::DialogType;
+                                                    self.dialog = Some(DialogType::PropertiesMaterializedView {
+                                                        database: db_name_menu.clone(),
+                                                        schema: schema_name_menu.clone(),
+                                                        name: matview_name_menu.clone(),
+                                                    });
+                                                    ui.close();
+                                                }
+                                            });
+                                        }
+                                        
+                                        // Add materialized view button
+                                        if ui.button(format!("{} New Materialized View", egui_phosphor::regular::PLUS)).clicked() {
+                                            use super::types::DialogType;
+                                            self.dialog = Some(DialogType::CreateMaterializedView {
+                                                database: db_name.clone(),
+                                                schema: schema_name.clone(),
+                                            });
+                                            self.dialog_ddl = format!("CREATE MATERIALIZED VIEW {}.{} AS\nSELECT * FROM {};", schema_name, "new_materialized_view", "table_name");
+                                        }
+                                    } else {
+                                        ui.label("Loading materialized views...");
+                                    }
+                                });
+                                
+                                if !is_matviews_category_expanded && matviews_category_response.header_response.clicked() {
+                                    expanded_matviews_category.insert(matviews_expanded_key.clone());
+                                }
+                                
+                                // Show Functions category
+                                let functions_expanded_key = format!("{}_functions", tables_key);
+                                let expanded_functions_category = self.expanded_functions.entry(tables_key.clone()).or_insert_with(HashSet::new);
+                                let is_functions_category_expanded = expanded_functions_category.contains(&functions_expanded_key);
+                                
+                                let functions_category_response = egui::CollapsingHeader::new(
+                                    format!("{} Functions", egui_phosphor::regular::FUNCTION)
+                                )
+                                .default_open(is_functions_category_expanded)
+                                .show(ui, |ui| {
+                                    if !is_functions_category_expanded {
+                                        expanded_functions_category.insert(functions_expanded_key.clone());
+                                    }
+                                    
+                                    if let Some(functions) = self.functions.get(&tables_key) {
+                                        for function in functions {
+                                            let function_name = function.name.clone();
+                                            let db_name_menu = db_name.clone();
+                                            let schema_name_menu = schema_name.clone();
+                                            let function_name_menu = function_name.clone();
+                                            
+                                            let function_response = ui.selectable_label(false, &function_name);
+                                            if function_response.clicked() {
+                                                self.pending_query_function = Some((db_name_menu.clone(), schema_name_menu.clone(), function_name_menu.clone()));
+                                            }
+                                            
+                                            // Context menu for function
+                                            function_response.context_menu(|ui| {
+                                                if ui.button("Properties").clicked() {
+                                                    use super::types::DialogType;
+                                                    self.dialog = Some(DialogType::PropertiesFunction {
+                                                        database: db_name_menu.clone(),
+                                                        schema: schema_name_menu.clone(),
+                                                        name: function_name_menu.clone(),
+                                                    });
+                                                    ui.close();
+                                                }
+                                            });
+                                        }
+                                        
+                                        // Add function button
+                                        if ui.button(format!("{} New Function", egui_phosphor::regular::PLUS)).clicked() {
+                                            use super::types::DialogType;
+                                            self.dialog = Some(DialogType::CreateFunction {
+                                                database: db_name.clone(),
+                                                schema: schema_name.clone(),
+                                            });
+                                            self.dialog_ddl = format!("CREATE OR REPLACE FUNCTION {}.{}()\nRETURNS INTEGER AS $$\nBEGIN\n    RETURN 1;\nEND;\n$$ LANGUAGE plpgsql;", schema_name, "new_function");
+                                        }
+                                    } else {
+                                        ui.label("Loading functions...");
+                                    }
+                                });
+                                
+                                if !is_functions_category_expanded && functions_category_response.header_response.clicked() {
+                                    expanded_functions_category.insert(functions_expanded_key.clone());
                                 }
                             });
                             
@@ -473,6 +755,74 @@ impl DbTree {
                 loading::load_table_detail_for_design(self, db_manager, &db_name, &schema_name, &table_name);
             }
             
+            // Collect and load indexes, foreign keys, and triggers after all loops
+            let mut items_to_load_indexes = Vec::new();
+            let mut items_to_load_fks = Vec::new();
+            let mut items_to_load_triggers = Vec::new();
+            
+            for db in &self.databases {
+                let db_name = db.name.clone();
+                if let Some(schemas) = self.schemas.get(&db_name) {
+                    for schema in schemas {
+                        let schema_name = schema.name.clone();
+                        let tables_key = format!("{}.{}", db_name, schema_name);
+                        if let Some(tables) = self.tables.get(&tables_key) {
+                            for table in tables {
+                                let table_name = table.name.clone();
+                                let item_key = format!("{}.{}.{}", db_name, schema_name, table_name);
+                                
+                                // Check indexes
+                                let indexes_key = format!("{}_indexes", item_key);
+                                let is_indexes_expanded = self.expanded_indexes
+                                    .get(&item_key)
+                                    .map(|s| s.contains(&indexes_key))
+                                    .unwrap_or(false);
+                                if is_indexes_expanded 
+                                    && !self.loaded_indexes.get(&item_key).copied().unwrap_or(false) 
+                                    && !self.indexes_promises.contains_key(&item_key) {
+                                    items_to_load_indexes.push((db_name.clone(), schema_name.clone(), table_name.clone()));
+                                }
+                                
+                                // Check foreign keys
+                                let fks_key = format!("{}_foreign_keys", item_key);
+                                let is_fks_expanded = self.expanded_foreign_keys
+                                    .get(&item_key)
+                                    .map(|s| s.contains(&fks_key))
+                                    .unwrap_or(false);
+                                if is_fks_expanded 
+                                    && !self.loaded_foreign_keys.get(&item_key).copied().unwrap_or(false) 
+                                    && !self.foreign_keys_promises.contains_key(&item_key) {
+                                    items_to_load_fks.push((db_name.clone(), schema_name.clone(), table_name.clone()));
+                                }
+                                
+                                // Check triggers
+                                let triggers_key = format!("{}_triggers", item_key);
+                                let is_triggers_expanded = self.expanded_triggers
+                                    .get(&item_key)
+                                    .map(|s| s.contains(&triggers_key))
+                                    .unwrap_or(false);
+                                if is_triggers_expanded 
+                                    && !self.loaded_triggers.get(&item_key).copied().unwrap_or(false) 
+                                    && !self.triggers_promises.contains_key(&item_key) {
+                                    items_to_load_triggers.push((db_name.clone(), schema_name.clone(), table_name.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Load items after collecting to avoid borrow conflicts
+            for (db, schema, table) in items_to_load_indexes {
+                loading::load_indexes(self, db_manager, &db, &schema, &table);
+            }
+            for (db, schema, table) in items_to_load_fks {
+                loading::load_foreign_keys(self, db_manager, &db, &schema, &table);
+            }
+            for (db, schema, table) in items_to_load_triggers {
+                loading::load_triggers(self, db_manager, &db, &schema, &table);
+            }
+            
             // Add database button
             if ui.button(format!("{} New Database", egui_phosphor::regular::PLUS)).clicked() {
                 use super::types::DialogType;
@@ -492,6 +842,12 @@ impl DbTree {
         self.loaded_schemas.clear();
         self.tables.clear();
         self.loaded_tables.clear();
+        self.views.clear();
+        self.loaded_views.clear();
+        self.materialized_views.clear();
+        self.loaded_materialized_views.clear();
+        self.functions.clear();
+        self.loaded_functions.clear();
         self.indexes.clear();
         self.loaded_indexes.clear();
         self.foreign_keys.clear();
@@ -501,6 +857,9 @@ impl DbTree {
         self.expanded_databases.clear();
         self.expanded_schemas.clear();
         self.expanded_tables.clear();
+        self.expanded_views.clear();
+        self.expanded_materialized_views.clear();
+        self.expanded_functions.clear();
         self.expanded_indexes.clear();
         self.expanded_foreign_keys.clear();
         self.expanded_triggers.clear();
@@ -511,6 +870,9 @@ impl DbTree {
         self.design_table_detail = None;
         self.design_table_columns.clear();
         self.design_table_promise = None;
+        self.ddl_promise = None;
+        self.dialog_ddl_content.clear();
+        self.pending_load_ddl = None;
     }
 }
 

@@ -38,9 +38,9 @@ run-mcp-server connections_path="pgone-mcp-server/examples/connections.yaml":
     PGONE_MCP_STDIO=1 \
     cargo run -p pgone-mcp-server
 
-# 运行 Auditor
-run-auditor:
-    cargo run -p pgone-auditor
+# 运行 Proxy
+run-proxy:
+    cargo run -p pgone-proxy
 
 # 运行 API Server
 run-apiserver:

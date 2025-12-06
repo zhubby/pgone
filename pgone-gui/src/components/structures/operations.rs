@@ -100,6 +100,88 @@ pub(super) fn create_table(tree: &mut DbTree, db_manager: &mut crate::components
     }
 }
 
+pub(super) fn create_view(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, database: &str, schema: &str, ddl: &str) {
+    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let result = futures::block_on_async(async {
+        let session = Session::new(&dsn)
+            .await
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+        
+        session.create_view(ddl)
+            .await
+            .map_err(|e| format!("Failed to create view: {}", e))
+    });
+    
+    match result {
+        Ok(_) => {
+            // Reload views
+            let key = format!("{}.{}", database, schema);
+            tree.loaded_views.insert(key.clone(), false);
+            loading::load_views(tree, db_manager, database, schema);
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+
+pub(super) fn create_materialized_view(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, database: &str, schema: &str, ddl: &str) {
+    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let result = futures::block_on_async(async {
+        let session = Session::new(&dsn)
+            .await
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+        
+        // Materialized views use the same create_view method but with CREATE MATERIALIZED VIEW DDL
+        session.create_view(ddl)
+            .await
+            .map_err(|e| format!("Failed to create materialized view: {}", e))
+    });
+    
+    match result {
+        Ok(_) => {
+            // Reload materialized views
+            let key = format!("{}.{}", database, schema);
+            tree.loaded_materialized_views.insert(key.clone(), false);
+            loading::load_materialized_views(tree, db_manager, database, schema);
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+
+pub(super) fn create_function(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, database: &str, schema: &str, ddl: &str) {
+    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let result = futures::block_on_async(async {
+        let session = Session::new(&dsn)
+            .await
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+        
+        session.create_function(ddl)
+            .await
+            .map_err(|e| format!("Failed to create function: {}", e))
+    });
+    
+    match result {
+        Ok(_) => {
+            // Reload functions
+            let key = format!("{}.{}", database, schema);
+            tree.loaded_functions.insert(key.clone(), false);
+            loading::load_functions(tree, db_manager, database, schema);
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+
 pub(super) fn delete_database(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, name: &str, _cascade: bool) {
     let Some(db_id) = db_manager.active_db_config_id.clone() else {
         return;
@@ -356,6 +438,31 @@ pub(super) fn design_table(
             // 清除设计状态
             tree.design_table_detail = None;
             tree.design_table_columns.clear();
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+
+pub(super) fn drop_table(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, database: &str, schema: &str, name: &str) {
+    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let result = futures::block_on_async(async {
+        let session = Session::new(&dsn)
+            .await
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+        
+        session.truncate_table(schema, name)
+            .await
+            .map_err(|e| format!("Failed to truncate table: {}", e))
+    });
+    
+    match result {
+        Ok(_) => {
+            // TRUNCATE 不改变表结构，所以不需要重新加载表列表
+            // 但可以显示成功消息或更新错误状态
         }
         Err(e) => {
             tree.error = Some(e);

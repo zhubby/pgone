@@ -1,5 +1,5 @@
 use crate::error::{Result, SqlError};
-use crate::models::ViewInfo;
+use crate::models::{ViewInfo, MaterializedViewInfo};
 use crate::session::Session;
 use tracing::info;
 
@@ -59,56 +59,6 @@ impl Session {
             });
         }
 
-        // Also include materialized views
-        let mat_rows = if let Some(s) = schema {
-            conn.query(
-                r#"
-                SELECT 
-                    m.schemaname AS schema,
-                    m.matviewname AS name,
-                    pg_catalog.pg_get_userbyid(c.relowner) AS owner,
-                    m.definition AS definition,
-                    pg_catalog.obj_description(c.oid, 'pg_class') AS description
-                FROM pg_catalog.pg_matviews m
-                JOIN pg_catalog.pg_class c ON c.relname = m.matviewname
-                JOIN pg_catalog.pg_namespace n ON n.nspname = m.schemaname AND n.oid = c.relnamespace
-                WHERE m.schemaname = $1
-                ORDER BY m.schemaname, m.matviewname
-                "#,
-                &[&s],
-            )
-            .await
-        } else {
-            conn.query(
-                r#"
-                SELECT 
-                    m.schemaname AS schema,
-                    m.matviewname AS name,
-                    pg_catalog.pg_get_userbyid(c.relowner) AS owner,
-                    m.definition AS definition,
-                    pg_catalog.obj_description(c.oid, 'pg_class') AS description
-                FROM pg_catalog.pg_matviews m
-                JOIN pg_catalog.pg_class c ON c.relname = m.matviewname
-                JOIN pg_catalog.pg_namespace n ON n.nspname = m.schemaname AND n.oid = c.relnamespace
-                WHERE m.schemaname NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY m.schemaname, m.matviewname
-                "#,
-                &[],
-            )
-            .await
-        }
-        .map_err(SqlError::Connection)?;
-
-        for row in mat_rows {
-            views.push(ViewInfo {
-                schema: row.get("schema"),
-                name: row.get("name"),
-                owner: row.get("owner"),
-                definition: row.try_get("definition").ok(),
-                description: row.try_get("description").ok(),
-            });
-        }
-
         Ok(views)
     }
 
@@ -118,7 +68,6 @@ impl Session {
         
         let conn = self.get_connection().await?;
         
-        // Try regular view first
         let row = conn.query_opt(
             r#"
             SELECT 
@@ -131,35 +80,6 @@ impl Session {
             JOIN pg_catalog.pg_class c ON c.relname = v.table_name
             JOIN pg_catalog.pg_namespace n ON n.nspname = v.table_schema AND n.oid = c.relnamespace
             WHERE v.table_schema = $1 AND v.table_name = $2
-            "#,
-            &[&schema, &view_name],
-        )
-        .await
-        .map_err(SqlError::Connection)?;
-
-        if let Some(row) = row {
-            return Ok(ViewInfo {
-                schema: row.get("schema"),
-                name: row.get("name"),
-                owner: row.get("owner"),
-                definition: row.try_get("definition").ok(),
-                description: row.try_get("description").ok(),
-            });
-        }
-
-        // Try materialized view
-        let row = conn.query_opt(
-            r#"
-            SELECT 
-                m.schemaname AS schema,
-                m.matviewname AS name,
-                pg_catalog.pg_get_userbyid(c.relowner) AS owner,
-                m.definition AS definition,
-                pg_catalog.obj_description(c.oid, 'pg_class') AS description
-            FROM pg_catalog.pg_matviews m
-            JOIN pg_catalog.pg_class c ON c.relname = m.matviewname
-            JOIN pg_catalog.pg_namespace n ON n.nspname = m.schemaname AND n.oid = c.relnamespace
-            WHERE m.schemaname = $1 AND m.matviewname = $2
             "#,
             &[&schema, &view_name],
         )
@@ -276,6 +196,98 @@ impl Session {
             })?;
 
         Ok(())
+    }
+
+    /// List all materialized views in the current database
+    pub async fn list_materialized_views(&self, schema: Option<&str>) -> Result<Vec<MaterializedViewInfo>> {
+        info!(schema = schema, "Listing materialized views");
+        
+        let conn = self.get_connection().await?;
+        let rows = if let Some(s) = schema {
+            conn.query(
+                r#"
+                SELECT 
+                    m.schemaname AS schema,
+                    m.matviewname AS name,
+                    pg_catalog.pg_get_userbyid(c.relowner) AS owner,
+                    m.definition AS definition,
+                    pg_catalog.obj_description(c.oid, 'pg_class') AS description
+                FROM pg_catalog.pg_matviews m
+                JOIN pg_catalog.pg_class c ON c.relname = m.matviewname
+                JOIN pg_catalog.pg_namespace n ON n.nspname = m.schemaname AND n.oid = c.relnamespace
+                WHERE m.schemaname = $1
+                ORDER BY m.schemaname, m.matviewname
+                "#,
+                &[&s],
+            )
+            .await
+        } else {
+            conn.query(
+                r#"
+                SELECT 
+                    m.schemaname AS schema,
+                    m.matviewname AS name,
+                    pg_catalog.pg_get_userbyid(c.relowner) AS owner,
+                    m.definition AS definition,
+                    pg_catalog.obj_description(c.oid, 'pg_class') AS description
+                FROM pg_catalog.pg_matviews m
+                JOIN pg_catalog.pg_class c ON c.relname = m.matviewname
+                JOIN pg_catalog.pg_namespace n ON n.nspname = m.schemaname AND n.oid = c.relnamespace
+                WHERE m.schemaname NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY m.schemaname, m.matviewname
+                "#,
+                &[],
+            )
+            .await
+        }
+        .map_err(SqlError::Connection)?;
+
+        let mut materialized_views = Vec::new();
+        for row in rows {
+            materialized_views.push(MaterializedViewInfo {
+                schema: row.get("schema"),
+                name: row.get("name"),
+                owner: row.get("owner"),
+                definition: row.try_get("definition").ok(),
+                description: row.try_get("description").ok(),
+            });
+        }
+
+        Ok(materialized_views)
+    }
+
+    /// Get detailed information about a specific materialized view
+    pub async fn get_materialized_view_info(&self, schema: &str, view_name: &str) -> Result<MaterializedViewInfo> {
+        info!(schema = schema, view_name = view_name, "Getting materialized view info");
+        
+        let conn = self.get_connection().await?;
+        
+        let row = conn.query_opt(
+            r#"
+            SELECT 
+                m.schemaname AS schema,
+                m.matviewname AS name,
+                pg_catalog.pg_get_userbyid(c.relowner) AS owner,
+                m.definition AS definition,
+                pg_catalog.obj_description(c.oid, 'pg_class') AS description
+            FROM pg_catalog.pg_matviews m
+            JOIN pg_catalog.pg_class c ON c.relname = m.matviewname
+            JOIN pg_catalog.pg_namespace n ON n.nspname = m.schemaname AND n.oid = c.relnamespace
+            WHERE m.schemaname = $1 AND m.matviewname = $2
+            "#,
+            &[&schema, &view_name],
+        )
+        .await
+        .map_err(SqlError::Connection)?
+        .ok_or_else(|| SqlError::NotFound(format!("Materialized view '{}.{}' not found", schema, view_name)))?;
+
+        Ok(MaterializedViewInfo {
+            schema: row.get("schema"),
+            name: row.get("name"),
+            owner: row.get("owner"),
+            definition: row.try_get("definition").ok(),
+            description: row.try_get("description").ok(),
+        })
     }
 }
 

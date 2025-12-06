@@ -132,13 +132,13 @@ pub fn show_status_bar(ctx: &Context, db: &mut DbManager, settings: &Settings) {
                         
                         ui.horizontal(|ui| {
                             ui.label(egui_phosphor::regular::DESKTOP);
-                            ui.label(format!("进程: {}", process_name));
+                            ui.label(format!("Process: {}", process_name));
                             ui.separator();
                             ui.label(egui_phosphor::regular::CHART_PIE);
                             ui.label(format!("CPU: {:.1}%", cpu_usage));
                             ui.separator();
                             ui.label(egui_phosphor::regular::HARD_DRIVE);
-                            ui.label(format!("内存: {}", memory_str));
+                            ui.label(format!("Memory: {}", memory_str));
                             ui.separator();
                             ui.label(egui_phosphor::regular::NETWORK);
                             ui.label(&network_info);

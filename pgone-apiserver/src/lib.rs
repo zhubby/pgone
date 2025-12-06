@@ -1,4 +1,4 @@
-mod auditor;
+mod proxy;
 pub mod grpc;
 mod http;
 
@@ -60,10 +60,10 @@ async fn metrics() -> impl IntoResponse {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, metrics, oauth_github_start, oauth_github_callback, auth_me, http::execute_audit),
+    paths(health, metrics, oauth_github_start, oauth_github_callback, auth_me, http::execute_proxy),
     tags(
         (name = "pgone-apiserver", description = "HTTP APIs for pgone"),
-        (name = "auditor", description = "SQL audit APIs"),
+        (name = "proxy", description = "SQL proxy APIs"),
     )
 )]
 struct ApiDoc;

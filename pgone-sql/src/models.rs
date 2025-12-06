@@ -44,6 +44,15 @@ pub struct ViewInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaterializedViewInfo {
+    pub schema: String,
+    pub name: String,
+    pub owner: String,
+    pub definition: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionInfo {
     pub schema: String,
     pub name: String,

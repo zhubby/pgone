@@ -16,14 +16,15 @@ fn now_ts() -> i64 {
 
 pub async fn upsert_db_config(conn: &mut Connection, cfg: &DbConfig) -> Result<()> {
     conn.execute(
-        "INSERT OR REPLACE INTO db_configs (id, engine, dsn, default_schemas, include_system, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT created_at FROM db_configs WHERE id=?1), ?6), ?7)",
+        "INSERT OR REPLACE INTO db_configs (id, engine, dsn, default_schemas, include_system, default_config, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, COALESCE((SELECT created_at FROM db_configs WHERE id=?1), ?7), ?8)",
         params![
             cfg.id.as_str(),
             cfg.engine.as_str(),
             cfg.dsn.as_str(),
             cfg.default_schemas.as_deref(),
             cfg.include_system.map(|b| if b {1i64} else {0i64}),
+            cfg.default_config.map(|b| if b {1i64} else {0i64}),
             cfg.created_at,
             cfg.updated_at,
         ],
@@ -32,7 +33,7 @@ pub async fn upsert_db_config(conn: &mut Connection, cfg: &DbConfig) -> Result<(
 }
 
 pub async fn get_db_config(conn: &mut Connection, id: &str) -> Result<Option<DbConfig>> {
-    let mut rows = conn.query("SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs WHERE id=?1", params![id]).await?;
+    let mut rows = conn.query("SELECT id, engine, dsn, default_schemas, include_system, default_config, created_at, updated_at FROM db_configs WHERE id=?1", params![id]).await?;
     if let Some(row) = rows.next().await? {
         Ok(Some(DbConfig {
             id: row.get::<String>(0)?,
@@ -40,8 +41,9 @@ pub async fn get_db_config(conn: &mut Connection, id: &str) -> Result<Option<DbC
             dsn: row.get::<String>(2)?,
             default_schemas: row.get::<Option<String>>(3)?,
             include_system: row.get::<Option<i64>>(4)?.map(|v| v != 0),
-            created_at: row.get::<i64>(5)?,
-            updated_at: row.get::<i64>(6)?,
+            default_config: row.get::<Option<i64>>(5)?.map(|v| v != 0),
+            created_at: row.get::<i64>(6)?,
+            updated_at: row.get::<i64>(7)?,
         }))
     } else {
         Ok(None)
@@ -51,10 +53,10 @@ pub async fn get_db_config(conn: &mut Connection, id: &str) -> Result<Option<DbC
 pub async fn list_db_configs(conn: &mut Connection, limit: Option<i64>) -> Result<Vec<DbConfig>> {
     let sql = match limit {
         Some(_) => {
-            "SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs ORDER BY updated_at DESC LIMIT ?1"
+            "SELECT id, engine, dsn, default_schemas, include_system, default_config, created_at, updated_at FROM db_configs ORDER BY updated_at DESC LIMIT ?1"
         }
         None => {
-            "SELECT id, engine, dsn, default_schemas, include_system, created_at, updated_at FROM db_configs ORDER BY updated_at DESC"
+            "SELECT id, engine, dsn, default_schemas, include_system, default_config, created_at, updated_at FROM db_configs ORDER BY updated_at DESC"
         }
     };
     let mut rows = if let Some(l) = limit {
@@ -70,8 +72,9 @@ pub async fn list_db_configs(conn: &mut Connection, limit: Option<i64>) -> Resul
             dsn: row.get::<String>(2)?,
             default_schemas: row.get::<Option<String>>(3)?,
             include_system: row.get::<Option<i64>>(4)?.map(|v| v != 0),
-            created_at: row.get::<i64>(5)?,
-            updated_at: row.get::<i64>(6)?,
+            default_config: row.get::<Option<i64>>(5)?.map(|v| v != 0),
+            created_at: row.get::<i64>(6)?,
+            updated_at: row.get::<i64>(7)?,
         });
     }
     Ok(out)
@@ -92,6 +95,27 @@ pub async fn delete_db_config(conn: &mut Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM db_configs WHERE id=?1", params![id])
         .await?;
     Ok(())
+}
+
+pub async fn get_default_db_config(conn: &mut Connection) -> Result<Option<DbConfig>> {
+    let mut rows = conn.query(
+        "SELECT id, engine, dsn, default_schemas, include_system, default_config, created_at, updated_at FROM db_configs WHERE default_config=1 LIMIT 1",
+        params![]
+    ).await?;
+    if let Some(row) = rows.next().await? {
+        Ok(Some(DbConfig {
+            id: row.get::<String>(0)?,
+            engine: row.get::<String>(1)?,
+            dsn: row.get::<String>(2)?,
+            default_schemas: row.get::<Option<String>>(3)?,
+            include_system: row.get::<Option<i64>>(4)?.map(|v| v != 0),
+            default_config: row.get::<Option<i64>>(5)?.map(|v| v != 0),
+            created_at: row.get::<i64>(6)?,
+            updated_at: row.get::<i64>(7)?,
+        }))
+    } else {
+        Ok(None)
+    }
 }
 
 pub async fn create_session(conn: &mut Connection, s: &Session) -> Result<()> {

@@ -194,7 +194,7 @@ impl Default for Settings {
             openai_api_key: None,
             openai_base_url: None,
             openai_model: "gpt-4o-mini".to_string(),
-            font_family: "LXGWWenKai-Medium".to_string(),
+            font_family: "SourceHanSansSC-Regular".to_string(),
             font_size: 12.0,
             theme: Theme::System,
             llm_provider: LLMProvider::OpenAI,

@@ -186,6 +186,9 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
             DialogType::CreateDatabase => "Create Database",
             DialogType::CreateSchema { .. } => "Create Schema",
             DialogType::CreateTable { .. } => "Create Table",
+            DialogType::CreateView { .. } => "Create View",
+            DialogType::CreateMaterializedView { .. } => "Create Materialized View",
+            DialogType::CreateFunction { .. } => "Create Function",
             DialogType::DeleteDatabase { .. } => "Delete Database",
             DialogType::DeleteSchema { .. } => "Delete Schema",
             DialogType::DeleteTable { .. } => "Delete Table",
@@ -195,7 +198,12 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
             DialogType::PropertiesDatabase { .. } => "Database Properties",
             DialogType::PropertiesSchema { .. } => "Schema Properties",
             DialogType::PropertiesTable { .. } => "Table Properties",
+            DialogType::PropertiesView { .. } => "View Properties",
+            DialogType::PropertiesMaterializedView { .. } => "Materialized View Properties",
+            DialogType::PropertiesFunction { .. } => "Function Properties",
             DialogType::DesignTable { .. } => "Design Table",
+            DialogType::ShowDdl { .. } => "Show DDL",
+            DialogType::DropTable { .. } => "Drop Table",
         };
         
         let mut open = true;
@@ -203,32 +211,37 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
         let mut should_delete = false;
         let mut should_rename = false;
         let mut should_save_design = false;
+        let mut should_close = false;
+        let mut should_drop = false;
         let mut delete_cascade = tree.dialog_cascade;
         
         let center = ui.ctx().screen_rect().center();
         let mut window = egui::Window::new(title)
             .open(&mut open)
             .default_pos(center)
-            .pivot(egui::Align2::CENTER_CENTER);
+            .pivot(egui::Align2::CENTER_CENTER)
+            .collapsible(false); // 所有对话框都不可折叠
         
         // 为 DesignTable 对话框设置合适的大小
         if matches!(dialog_type, DialogType::DesignTable { .. }) {
-            // 根据列数动态计算默认高度
-            // 优先使用已加载的列数据，否则使用默认值
-            let row_count = tree.design_table_columns.len()
-                .max(tree.design_table_detail.as_ref().map(|d| d.columns.len()).unwrap_or(0));
-            let default_height = if row_count == 0 {
-                300.0  // 默认高度，适用于加载中或空表
-            } else {
-                // 每行约35像素，加上表头、按钮等约150像素
-                (row_count as f32 * 35.0 + 150.0).min(600.0).max(300.0)
-            };
+            // 窗口高度设置为屏幕高度的一半
+            let screen_height = ui.ctx().screen_rect().height();
+            let window_height = screen_height * 0.5;
             
             window = window
-                .default_size([900.0, default_height])
+                .default_size([900.0, window_height])
                 .resizable(true)
-                .max_size([1400.0, 900.0])
+                .max_size([1200.0, screen_height * 0.8])
                 .min_size([600.0, 300.0]);
+        }
+        
+        // 为 ShowDdl 对话框设置合适的大小
+        if matches!(dialog_type, DialogType::ShowDdl { .. }) {
+            window = window
+                .default_size([800.0, 300.0])
+                .resizable(true)
+                .max_size([1200.0, 600.0])
+                .min_size([600.0, 250.0]);
         }
         
         window.show(ui.ctx(), |ui| {
@@ -261,6 +274,42 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     }
                     DialogType::CreateTable { database: _, schema: _ } => {
                         ui.label("Table DDL:");
+                        ui.text_edit_multiline(dialog_ddl_ref);
+                        ui.horizontal(|ui| {
+                            if ui.button("Create").clicked() {
+                                should_create = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                // Will be handled by open = false
+                            }
+                        });
+                    }
+                    DialogType::CreateView { database: _, schema: _ } => {
+                        ui.label("View DDL:");
+                        ui.text_edit_multiline(dialog_ddl_ref);
+                        ui.horizontal(|ui| {
+                            if ui.button("Create").clicked() {
+                                should_create = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                // Will be handled by open = false
+                            }
+                        });
+                    }
+                    DialogType::CreateMaterializedView { database: _, schema: _ } => {
+                        ui.label("Materialized View DDL:");
+                        ui.text_edit_multiline(dialog_ddl_ref);
+                        ui.horizontal(|ui| {
+                            if ui.button("Create").clicked() {
+                                should_create = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                // Will be handled by open = false
+                            }
+                        });
+                    }
+                    DialogType::CreateFunction { database: _, schema: _ } => {
+                        ui.label("Function DDL:");
                         ui.text_edit_multiline(dialog_ddl_ref);
                         ui.horizontal(|ui| {
                             if ui.button("Create").clicked() {
@@ -398,7 +447,102 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                             // Will be handled by open = false
                         }
                     }
-                    DialogType::DesignTable { database: _, schema: _, name: _ } => {
+                    DialogType::PropertiesView { database, schema, name } => {
+                        // Show view properties (read-only)
+                        let key = format!("{}.{}", database, schema);
+                        if let Some(views) = tree.views.get(&key) {
+                            if let Some(view) = views.iter().find(|v| v.name == *name) {
+                                ui.label(format!("Name: {}", view.name));
+                                ui.label(format!("Schema: {}", view.schema));
+                                ui.label(format!("Owner: {}", view.owner));
+                                if let Some(def) = &view.definition {
+                                    ui.separator();
+                                    ui.label("Definition:");
+                                    let mut def_text = def.clone();
+                                    ui.text_edit_multiline(&mut def_text);
+                                }
+                                if let Some(desc) = &view.description {
+                                    ui.separator();
+                                    ui.label(format!("Description: {}", desc));
+                                }
+                            }
+                        }
+                        if ui.button("Close").clicked() {
+                            // Will be handled by open = false
+                        }
+                    }
+                    DialogType::PropertiesMaterializedView { database, schema, name } => {
+                        // Show materialized view properties (read-only)
+                        let key = format!("{}.{}", database, schema);
+                        if let Some(materialized_views) = tree.materialized_views.get(&key) {
+                            if let Some(matview) = materialized_views.iter().find(|mv| mv.name == *name) {
+                                ui.label(format!("Name: {}", matview.name));
+                                ui.label(format!("Schema: {}", matview.schema));
+                                ui.label(format!("Owner: {}", matview.owner));
+                                if let Some(def) = &matview.definition {
+                                    ui.separator();
+                                    ui.label("Definition:");
+                                    let mut def_text = def.clone();
+                                    ui.text_edit_multiline(&mut def_text);
+                                }
+                                if let Some(desc) = &matview.description {
+                                    ui.separator();
+                                    ui.label(format!("Description: {}", desc));
+                                }
+                            }
+                        }
+                        if ui.button("Close").clicked() {
+                            // Will be handled by open = false
+                        }
+                    }
+                    DialogType::PropertiesFunction { database, schema, name } => {
+                        // Show function properties (read-only)
+                        let key = format!("{}.{}", database, schema);
+                        if let Some(functions) = tree.functions.get(&key) {
+                            if let Some(function) = functions.iter().find(|f| f.name == *name) {
+                                ui.label(format!("Name: {}", function.name));
+                                ui.label(format!("Schema: {}", function.schema));
+                                ui.label(format!("Owner: {}", function.owner));
+                                if let Some(lang) = &function.language {
+                                    ui.label(format!("Language: {}", lang));
+                                }
+                                if let Some(ret_type) = &function.return_type {
+                                    ui.label(format!("Return Type: {}", ret_type));
+                                }
+                                if let Some(def) = &function.definition {
+                                    ui.separator();
+                                    ui.label("Definition:");
+                                    let mut def_text = def.clone();
+                                    ui.text_edit_multiline(&mut def_text);
+                                }
+                                if let Some(desc) = &function.description {
+                                    ui.separator();
+                                    ui.label(format!("Description: {}", desc));
+                                }
+                            }
+                        }
+                        if ui.button("Close").clicked() {
+                            // Will be handled by open = false
+                        }
+                    }
+                    DialogType::DesignTable { database, schema, name } => {
+                        // 检查当前对话框的表是否与已加载的表匹配
+                        let current_table = (database.clone(), schema.clone(), name.clone());
+                        if let Some(ref loaded_table) = tree.design_table_loaded {
+                            if *loaded_table != current_table {
+                                // 表名不匹配，清空数据并触发重新加载
+                                tree.design_table_detail = None;
+                                tree.design_table_columns.clear();
+                                tree.design_table_promise = None;
+                                tree.design_table_loaded = None;
+                                // 触发重新加载
+                                use super::loading;
+                                loading::load_table_detail_for_design(tree, db_manager, database, schema, name);
+                                ui.label("Loading table structure...");
+                                return;
+                            }
+                        }
+                        
                         // 检查异步加载的表结构详情
                         if let Some(ref promise) = tree.design_table_promise {
                             if let Some(result) = promise.ready() {
@@ -425,12 +569,19 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                                     Err(e) => {
                                         ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
                                         tree.design_table_promise = None;
+                                        tree.design_table_loaded = None;
                                     }
                                 }
                             } else {
                                 ui.label("Loading table structure...");
                                 return;
                             }
+                        } else if tree.design_table_detail.is_none() {
+                            // 没有 promise 且没有已加载的数据，触发加载
+                            use super::loading;
+                            loading::load_table_detail_for_design(tree, db_manager, database, schema, name);
+                            ui.label("Loading table structure...");
+                            return;
                         }
                         
                         // 显示表设计界面
@@ -441,9 +592,9 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                             let mut data_table: DataTable<EditableColumn> = tree.design_table_columns.clone().into_iter().collect();
                             let mut viewer = ColumnRowViewer::new();
                             
-                            // 使用 ScrollArea 允许滚动，auto_shrink 让窗口根据内容自适应
+                            // 使用 ScrollArea 允许滚动，固定窗口高度时内容超出会显示滚动条
                             egui::ScrollArea::vertical()
-                                .auto_shrink([true; 2])
+                                .auto_shrink([false; 2])
                                 .show(ui, |ui| {
                                     Renderer::new(&mut data_table, &mut viewer).show(ui);
                                 });
@@ -464,11 +615,84 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                             });
                         }
                     }
+                    DialogType::ShowDdl { database: _, schema: _, name: _ } => {
+                        // 检查异步加载的DDL
+                        if let Some(ref promise) = tree.ddl_promise {
+                            if let Some(result) = promise.ready() {
+                                match result {
+                                    Ok(_) => {
+                                        // DDL已加载到dialog_ddl_content
+                                    }
+                                    Err(e) => {
+                                        ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
+                                        tree.ddl_promise = None;
+                                    }
+                                }
+                            } else {
+                                ui.label("Loading DDL...");
+                                return;
+                            }
+                        }
+                        
+                        // 显示DDL内容，使用SQL高亮
+                        let ddl_content = tree.dialog_ddl_content.clone();
+                        let available_height = ui.available_height() - 60.0; // 为按钮预留空间
+                        
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(5.0);
+                                    
+                                    let mut ddl_text = ddl_content.clone();
+                                    let ddl_text_ref = &mut ddl_text;
+                                    let ddl_for_highlight = ddl_content.clone();
+                                    
+                                    ui.add_sized(
+                                        egui::Vec2::new(ui.available_width() - 5.0, available_height.max(200.0)),
+                                        egui::TextEdit::multiline(ddl_text_ref)
+                                            .desired_rows((available_height.max(200.0) / 20.0) as usize)
+                                            .interactive(false) // 设置为只读
+                                            .layouter(&mut move |ui, _text, wrap_width| {
+                                                let mut job = crate::sql::highlight_sql(&ddl_for_highlight, ui.visuals());
+                                                job.wrap.max_width = wrap_width;
+                                                ui.fonts(|f| f.layout_job(job))
+                                            }),
+                                    );
+                                });
+                            });
+                        
+                        // 关闭和复制按钮
+                        ui.separator();
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Close").clicked() {
+                                should_close = true;
+                            }
+                            ui.add_space(8.0);
+                            if ui.button("Copy").clicked() {
+                                // 复制 DDL 内容到剪贴板
+                                let ddl_to_copy = tree.dialog_ddl_content.clone();
+                                ui.ctx().copy_text(ddl_to_copy);
+                            }
+                        });
+                    }
+                    DialogType::DropTable { database: _, schema, name } => {
+                        ui.colored_label(egui::Color32::RED, format!("警告：此操作将清空表 '{}.{}' 中的所有数据，此操作不可撤销。", schema, name));
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Drop").clicked() {
+                                should_drop = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                // Will be handled by open = false
+                            }
+                        });
+                    }
                 }
             });
         
         // Close window if action was triggered
-        if should_create || should_delete || should_rename || should_save_design {
+        if should_create || should_delete || should_rename || should_save_design || should_close || should_drop {
             open = false; // Close window to trigger action execution
         }
         
@@ -492,7 +716,16 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::CreateTable { database, schema } => {
                         operations::create_table(tree, db_manager, &database, &schema, &dialog_ddl_clone);
                     }
-                    DialogType::DesignTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } => {}
+                    DialogType::CreateView { database, schema } => {
+                        operations::create_view(tree, db_manager, &database, &schema, &dialog_ddl_clone);
+                    }
+                    DialogType::CreateMaterializedView { database, schema } => {
+                        operations::create_materialized_view(tree, db_manager, &database, &schema, &dialog_ddl_clone);
+                    }
+                    DialogType::CreateFunction { database, schema } => {
+                        operations::create_function(tree, db_manager, &database, &schema, &dialog_ddl_clone);
+                    }
+                    DialogType::DesignTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::PropertiesView { .. } | DialogType::PropertiesMaterializedView { .. } | DialogType::PropertiesFunction { .. } | DialogType::ShowDdl { .. } | DialogType::DropTable { .. } => {}
                 }
             } else if should_delete {
                 tree.dialog_cascade = delete_cascade;
@@ -506,7 +739,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::DeleteTable { database, schema, name } => {
                         operations::delete_table(tree, db_manager, &database, &schema, &name, delete_cascade);
                     }
-                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } => {}
+                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::CreateView { .. } | DialogType::CreateMaterializedView { .. } | DialogType::CreateFunction { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::PropertiesView { .. } | DialogType::PropertiesMaterializedView { .. } | DialogType::PropertiesFunction { .. } | DialogType::ShowDdl { .. } | DialogType::DropTable { .. } => {}
                 }
             } else if should_rename {
                 match dialog_type {
@@ -519,7 +752,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                     DialogType::RenameTable { database, schema, old_name } => {
                         operations::rename_table(tree, db_manager, &database, &schema, &old_name, &dialog_input_clone);
                     }
-                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } => {}
+                    DialogType::DesignTable { .. } | DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::CreateView { .. } | DialogType::CreateMaterializedView { .. } | DialogType::CreateFunction { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::PropertiesView { .. } | DialogType::PropertiesMaterializedView { .. } | DialogType::PropertiesFunction { .. } | DialogType::ShowDdl { .. } | DialogType::DropTable { .. } => {}
                 }
             } else if should_save_design {
                 match dialog_type {
@@ -539,10 +772,20 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                                 tree.design_table_columns.clear();
                             }
                         }
+                        // 清空已加载表的记录，下次打开时会重新加载
+                        tree.design_table_loaded = None;
+                        tree.design_table_promise = None;
                         // 关闭对话框
                         tree.dialog = None;
                     }
-                    DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } => {}
+                    DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::CreateView { .. } | DialogType::CreateMaterializedView { .. } | DialogType::CreateFunction { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::PropertiesView { .. } | DialogType::PropertiesMaterializedView { .. } | DialogType::PropertiesFunction { .. } | DialogType::ShowDdl { .. } | DialogType::DropTable { .. } => {}
+                }
+            } else if should_drop {
+                match dialog_type {
+                    DialogType::DropTable { database, schema, name } => {
+                        operations::drop_table(tree, db_manager, &database, &schema, &name);
+                    }
+                    DialogType::CreateDatabase | DialogType::CreateSchema { .. } | DialogType::CreateTable { .. } | DialogType::CreateView { .. } | DialogType::CreateMaterializedView { .. } | DialogType::CreateFunction { .. } | DialogType::DeleteDatabase { .. } | DialogType::DeleteSchema { .. } | DialogType::DeleteTable { .. } | DialogType::RenameDatabase { .. } | DialogType::RenameSchema { .. } | DialogType::RenameTable { .. } | DialogType::PropertiesDatabase { .. } | DialogType::PropertiesSchema { .. } | DialogType::PropertiesTable { .. } | DialogType::PropertiesView { .. } | DialogType::PropertiesMaterializedView { .. } | DialogType::PropertiesFunction { .. } | DialogType::DesignTable { .. } | DialogType::ShowDdl { .. } => {}
                 }
             }
         }

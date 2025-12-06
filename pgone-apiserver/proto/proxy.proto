@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package pgone.proxy.v1;
+
+// 代理服务
+service ProxyService {
+  // 执行 SQL 代理
+  rpc Execute(ProxyRequest) returns (ProxyResponse);
+}
+
+// 代理请求
+message ProxyRequest {
+  // 连接配置
+  ConnectionConfig config = 1;
+  // SQL 语句列表
+  repeated string sql = 2;
+}
+
+// 连接配置
+message ConnectionConfig {
+  // 数据库连接字符串 (DSN)
+  string dsn = 1;
+  // SQL 语句列表（已废弃，使用 ProxyRequest.sql）
+  repeated string sql = 2 [deprecated = true];
+  // SSL/TLS 配置
+  optional SslConfig ssl = 3;
+}
+
+// SSL/TLS 配置
+message SslConfig {
+  // SSL 证书文件路径
+  optional string cert = 1;
+  // SSL 私钥文件路径
+  optional string key = 2;
+  // CA 证书文件路径
+  optional string ca = 3;
+  // SSL 模式: disable, allow, prefer, require, verify-ca, verify-full
+  string mode = 4;
+}
+
+// 代理响应
+message ProxyResponse {
+  // 执行结果列表
+  repeated StatementResult results = 1;
+}
+
+// SQL 语句执行结果
+message StatementResult {
+  // 执行的 SQL
+  string sql = 1;
+  // 是否成功
+  bool success = 2;
+  // 执行耗时（毫秒）
+  uint64 duration_ms = 3;
+  // 影响行数（SELECT 为返回行数）
+  int64 rows_affected = 4;
+  // 列名（仅 SELECT 查询）
+  repeated string columns = 5;
+  // 数据行（仅 SELECT 查询）
+  repeated Row rows = 6;
+  // 错误信息（如果有）
+  optional string error = 7;
+}
+
+// 数据行
+message Row {
+  // 行的值（JSON 字符串格式）
+  repeated string values = 1;
+}
+

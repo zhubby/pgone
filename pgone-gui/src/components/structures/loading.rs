@@ -1,5 +1,5 @@
 use super::types::DbTree;
-use pgone_sql::{DatabaseInfo, SchemaInfo, Session, TableInfo, IndexInfo, ForeignKeyDetail, TriggerInfo, TableDetail};
+use pgone_sql::{DatabaseInfo, SchemaInfo, Session, TableInfo, IndexInfo, ForeignKeyDetail, TriggerInfo, TableDetail, ViewInfo, MaterializedViewInfo, FunctionInfo};
 use poll_promise::Promise;
 use crate::components::ResultsTable;
 use crate::futures;
@@ -63,6 +63,66 @@ pub(super) fn check_promises(tree: &mut DbTree) {
         tree.tables_promises.remove(&key);
     }
 
+    // Check views promises
+    let mut completed_views = Vec::new();
+    for (key, promise) in &tree.views_promises {
+        if let Some(result) = promise.ready() {
+            match result {
+                Ok(views) => {
+                    tree.views.insert(key.clone(), views.clone());
+                    tree.loaded_views.insert(key.clone(), true);
+                }
+                Err(e) => {
+                    tree.error = Some(format!("Failed to load views for {}: {}", key, e));
+                }
+            }
+            completed_views.push(key.clone());
+        }
+    }
+    for key in completed_views {
+        tree.views_promises.remove(&key);
+    }
+
+    // Check materialized views promises
+    let mut completed_materialized_views = Vec::new();
+    for (key, promise) in &tree.materialized_views_promises {
+        if let Some(result) = promise.ready() {
+            match result {
+                Ok(materialized_views) => {
+                    tree.materialized_views.insert(key.clone(), materialized_views.clone());
+                    tree.loaded_materialized_views.insert(key.clone(), true);
+                }
+                Err(e) => {
+                    tree.error = Some(format!("Failed to load materialized views for {}: {}", key, e));
+                }
+            }
+            completed_materialized_views.push(key.clone());
+        }
+    }
+    for key in completed_materialized_views {
+        tree.materialized_views_promises.remove(&key);
+    }
+
+    // Check functions promises
+    let mut completed_functions = Vec::new();
+    for (key, promise) in &tree.functions_promises {
+        if let Some(result) = promise.ready() {
+            match result {
+                Ok(functions) => {
+                    tree.functions.insert(key.clone(), functions.clone());
+                    tree.loaded_functions.insert(key.clone(), true);
+                }
+                Err(e) => {
+                    tree.error = Some(format!("Failed to load functions for {}: {}", key, e));
+                }
+            }
+            completed_functions.push(key.clone());
+        }
+    }
+    for key in completed_functions {
+        tree.functions_promises.remove(&key);
+    }
+
     // Check indexes promises
     let mut completed_indexes = Vec::new();
     for (key, promise) in &tree.indexes_promises {
@@ -121,6 +181,21 @@ pub(super) fn check_promises(tree: &mut DbTree) {
     }
     for key in completed_triggers {
         tree.triggers_promises.remove(&key);
+    }
+
+    // Check DDL promise
+    if let Some(ref promise) = tree.ddl_promise {
+        if let Some(result) = promise.ready() {
+            match result {
+                Ok(ddl) => {
+                    tree.dialog_ddl_content = ddl.clone();
+                }
+                Err(e) => {
+                    tree.error = Some(format!("Failed to load DDL: {}", e));
+                }
+            }
+            tree.ddl_promise = None;
+        }
     }
 }
 
@@ -265,6 +340,156 @@ pub(super) fn load_tables(tree: &mut DbTree, db_manager: &mut crate::components:
     });
 }
 
+pub(super) fn load_views(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, database: &str, schema: &str) {
+    let key = format!("{}.{}", database, schema);
+    if tree.views_promises.contains_key(&key) {
+        return; // Already loading
+    }
+    
+    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+        return;
+    };
+    
+    db_manager.ensure_storage();
+    let dsn = if let Some(ref storage) = db_manager.storage {
+        if let Ok(Some(cfg)) = futures::block_on_async(async {
+            storage.get_db_config(&db_id).await
+        }) {
+            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
+                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
+                    format!("{}://{}@{}:{}/{}", 
+                        parsed.engine, parsed.user, parsed.host, parsed.port, database)
+                } else {
+                    cfg.dsn.clone()
+                }
+            })
+        } else {
+            return;
+        }
+    } else {
+        return;
+    };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let (sender, promise) = Promise::new();
+    tree.views_promises.insert(key.clone(), promise);
+    
+    futures::spawn(async move {
+        let result: Result<Vec<ViewInfo>, String> = async {
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+                
+            session.list_views(Some(&schema_clone))
+                .await
+                .map_err(|e| format!("Failed to list views: {}", e))
+        }.await;
+        
+        sender.send(result);
+    });
+}
+
+pub(super) fn load_materialized_views(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, database: &str, schema: &str) {
+    let key = format!("{}.{}", database, schema);
+    if tree.materialized_views_promises.contains_key(&key) {
+        return; // Already loading
+    }
+    
+    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+        return;
+    };
+    
+    db_manager.ensure_storage();
+    let dsn = if let Some(ref storage) = db_manager.storage {
+        if let Ok(Some(cfg)) = futures::block_on_async(async {
+            storage.get_db_config(&db_id).await
+        }) {
+            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
+                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
+                    format!("{}://{}@{}:{}/{}", 
+                        parsed.engine, parsed.user, parsed.host, parsed.port, database)
+                } else {
+                    cfg.dsn.clone()
+                }
+            })
+        } else {
+            return;
+        }
+    } else {
+        return;
+    };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let (sender, promise) = Promise::new();
+    tree.materialized_views_promises.insert(key.clone(), promise);
+    
+    futures::spawn(async move {
+        let result: Result<Vec<MaterializedViewInfo>, String> = async {
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+                
+            session.list_materialized_views(Some(&schema_clone))
+                .await
+                .map_err(|e| format!("Failed to list materialized views: {}", e))
+        }.await;
+        
+        sender.send(result);
+    });
+}
+
+pub(super) fn load_functions(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, database: &str, schema: &str) {
+    let key = format!("{}.{}", database, schema);
+    if tree.functions_promises.contains_key(&key) {
+        return; // Already loading
+    }
+    
+    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+        return;
+    };
+    
+    db_manager.ensure_storage();
+    let dsn = if let Some(ref storage) = db_manager.storage {
+        if let Ok(Some(cfg)) = futures::block_on_async(async {
+            storage.get_db_config(&db_id).await
+        }) {
+            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
+                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
+                    format!("{}://{}@{}:{}/{}", 
+                        parsed.engine, parsed.user, parsed.host, parsed.port, database)
+                } else {
+                    cfg.dsn.clone()
+                }
+            })
+        } else {
+            return;
+        }
+    } else {
+        return;
+    };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let (sender, promise) = Promise::new();
+    tree.functions_promises.insert(key.clone(), promise);
+    
+    futures::spawn(async move {
+        let result: Result<Vec<FunctionInfo>, String> = async {
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+                
+            session.list_functions(Some(&schema_clone))
+                .await
+                .map_err(|e| format!("Failed to list functions: {}", e))
+        }.await;
+        
+        sender.send(result);
+    });
+}
+
 pub(super) fn query_table_data(_tree: &mut DbTree, _db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable, database: &str, schema: &str, table: &str) {
     // 生成 SQL 查询语句，让表格组件自己执行查询
     // 使用 LIMIT 100 限制结果数量，避免查询过大数据集
@@ -291,12 +516,31 @@ pub(super) fn load_table_detail_for_design(
     schema: &str,
     table: &str,
 ) {
-    if tree.design_table_promise.is_some() {
+    // 检查是否是同一个表，如果不是，清空旧数据
+    let current_table = (database.to_string(), schema.to_string(), table.to_string());
+    if let Some(ref loaded_table) = tree.design_table_loaded {
+        if *loaded_table != current_table {
+            // 切换了表，清空旧数据
+            tree.design_table_detail = None;
+            tree.design_table_columns.clear();
+            tree.design_table_promise = None;
+        } else if tree.design_table_promise.is_some() {
+            // 同一个表且正在加载中，不需要重新加载
+            return;
+        } else if tree.design_table_detail.is_some() {
+            // 同一个表且已加载完成，不需要重新加载
+            return;
+        }
+    } else if tree.design_table_promise.is_some() {
+        // 没有记录已加载的表，但 promise 存在，可能是第一次加载
         return; // Already loading
     }
     
     let dsn = get_dsn_for_database(tree, db_manager, database);
     let Some(dsn) = dsn else { return; };
+    
+    // 记录当前要加载的表
+    tree.design_table_loaded = Some(current_table.clone());
     
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
@@ -313,6 +557,51 @@ pub(super) fn load_table_detail_for_design(
             session.get_table_detail(&schema_clone, &table_clone)
                 .await
                 .map_err(|e| format!("Failed to get table detail: {}", e))
+        }.await;
+        
+        sender.send(result);
+    });
+}
+
+/// 加载表DDL
+pub(super) fn load_table_ddl(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+    table: &str,
+) {
+    if tree.ddl_promise.is_some() {
+        return; // Already loading
+    }
+    
+    let dsn = get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let table_clone = table.to_string();
+    let (sender, promise) = Promise::new();
+    tree.ddl_promise = Some(promise);
+    
+    futures::spawn(async move {
+        let result: Result<String, String> = async {
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            
+            // 获取表结构详情
+            let table_detail = session.get_table_detail(&schema_clone, &table_clone)
+                .await
+                .map_err(|e| format!("Failed to get table detail: {}", e))?;
+            
+            // 获取索引信息
+            let indexes = session.list_table_indexes(&schema_clone, &table_clone)
+                .await
+                .map_err(|e| format!("Failed to list indexes: {}", e))?;
+            
+            // 生成DDL
+            Ok(utils::generate_table_ddl(&schema_clone, &table_clone, &table_detail, &indexes))
         }.await;
         
         sender.send(result);
@@ -704,6 +993,154 @@ pub(super) fn query_trigger_detail(tree: &mut DbTree, db_manager: &mut crate::co
         }
         if let Some(ref desc) = trigger_info.description {
             rows.push(vec!["Description".to_string(), desc.clone()]);
+        }
+        
+        Ok((columns, rows))
+    });
+    
+    match result {
+        Ok((columns, rows)) => {
+            results_table.query_columns = columns;
+            results_table.query_rows = rows;
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+
+pub(super) fn query_view_detail(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable, database: &str, schema: &str, view: &str) {
+    let dsn = get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let view_clone = view.to_string();
+    
+    let result = futures::block_on_async(async {
+        let session = Session::new(&dsn_clone)
+            .await
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+        
+        let view_info = session.get_view_info(&schema_clone, &view_clone)
+            .await
+            .map_err(|e| format!("Failed to get view info: {}", e))?;
+        
+        // Convert to table format
+        let columns = vec!["Property".to_string(), "Value".to_string()];
+        let mut rows = Vec::new();
+        
+        rows.push(vec!["Schema".to_string(), view_info.schema.clone()]);
+        rows.push(vec!["Name".to_string(), view_info.name.clone()]);
+        rows.push(vec!["Owner".to_string(), view_info.owner.clone()]);
+        if let Some(ref def) = view_info.definition {
+            rows.push(vec!["Definition".to_string(), def.clone()]);
+        }
+        if let Some(ref desc) = view_info.description {
+            rows.push(vec!["Description".to_string(), desc.clone()]);
+        }
+        
+        Ok((columns, rows))
+    });
+    
+    match result {
+        Ok((columns, rows)) => {
+            results_table.query_columns = columns;
+            results_table.query_rows = rows;
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+
+pub(super) fn query_materialized_view_detail(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable, database: &str, schema: &str, materialized_view: &str) {
+    let dsn = get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let matview_clone = materialized_view.to_string();
+    
+    let result = futures::block_on_async(async {
+        let session = Session::new(&dsn_clone)
+            .await
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+        
+        let matview_info = session.get_materialized_view_info(&schema_clone, &matview_clone)
+            .await
+            .map_err(|e| format!("Failed to get materialized view info: {}", e))?;
+        
+        // Convert to table format
+        let columns = vec!["Property".to_string(), "Value".to_string()];
+        let mut rows = Vec::new();
+        
+        rows.push(vec!["Schema".to_string(), matview_info.schema.clone()]);
+        rows.push(vec!["Name".to_string(), matview_info.name.clone()]);
+        rows.push(vec!["Owner".to_string(), matview_info.owner.clone()]);
+        if let Some(ref def) = matview_info.definition {
+            rows.push(vec!["Definition".to_string(), def.clone()]);
+        }
+        if let Some(ref desc) = matview_info.description {
+            rows.push(vec!["Description".to_string(), desc.clone()]);
+        }
+        
+        Ok((columns, rows))
+    });
+    
+    match result {
+        Ok((columns, rows)) => {
+            results_table.query_columns = columns;
+            results_table.query_rows = rows;
+        }
+        Err(e) => {
+            tree.error = Some(e);
+        }
+    }
+}
+
+pub(super) fn query_function_detail(tree: &mut DbTree, db_manager: &mut crate::components::DbManager, results_table: &mut ResultsTable, database: &str, schema: &str, function: &str) {
+    let dsn = get_dsn_for_database(tree, db_manager, database);
+    let Some(dsn) = dsn else { return; };
+    
+    let dsn_clone = dsn.clone();
+    let schema_clone = schema.to_string();
+    let function_clone = function.to_string();
+    
+    let result = futures::block_on_async(async {
+        let session = Session::new(&dsn_clone)
+            .await
+            .map_err(|e| format!("Failed to create session: {}", e))?;
+        
+        let functions = session.get_function_info(&schema_clone, &function_clone)
+            .await
+            .map_err(|e| format!("Failed to get function info: {}", e))?;
+        
+        // Use the first function if multiple overloads exist
+        let function_info = functions.first()
+            .ok_or_else(|| format!("Function '{}' not found", function))?;
+        
+        // Convert to table format
+        let columns = vec!["Property".to_string(), "Value".to_string()];
+        let mut rows = Vec::new();
+        
+        rows.push(vec!["Schema".to_string(), function_info.schema.clone()]);
+        rows.push(vec!["Name".to_string(), function_info.name.clone()]);
+        rows.push(vec!["Owner".to_string(), function_info.owner.clone()]);
+        if let Some(ref lang) = function_info.language {
+            rows.push(vec!["Language".to_string(), lang.clone()]);
+        }
+        if let Some(ref ret_type) = function_info.return_type {
+            rows.push(vec!["Return Type".to_string(), ret_type.clone()]);
+        }
+        if let Some(ref def) = function_info.definition {
+            rows.push(vec!["Definition".to_string(), def.clone()]);
+        }
+        if let Some(ref desc) = function_info.description {
+            rows.push(vec!["Description".to_string(), desc.clone()]);
+        }
+        if functions.len() > 1 {
+            rows.push(vec!["Overloads".to_string(), format!("{} overloads", functions.len())]);
         }
         
         Ok((columns, rows))
