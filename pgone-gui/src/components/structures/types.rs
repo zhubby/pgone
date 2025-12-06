@@ -1,4 +1,4 @@
-use pgone_sql::{DatabaseInfo, SchemaInfo, TableInfo, IndexInfo, ForeignKeyDetail, TriggerInfo, TableDetail};
+use pgone_sql::{DatabaseInfo, SchemaInfo, TableInfo, IndexInfo, ForeignKeyDetail, TriggerInfo, TableDetail, ViewInfo, MaterializedViewInfo, FunctionInfo};
 use std::collections::{HashMap, HashSet};
 use poll_promise::Promise;
 
@@ -7,6 +7,9 @@ pub(super) enum DialogType {
     CreateDatabase,
     CreateSchema { database: String },
     CreateTable { database: String, schema: String },
+    CreateView { database: String, schema: String },
+    CreateMaterializedView { database: String, schema: String },
+    CreateFunction { database: String, schema: String },
     DeleteDatabase { name: String },
     DeleteSchema { database: String, name: String },
     DeleteTable { database: String, schema: String, name: String },
@@ -16,6 +19,9 @@ pub(super) enum DialogType {
     PropertiesDatabase { name: String },
     PropertiesSchema { database: String, name: String },
     PropertiesTable { database: String, schema: String, name: String },
+    PropertiesView { database: String, schema: String, name: String },
+    PropertiesMaterializedView { database: String, schema: String, name: String },
+    PropertiesFunction { database: String, schema: String, name: String },
     DesignTable { database: String, schema: String, name: String },
     ShowDdl { database: String, schema: String, name: String },
     DropTable { database: String, schema: String, name: String },
@@ -60,6 +66,24 @@ pub struct DbTree {
     pub(super) tables_promises: HashMap<String, Promise<Result<Vec<TableInfo>, String>>>,
     pub(super) expanded_tables: HashMap<String, HashSet<String>>, // key: "database.schema"
     
+    // View level (key: "database.schema")
+    pub(super) views: HashMap<String, Vec<ViewInfo>>,
+    pub(super) loaded_views: HashMap<String, bool>,
+    pub(super) views_promises: HashMap<String, Promise<Result<Vec<ViewInfo>, String>>>,
+    pub(super) expanded_views: HashMap<String, HashSet<String>>, // key: "database.schema"
+    
+    // Materialized view level (key: "database.schema")
+    pub(super) materialized_views: HashMap<String, Vec<MaterializedViewInfo>>,
+    pub(super) loaded_materialized_views: HashMap<String, bool>,
+    pub(super) materialized_views_promises: HashMap<String, Promise<Result<Vec<MaterializedViewInfo>, String>>>,
+    pub(super) expanded_materialized_views: HashMap<String, HashSet<String>>, // key: "database.schema"
+    
+    // Function level (key: "database.schema")
+    pub(super) functions: HashMap<String, Vec<FunctionInfo>>,
+    pub(super) loaded_functions: HashMap<String, bool>,
+    pub(super) functions_promises: HashMap<String, Promise<Result<Vec<FunctionInfo>, String>>>,
+    pub(super) expanded_functions: HashMap<String, HashSet<String>>, // key: "database.schema"
+    
     // Index level (key: "database.schema.table")
     pub(super) indexes: HashMap<String, Vec<IndexInfo>>,
     pub(super) loaded_indexes: HashMap<String, bool>,
@@ -101,6 +125,9 @@ pub struct DbTree {
     
     // Pending actions (to avoid borrow checker issues in context menus)
     pub(super) pending_query_table: Option<(String, String, String)>, // (database, schema, table)
+    pub(super) pending_query_view: Option<(String, String, String)>, // (database, schema, view)
+    pub(super) pending_query_materialized_view: Option<(String, String, String)>, // (database, schema, materialized_view)
+    pub(super) pending_query_function: Option<(String, String, String)>, // (database, schema, function)
     pub(super) pending_query_index: Option<(String, String, String, String)>, // (database, schema, table, index)
     pub(super) pending_query_foreign_key: Option<(String, String, String, String)>, // (database, schema, table, fk_name)
     pub(super) pending_query_trigger: Option<(String, String, String, String)>, // (database, schema, table, trigger)
