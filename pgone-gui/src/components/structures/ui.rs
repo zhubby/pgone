@@ -257,8 +257,10 @@ impl DbTree {
                                             
                                             // Show indexes
                                             let indexes_key = format!("{}_indexes", item_key);
-                                            let expanded_indexes = self.expanded_indexes.entry(item_key.clone()).or_insert_with(HashSet::new);
-                                            let is_indexes_expanded = expanded_indexes.contains(&indexes_key);
+                                            let is_indexes_expanded = self.expanded_indexes
+                                                .get(&item_key)
+                                                .map(|s| s.contains(&indexes_key))
+                                                .unwrap_or(false);
                                             
                                             let indexes_response = egui::CollapsingHeader::new(
                                                 format!("{} Indexes", egui_phosphor::regular::LIST_BULLETS)
@@ -266,7 +268,10 @@ impl DbTree {
                                             .default_open(is_indexes_expanded)
                                             .show(ui, |ui| {
                                                 if !is_indexes_expanded {
-                                                    expanded_indexes.insert(indexes_key.clone());
+                                                    self.expanded_indexes
+                                                        .entry(item_key.clone())
+                                                        .or_insert_with(HashSet::new)
+                                                        .insert(indexes_key.clone());
                                                 }
                                                 
                                                 if let Some(indexes) = self.indexes.get(&item_key) {
@@ -282,13 +287,18 @@ impl DbTree {
                                             });
                                             
                                             if !is_indexes_expanded && indexes_response.header_response.clicked() {
-                                                expanded_indexes.insert(indexes_key.clone());
+                                                self.expanded_indexes
+                                                    .entry(item_key.clone())
+                                                    .or_insert_with(HashSet::new)
+                                                    .insert(indexes_key.clone());
                                             }
                                             
                                             // Show foreign keys
                                             let fks_key = format!("{}_foreign_keys", item_key);
-                                            let expanded_foreign_keys = self.expanded_foreign_keys.entry(item_key.clone()).or_insert_with(HashSet::new);
-                                            let is_fks_expanded = expanded_foreign_keys.contains(&fks_key);
+                                            let is_fks_expanded = self.expanded_foreign_keys
+                                                .get(&item_key)
+                                                .map(|s| s.contains(&fks_key))
+                                                .unwrap_or(false);
                                             
                                             let fks_response = egui::CollapsingHeader::new(
                                                 format!("{} Foreign Keys", egui_phosphor::regular::LINK)
@@ -296,7 +306,10 @@ impl DbTree {
                                             .default_open(is_fks_expanded)
                                             .show(ui, |ui| {
                                                 if !is_fks_expanded {
-                                                    expanded_foreign_keys.insert(fks_key.clone());
+                                                    self.expanded_foreign_keys
+                                                        .entry(item_key.clone())
+                                                        .or_insert_with(HashSet::new)
+                                                        .insert(fks_key.clone());
                                                 }
                                                 
                                                 if let Some(foreign_keys) = self.foreign_keys.get(&item_key) {
@@ -316,13 +329,18 @@ impl DbTree {
                                             });
                                             
                                             if !is_fks_expanded && fks_response.header_response.clicked() {
-                                                expanded_foreign_keys.insert(fks_key.clone());
+                                                self.expanded_foreign_keys
+                                                    .entry(item_key.clone())
+                                                    .or_insert_with(HashSet::new)
+                                                    .insert(fks_key.clone());
                                             }
                                             
                                             // Show triggers
                                             let triggers_key = format!("{}_triggers", item_key);
-                                            let expanded_triggers = self.expanded_triggers.entry(item_key.clone()).or_insert_with(HashSet::new);
-                                            let is_triggers_expanded = expanded_triggers.contains(&triggers_key);
+                                            let is_triggers_expanded = self.expanded_triggers
+                                                .get(&item_key)
+                                                .map(|s| s.contains(&triggers_key))
+                                                .unwrap_or(false);
                                             
                                             let triggers_response = egui::CollapsingHeader::new(
                                                 format!("{} Triggers", egui_phosphor::regular::LIGHTNING)
@@ -330,7 +348,10 @@ impl DbTree {
                                             .default_open(is_triggers_expanded)
                                             .show(ui, |ui| {
                                                 if !is_triggers_expanded {
-                                                    expanded_triggers.insert(triggers_key.clone());
+                                                    self.expanded_triggers
+                                                        .entry(item_key.clone())
+                                                        .or_insert_with(HashSet::new)
+                                                        .insert(triggers_key.clone());
                                                 }
                                                 
                                                 if let Some(triggers) = self.triggers.get(&item_key) {
@@ -346,7 +367,10 @@ impl DbTree {
                                             });
                                             
                                             if !is_triggers_expanded && triggers_response.header_response.clicked() {
-                                                expanded_triggers.insert(triggers_key.clone());
+                                                self.expanded_triggers
+                                                    .entry(item_key.clone())
+                                                    .or_insert_with(HashSet::new)
+                                                    .insert(triggers_key.clone());
                                             }
                                         });
                                         
@@ -729,6 +753,74 @@ impl DbTree {
             // 在循环外处理异步加载，避免借用冲突
             for (db_name, schema_name, table_name) in pending_design_loads {
                 loading::load_table_detail_for_design(self, db_manager, &db_name, &schema_name, &table_name);
+            }
+            
+            // Collect and load indexes, foreign keys, and triggers after all loops
+            let mut items_to_load_indexes = Vec::new();
+            let mut items_to_load_fks = Vec::new();
+            let mut items_to_load_triggers = Vec::new();
+            
+            for db in &self.databases {
+                let db_name = db.name.clone();
+                if let Some(schemas) = self.schemas.get(&db_name) {
+                    for schema in schemas {
+                        let schema_name = schema.name.clone();
+                        let tables_key = format!("{}.{}", db_name, schema_name);
+                        if let Some(tables) = self.tables.get(&tables_key) {
+                            for table in tables {
+                                let table_name = table.name.clone();
+                                let item_key = format!("{}.{}.{}", db_name, schema_name, table_name);
+                                
+                                // Check indexes
+                                let indexes_key = format!("{}_indexes", item_key);
+                                let is_indexes_expanded = self.expanded_indexes
+                                    .get(&item_key)
+                                    .map(|s| s.contains(&indexes_key))
+                                    .unwrap_or(false);
+                                if is_indexes_expanded 
+                                    && !self.loaded_indexes.get(&item_key).copied().unwrap_or(false) 
+                                    && !self.indexes_promises.contains_key(&item_key) {
+                                    items_to_load_indexes.push((db_name.clone(), schema_name.clone(), table_name.clone()));
+                                }
+                                
+                                // Check foreign keys
+                                let fks_key = format!("{}_foreign_keys", item_key);
+                                let is_fks_expanded = self.expanded_foreign_keys
+                                    .get(&item_key)
+                                    .map(|s| s.contains(&fks_key))
+                                    .unwrap_or(false);
+                                if is_fks_expanded 
+                                    && !self.loaded_foreign_keys.get(&item_key).copied().unwrap_or(false) 
+                                    && !self.foreign_keys_promises.contains_key(&item_key) {
+                                    items_to_load_fks.push((db_name.clone(), schema_name.clone(), table_name.clone()));
+                                }
+                                
+                                // Check triggers
+                                let triggers_key = format!("{}_triggers", item_key);
+                                let is_triggers_expanded = self.expanded_triggers
+                                    .get(&item_key)
+                                    .map(|s| s.contains(&triggers_key))
+                                    .unwrap_or(false);
+                                if is_triggers_expanded 
+                                    && !self.loaded_triggers.get(&item_key).copied().unwrap_or(false) 
+                                    && !self.triggers_promises.contains_key(&item_key) {
+                                    items_to_load_triggers.push((db_name.clone(), schema_name.clone(), table_name.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Load items after collecting to avoid borrow conflicts
+            for (db, schema, table) in items_to_load_indexes {
+                loading::load_indexes(self, db_manager, &db, &schema, &table);
+            }
+            for (db, schema, table) in items_to_load_fks {
+                loading::load_foreign_keys(self, db_manager, &db, &schema, &table);
+            }
+            for (db, schema, table) in items_to_load_triggers {
+                loading::load_triggers(self, db_manager, &db, &schema, &table);
             }
             
             // Add database button
