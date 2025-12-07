@@ -48,6 +48,17 @@ pub struct ResultsTable {
     pub available_databases: Vec<String>,
     pub databases_promise: Option<Promise<Result<Vec<String>, String>>>,
     pub current_db_id: Option<String>,
+
+    // Auto-completion fields
+    pub completion_suggestions: Vec<String>,
+    pub completion_selected_index: usize,
+    pub show_completion: bool,
+    pub completion_prefix: String,
+    pub completion_cursor_pos: usize,
+    pub completion_word_start: usize,
+    pub completion_word_end: usize,
+    pub previous_sql_input: String, // 用于检测文本变化位置
+    pub pending_cursor_pos: Option<usize>, // 待设置的光标位置
 }
 
 impl ResultsTable {
@@ -68,6 +79,15 @@ impl ResultsTable {
             available_databases: Vec::new(),
             databases_promise: None,
             current_db_id: None,
+            completion_suggestions: Vec::new(),
+            completion_selected_index: 0,
+            show_completion: false,
+            completion_prefix: String::new(),
+            completion_cursor_pos: 0,
+            completion_word_start: 0,
+            completion_word_end: 0,
+            previous_sql_input: String::new(),
+            pending_cursor_pos: None,
         }
     }
 

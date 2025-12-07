@@ -9,72 +9,211 @@ use anyhow::{Result, anyhow};
 use serde_json;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, FixedOffset};
 
-/// PostgreSQL 关键字集合
+/// PostgreSQL 关键字集合（基于 PostgreSQL 9.3+ 官方文档）
+/// 包含保留字和非保留字，按字母顺序排列
 static PG_KEYWORDS: &[&str] = &[
-    // DML
-    "select", "insert", "update", "delete", "merge",
-    // DDL
-    "create", "drop", "alter", "truncate",
-    // 表相关
-    "table", "view", "index", "sequence", "schema", "database",
-    // JOIN
-    "join", "inner", "left", "right", "full", "outer", "cross", "natural", "on",
-    // WHERE/HAVING
-    "where", "having",
-    // GROUP BY/ORDER BY
-    "group", "by", "order", "asc", "desc", "nulls", "first", "last",
-    // 聚合函数
-    "count", "sum", "avg", "min", "max", "distinct",
-    // 集合操作
-    "union", "intersect", "except", "all",
-    // 子查询
-    "exists", "in", "any", "some",
-    // 逻辑运算符
-    "and", "or", "not", "is",
-    // 比较运算符
-    "between", "like", "ilike", "similar", "to",
-    // 条件
-    "case", "when", "then", "else", "end",
-    // 别名
-    "as",
-    // FROM
-    "from",
-    // LIMIT/OFFSET
-    "limit", "offset", "fetch", "next", "rows", "only",
-    // WITH
-    "with", "recursive",
-    // 约束
-    "primary", "key", "foreign", "references", "constraint", "unique", "check",
-    "default",
-    // 数据类型
-    "integer", "int", "bigint", "smallint", "serial", "bigserial",
-    "real", "double", "precision", "numeric", "decimal",
-    "varchar", "char", "text",
-    "boolean", "bool",
-    "date", "time", "timestamp", "interval",
-    "json", "jsonb", "xml", "array",
-    "uuid", "bytea",
-    // 函数相关
-    "function", "procedure", "returns", "return", "language",
-    // 事务
-    "begin", "commit", "rollback", "transaction", "savepoint", "release",
-    // 权限
-    "grant", "revoke", "privileges",
-    // 其他
-    "if", "exists", "cascade", "restrict",
-    "set", "to", "using",
-    "values", "into",
-    "over", "partition", "window",
-    "cast",
-    "coalesce", "nullif",
-    "extract", "current_date", "current_time", "current_timestamp",
-    "now", "today", "yesterday",
-    "true", "false",
+    // A
+    "ABORT", "ABS", "ABSOLUTE", "ACCESS", "ACTION", "ADD", "ADMIN", "AFTER", "AGGREGATE",
+    "ALL", "ALLOCATE", "ALSO", "ALTER", "ALWAYS", "ANALYSE", "ANALYZE", "AND", "ANY",
+    "ARE", "ARRAY", "AS", "ASC", "ASENSITIVE", "ASSERTION", "ASSIGNMENT", "ASYMMETRIC", "AT",
+    "ATOMIC", "ATTRIBUTE", "ATTRIBUTES", "AUTHORIZATION", "AVG",
+    // B
+    "BACKWARD", "BEFORE", "BEGIN", "BERNOULLI", "BETWEEN", "BIGINT", "BINARY", "BIT",
+    "BITVAR", "BLOB", "BOOLEAN", "BOTH", "BREADTH", "BY",
+    // C
+    "C", "CACHE", "CALL", "CALLED", "CARDINALITY", "CASCADE", "CASCADED", "CASE", "CAST",
+    "CATALOG", "CATALOG_NAME", "CEIL", "CEILING", "CHAIN", "CHAR", "CHARACTER",
+    "CHARACTERISTICS", "CHARACTERS", "CHARACTER_LENGTH", "CHARACTER_SET_CATALOG",
+    "CHARACTER_SET_NAME", "CHARACTER_SET_SCHEMA", "CHAR_LENGTH", "CHECK", "CHECKED",
+    "CHECKPOINT", "CLASS", "CLASS_ORIGIN", "CLOB", "CLOSE", "CLUSTER", "COALESCE", "COBOL",
+    "COLLATE", "COLLATION", "COLLATION_CATALOG", "COLLATION_NAME", "COLLATION_SCHEMA",
+    "COLLECT", "COLUMN", "COLUMN_NAME", "COMMAND_FUNCTION", "COMMAND_FUNCTION_CODE",
+    "COMMENT", "COMMIT", "COMMITTED", "COMPLETION", "CONDITION", "CONDITION_NUMBER",
+    "CONNECT", "CONNECTION", "CONNECTION_NAME", "CONSTRAINT", "CONSTRAINTS",
+    "CONSTRAINT_CATALOG", "CONSTRAINT_NAME", "CONSTRAINT_SCHEMA", "CONSTRUCTOR",
+    "CONTAINS", "CONTINUE", "CONVERSION", "CONVERT", "COPY", "CORR", "CORRESPONDING",
+    "COUNT", "COVAR_POP", "COVAR_SAMP", "CREATE", "CREATEDB", "CREATEROLE", "CREATEUSER",
+    "CROSS", "CSV", "CUBE", "CUME_DIST", "CURRENT", "CURRENT_DATE", "CURRENT_DEFAULT_TRANSFORM_GROUP",
+    "CURRENT_PATH", "CURRENT_ROLE", "CURRENT_TIME", "CURRENT_TIMESTAMP",
+    "CURRENT_TRANSFORM_GROUP_FOR_TYPE", "CURRENT_USER", "CURSOR", "CURSOR_NAME", "CYCLE",
+    // D
+    "DATA", "DATABASE", "DATE", "DATETIME_INTERVAL_CODE", "DATETIME_INTERVAL_PRECISION",
+    "DAY", "DEALLOCATE", "DEC", "DECIMAL", "DECLARE", "DEFAULT", "DEFAULTS", "DEFERRABLE",
+    "DEFERRED", "DEFINED", "DEFINER", "DEGREE", "DELETE", "DELIMITER", "DELIMITERS",
+    "DENSE_RANK", "DEPTH", "DEREF", "DERIVED", "DESC", "DESCRIBE", "DESCRIPTOR",
+    "DETERMINISTIC", "DIAGNOSTICS", "DICTIONARY", "DISABLE", "DISCARD", "DISCONNECT",
+    "DISPATCH", "DISTINCT", "DO", "DOMAIN", "DOUBLE", "DROP", "DYNAMIC", "DYNAMIC_FUNCTION",
+    "DYNAMIC_FUNCTION_CODE",
+    // E
+    "EACH", "ELEMENT", "ELSE", "ENABLE", "ENCODING", "ENCRYPTED", "END", "END_EXEC",
+    "EQUALS", "ESCAPE", "EVERY", "EXCEPT", "EXCEPTION", "EXCLUDE", "EXCLUDING",
+    "EXCLUSIVE", "EXEC", "EXECUTE", "EXISTING", "EXISTS", "EXP", "EXPLAIN", "EXTEND",
+    "EXTERNAL", "EXTRACT",
+    // F
+    "FALSE", "FETCH", "FILTER", "FINAL", "FIRST", "FLOAT", "FLOOR", "FOLLOWING", "FOR",
+    "FORCE", "FOREIGN", "FORTRAN", "FORWARD", "FOUND", "FREE", "FREEZE", "FROM", "FULL",
+    "FUNCTION", "FUSION",
+    // G
+    "G", "GENERAL", "GENERATED", "GET", "GLOBAL", "GO", "GOTO", "GRANT", "GRANTED",
+    "GREATEST", "GROUP", "GROUPING",
+    // H
+    "HANDLER", "HAVING", "HEADER", "HIERARCHY", "HOLD", "HOST", "HOUR",
+    // I
+    "IDENTITY", "IF", "IGNORE", "ILIKE", "IMMEDIATE", "IMMUTABLE", "IMPLEMENTATION",
+    "IMPLICIT", "IN", "INCLUDING", "INCREMENT", "INDEX", "INDICATOR", "INFIX",
+    "INHERIT", "INHERITS", "INITIALIZE", "INITIALLY", "INNER", "INOUT", "INPUT",
+    "INSENSITIVE", "INSERT", "INSTANCE", "INSTANTIABLE", "INSTEAD", "INT", "INTEGER",
+    "INTERSECT", "INTERSECTION", "INTERVAL", "INTO", "INVOKER", "IS", "ISNULL",
+    "ISOLATION", "ITERATE",
+    // J
+    "JOIN",
+    // K
+    "K", "KEY", "KEY_MEMBER", "KEY_TYPE", "KNOWN",
+    // L
+    "LABEL", "LANGUAGE", "LARGE", "LAST", "LATERAL", "LEADING", "LEAST", "LEFT",
+    "LENGTH", "LESS", "LEVEL", "LIKE", "LIMIT", "LISTEN", "LN", "LOAD", "LOCAL",
+    "LOCALTIME", "LOCALTIMESTAMP", "LOCATION", "LOCATOR", "LOCK", "LOWER",
+    // M
+    "M", "MAP", "MATCH", "MATCHED", "MAX", "MAXVALUE", "MEMBER", "MERGE", "MESSAGE_LENGTH",
+    "MESSAGE_OCTET_LENGTH", "MESSAGE_TEXT", "METHOD", "MIN", "MINUTE", "MINVALUE",
+    "MOD", "MODE", "MODIFIES", "MODIFY", "MODULE", "MONTH", "MORE", "MOVE", "MULTISET",
+    "MUMPS",
+    // N
+    "NAME", "NAMES", "NATIONAL", "NATURAL", "NCHAR", "NCLOB", "NESTING", "NEW", "NEXT",
+    "NO", "NONE", "NORMALIZE", "NORMALIZED", "NOT", "NOTHING", "NOTIFY", "NOTNULL",
+    "NOWAIT", "NULL", "NULLABLE", "NULLIF", "NULLS", "NUMBER", "NUMERIC",
+    // O
+    "OBJECT", "OCTETS", "OCTET_LENGTH", "OF", "OFF", "OFFSET", "OIDS", "OLD", "ON",
+    "ONLY", "OPEN", "OPERATION", "OPERATOR", "OPTION", "OPTIONS", "OR", "ORDER",
+    "ORDERING", "ORDINALITY", "OTHERS", "OUT", "OUTER", "OUTPUT", "OVER", "OVERLAPS",
+    "OVERLAY", "OVERRIDING", "OWNER",
+    // P
+    "PAD", "PARAMETER", "PARAMETERS", "PARAMETER_MODE", "PARAMETER_NAME",
+    "PARAMETER_ORDINAL_POSITION", "PARAMETER_SPECIFIC_CATALOG", "PARAMETER_SPECIFIC_NAME",
+    "PARAMETER_SPECIFIC_SCHEMA", "PARTIAL", "PARTITION", "PASCAL", "PASSWORD", "PATH",
+    "PERCENT_RANK", "PERCENTILE_CONT", "PERCENTILE_DISC", "PLACING", "PLI", "POSITION",
+    "POSTFIX", "POWER", "PRECEDING", "PRECISION", "PREFIX", "PREORDER", "PREPARE",
+    "PREPARED", "PRESERVE", "PRIMARY", "PRIOR", "PRIVILEGES", "PROCEDURAL", "PROCEDURE",
+    "PUBLIC",
+    // Q
+    "QUOTE",
+    // R
+    "RANGE", "RANK", "READ", "READS", "REAL", "RECHECK", "RECURSIVE", "REF", "REFERENCES",
+    "REFERENCING", "REGR_AVGX", "REGR_AVGY", "REGR_COUNT", "REGR_INTERCEPT", "REGR_R2",
+    "REGR_SLOPE", "REGR_SXX", "REGR_SXY", "REGR_SYY", "REINDEX", "RELATIVE", "RELEASE",
+    "RENAME", "REPEATABLE", "REPLACE", "RESET", "RESTART", "RESTRICT", "RESULT",
+    "RETURN", "RETURNED_CARDINALITY", "RETURNED_LENGTH", "RETURNED_OCTET_LENGTH",
+    "RETURNED_SQLSTATE", "RETURNS", "REVOKE", "RIGHT", "ROLE", "ROLLBACK", "ROLLUP",
+    "ROUTINE", "ROUTINE_CATALOG", "ROUTINE_NAME", "ROUTINE_SCHEMA", "ROW", "ROWS",
+    "ROW_COUNT", "ROW_NUMBER", "RULE",
+    // S
+    "SAVEPOINT", "SCALE", "SCHEMA", "SCHEMA_NAME", "SCOPE", "SCOPE_CATALOG",
+    "SCOPE_NAME", "SCOPE_SCHEMA", "SCROLL", "SEARCH", "SECOND", "SECTION", "SECURITY",
+    "SELECT", "SELF", "SENSITIVE", "SEQUENCE", "SERIALIZABLE", "SERVER", "SERVER_NAME",
+    "SESSION", "SESSION_USER", "SET", "SETOF", "SETS", "SHARE", "SHOW", "SIMILAR",
+    "SIMPLE", "SIZE", "SMALLINT", "SOME", "SOURCE", "SPACE", "SPECIFIC", "SPECIFICTYPE",
+    "SPECIFIC_NAME", "SQL", "SQLCODE", "SQLERROR", "SQLEXCEPTION", "SQLSTATE",
+    "SQLWARNING", "SQRT", "STABLE", "START", "STATE", "STATEMENT", "STATIC", "STATISTICS",
+    "STDDEV_POP", "STDDEV_SAMP", "STDIN", "STDOUT", "STORAGE", "STRICT", "STRUCTURE",
+    "STYLE", "SUBCLASS_ORIGIN", "SUBMULTISET", "SUBSTRING", "SUM", "SUPERUSER",
+    "SYMMETRIC", "SYSID", "SYSTEM", "SYSTEM_USER",
+    // T
+    "TABLE", "TABLE_NAME", "TEMP", "TEMPLATE", "TEMPORARY", "TERMINATE", "THAN", "THEN",
+    "TIES", "TIME", "TIMESTAMP", "TIMEZONE_HOUR", "TIMEZONE_MINUTE", "TO", "TOAST",
+    "TOP_LEVEL_COUNT", "TRAILING", "TRANSACTION", "TRANSACTIONS_COMMITTED",
+    "TRANSACTIONS_ROLLED_BACK", "TRANSACTION_ACTIVE", "TRANSFORM", "TRANSFORMS",
+    "TRANSLATE", "TRANSLATION", "TREAT", "TRIGGER", "TRIGGER_CATALOG", "TRIGGER_NAME",
+    "TRIGGER_SCHEMA", "TRIM", "TRUE", "TRUNCATE", "TRUSTED", "TYPE",
+    // U
+    "UESCAPE", "UNBOUNDED", "UNCOMMITTED", "UNDER", "UNENCRYPTED", "UNION", "UNIQUE",
+    "UNKNOWN", "UNLISTEN", "UNNAMED", "UNNEST", "UNTIL", "UPDATE", "UPPER", "USAGE",
+    "USER", "USER_DEFINED_TYPE_CATALOG", "USER_DEFINED_TYPE_CODE",
+    "USER_DEFINED_TYPE_NAME", "USER_DEFINED_TYPE_SCHEMA", "USING", "UTF16", "UTF32",
+    "UTF8",
+    // V
+    "VACUUM", "VALID", "VALIDATE", "VALIDATOR", "VALUE", "VALUES", "VAR_POP", "VAR_SAMP",
+    "VARCHAR", "VARIABLE", "VARIADIC", "VARYING", "VERBOSE", "VERSION", "VIEW", "VOLATILE",
+    // W
+    "WHEN", "WHENEVER", "WHERE", "WIDTH_BUCKET", "WINDOW", "WITH", "WITHIN", "WITHOUT",
+    "WORK", "WRITE", "WRAPPER",
+    // X
+    "XML", "XMLAGG", "XMLATTRIBUTES", "XMLBINARY", "XMLCAST", "XMLCOMMENT", "XMLCONCAT",
+    "XMLDECLARATION", "XMLDOCUMENT", "XMLELEMENT", "XMLEXISTS", "XMLFOREST", "XMLITERATE",
+    "XMLNAMESPACES", "XMLPARSE", "XMLPI", "XMLQUERY", "XMLROOT", "XMLSCHEMA", "XMLSERIALIZE",
+    "XMLTABLE", "XMLTEXT", "XMLVALIDATE",
+    // Y
+    "YEAR", "YES",
+    // Z
+    "ZONE",
 ];
 
-static KEYWORD_SET: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-    PG_KEYWORDS.iter().copied().collect()
+// 关键字集合（小写），用于语法高亮
+static KEYWORD_SET: Lazy<HashSet<String>> = Lazy::new(|| {
+    PG_KEYWORDS.iter().map(|kw| kw.to_ascii_lowercase()).collect()
 });
+
+/// 从文本和光标位置提取当前词
+/// 返回 (词内容, 起始位置, 结束位置)
+pub fn extract_current_word(text: &str, cursor_pos: usize) -> (String, usize, usize) {
+    if cursor_pos > text.len() {
+        return (String::new(), cursor_pos, cursor_pos);
+    }
+
+    let bytes = text.as_bytes();
+    let mut start = cursor_pos;
+    let mut end = cursor_pos;
+
+    // 向前查找词的起始位置
+    while start > 0 {
+        let ch = bytes[start - 1] as char;
+        if ch.is_alphanumeric() || ch == '_' || ch == '$' {
+            start -= 1;
+        } else {
+            break;
+        }
+    }
+
+    // 向后查找词的结束位置
+    while end < bytes.len() {
+        let ch = bytes[end] as char;
+        if ch.is_alphanumeric() || ch == '_' || ch == '$' {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+
+    let word = if start < end {
+        text[start..end].to_string()
+    } else {
+        String::new()
+    };
+
+    (word, start, end)
+}
+
+/// 根据前缀匹配关键字
+/// 不区分大小写匹配，返回大写的关键字列表（按字母顺序排序）
+pub fn match_keywords(prefix: &str) -> Vec<String> {
+    if prefix.is_empty() {
+        return Vec::new();
+    }
+
+    let prefix_upper = prefix.to_ascii_uppercase();
+    let mut matches: Vec<String> = PG_KEYWORDS
+        .iter()
+        .filter(|kw| kw.starts_with(&prefix_upper))
+        .map(|kw| kw.to_string())
+        .collect();
+
+    // 按字母顺序排序（关键字已经是大写，直接排序）
+    matches.sort();
+    
+    // 限制最多返回 10 个结果
+    matches.truncate(10);
+    
+    matches
+}
 
 /// SQL 高亮函数，支持 PostgreSQL 标准
 pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
@@ -265,7 +404,7 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
             let token = &text[start..i];
             let lower = token.to_ascii_lowercase();
             
-            let fmt = if KEYWORD_SET.contains(lower.as_str()) {
+            let fmt = if KEYWORD_SET.contains(&lower) {
                 kw.clone()
             } else {
                 normal.clone()
