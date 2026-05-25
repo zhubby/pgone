@@ -1,9 +1,9 @@
 use crate::models::FileIndex;
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(feature = "backend-libsql")]
 use libsql::{Connection, params};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(feature = "backend-turso")]
 use turso::{Connection, params};
 use uuid::Uuid;
@@ -55,9 +55,8 @@ fn get_file_extension(path: &Path) -> String {
 
 /// 检测文件的 MIME 类型
 fn detect_mime_type(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path)
-        .context("Failed to read file for MIME type detection")?;
-    
+    let bytes = std::fs::read(path).context("Failed to read file for MIME type detection")?;
+
     // 使用 infer 检测 MIME 类型
     if let Some(kind) = infer::get(&bytes) {
         Ok(kind.mime_type().to_string())
@@ -88,10 +87,7 @@ fn detect_mime_type(path: &Path) -> Result<String> {
 }
 
 /// 复制文件到索引目录并记录到数据库
-pub async fn copy_file_to_index(
-    conn: &mut Connection,
-    source_path: &str,
-) -> Result<FileIndex> {
+pub async fn copy_file_to_index(conn: &mut Connection, source_path: &str) -> Result<FileIndex> {
     // 确保数据目录存在
     ensure_data_dir().await?;
 
@@ -196,9 +192,7 @@ pub async fn update_file(
     new_source_path: &str,
 ) -> Result<FileIndex> {
     // 获取现有文件信息
-    let mut file_index = get_file(conn, id)
-        .await?
-        .context("File index not found")?;
+    let mut file_index = get_file(conn, id).await?.context("File index not found")?;
 
     let new_source = Path::new(new_source_path);
     if !new_source.exists() {
@@ -341,10 +335,7 @@ pub async fn query_files_by_path(
 }
 
 /// 按 MIME 类型查询文件索引
-pub async fn query_files_by_type(
-    conn: &mut Connection,
-    mime_type: &str,
-) -> Result<Vec<FileIndex>> {
+pub async fn query_files_by_type(conn: &mut Connection, mime_type: &str) -> Result<Vec<FileIndex>> {
     let mut rows = conn
         .query(
             "SELECT id, current_path, original_path, file_size, file_type, created_at, updated_at
@@ -399,7 +390,10 @@ pub async fn query_files_by_date_range(
     };
 
     let mut rows = match params_vec.len() {
-        2 => conn.query(sql, params![params_vec[0], params_vec[1]]).await?,
+        2 => {
+            conn.query(sql, params![params_vec[0], params_vec[1]])
+                .await?
+        }
         1 => conn.query(sql, params![params_vec[0]]).await?,
         _ => conn.query(sql, params![]).await?,
     };
@@ -419,4 +413,3 @@ pub async fn query_files_by_date_range(
 
     Ok(results)
 }
-

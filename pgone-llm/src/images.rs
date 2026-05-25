@@ -1,6 +1,6 @@
 use crate::{Client, LlmError, Result};
 use async_openai::types::{
-    CreateImageRequestArgs, ImageResponseFormat, CreateImageVariationRequestArgs,
+    CreateImageRequestArgs, CreateImageVariationRequestArgs, ImageResponseFormat,
 };
 use std::path::Path;
 
@@ -191,7 +191,9 @@ impl Client {
             req_builder.user(user);
         }
 
-        let req = req_builder.build().map_err(|e| LlmError::InvalidRequest(e.to_string()))?;
+        let req = req_builder
+            .build()
+            .map_err(|e| LlmError::InvalidRequest(e.to_string()))?;
         let _resp = self.inner().images().create(req).await?;
 
         // Note: Image response structure in async-openai 0.25 may differ
@@ -205,10 +207,15 @@ impl Client {
     pub async fn images_edit(&self, _request: ImageEditRequest) -> Result<ImageResponse> {
         // Note: Image editing API may have changed in async-openai 0.30
         // This is a placeholder implementation
-        Err(LlmError::Api("Image editing API not yet implemented for this version".to_string()))
+        Err(LlmError::Api(
+            "Image editing API not yet implemented for this version".to_string(),
+        ))
     }
 
-    pub async fn images_create_variant(&self, request: ImageVariantRequest) -> Result<ImageResponse> {
+    pub async fn images_create_variant(
+        &self,
+        request: ImageVariantRequest,
+    ) -> Result<ImageResponse> {
         let image_path = Path::new(&request.image);
         let mut req_builder = CreateImageVariationRequestArgs::default();
         req_builder.image(image_path);
@@ -229,7 +236,9 @@ impl Client {
             req_builder.user(user);
         }
 
-        let req = req_builder.build().map_err(|e| LlmError::InvalidRequest(e.to_string()))?;
+        let req = req_builder
+            .build()
+            .map_err(|e| LlmError::InvalidRequest(e.to_string()))?;
         let _resp = self.inner().images().create_variation(req).await?;
 
         // Note: Image response structure in async-openai 0.30 may differ
@@ -240,4 +249,3 @@ impl Client {
         Ok(ImageResponse { urls, b64_json })
     }
 }
-

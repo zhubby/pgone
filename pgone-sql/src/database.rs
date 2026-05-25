@@ -8,10 +8,11 @@ impl Session {
     /// Requires connection to the 'postgres' system database
     pub async fn list_databases(&self) -> Result<Vec<DatabaseInfo>> {
         info!("Listing all databases");
-        
+
         let conn = self.get_connection().await?;
-        let rows = conn.query(
-            r#"
+        let rows = conn
+            .query(
+                r#"
             SELECT 
                 d.datname AS name,
                 pg_catalog.pg_get_userbyid(d.datdba) AS owner,
@@ -24,10 +25,10 @@ impl Session {
             WHERE d.datistemplate = false
             ORDER BY d.datname
             "#,
-            &[],
-        )
-        .await
-        .map_err(SqlError::Connection)?;
+                &[],
+            )
+            .await
+            .map_err(SqlError::Connection)?;
 
         let mut databases = Vec::new();
         for row in rows {
@@ -48,10 +49,11 @@ impl Session {
     /// Get detailed information about a specific database
     pub async fn get_database_info(&self, db_name: &str) -> Result<DatabaseInfo> {
         info!(db_name = db_name, "Getting database info");
-        
+
         let conn = self.get_connection().await?;
-        let row = conn.query_opt(
-            r#"
+        let row = conn
+            .query_opt(
+                r#"
             SELECT 
                 d.datname AS name,
                 pg_catalog.pg_get_userbyid(d.datdba) AS owner,
@@ -63,11 +65,11 @@ impl Session {
             FROM pg_catalog.pg_database d
             WHERE d.datname = $1 AND d.datistemplate = false
             "#,
-            &[&db_name],
-        )
-        .await
-        .map_err(SqlError::Connection)?
-        .ok_or_else(|| SqlError::NotFound(format!("Database '{}' not found", db_name)))?;
+                &[&db_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?
+            .ok_or_else(|| SqlError::NotFound(format!("Database '{}' not found", db_name)))?;
 
         Ok(DatabaseInfo {
             name: row.get("name"),
@@ -112,16 +114,17 @@ impl Session {
         }
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("permission denied") || err_str.contains("must be superuser") {
-                    SqlError::PermissionDenied(format!("Creating database requires superuser privileges: {}", e))
-                } else {
-                    SqlError::Execution(format!("Failed to create database: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("permission denied") || err_str.contains("must be superuser") {
+                SqlError::PermissionDenied(format!(
+                    "Creating database requires superuser privileges: {}",
+                    e
+                ))
+            } else {
+                SqlError::Execution(format!("Failed to create database: {}", e))
+            }
+        })?;
 
         Ok(())
     }
@@ -163,16 +166,17 @@ impl Session {
                 quote_ident(db_name),
                 quote_ident(new_owner)
             );
-            conn.execute(&sql, &[])
-                .await
-                .map_err(|e| {
-                    let err_str = e.to_string();
-                    if err_str.contains("permission denied") {
-                        SqlError::PermissionDenied(format!("Changing database owner requires appropriate privileges: {}", e))
-                    } else {
-                        SqlError::Execution(format!("Failed to change database owner: {}", e))
-                    }
-                })?;
+            conn.execute(&sql, &[]).await.map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("permission denied") {
+                    SqlError::PermissionDenied(format!(
+                        "Changing database owner requires appropriate privileges: {}",
+                        e
+                    ))
+                } else {
+                    SqlError::Execution(format!("Failed to change database owner: {}", e))
+                }
+            })?;
         }
 
         // Note: PostgreSQL doesn't support ALTER DATABASE ... SET ENCODING
@@ -189,7 +193,11 @@ impl Session {
     /// Drop a database
     /// Requires superuser privileges or ownership of the database
     pub async fn drop_database(&self, db_name: &str, if_exists: bool) -> Result<()> {
-        info!(db_name = db_name, if_exists = if_exists, "Dropping database");
+        info!(
+            db_name = db_name,
+            if_exists = if_exists,
+            "Dropping database"
+        );
 
         let sql = if if_exists {
             format!("DROP DATABASE IF EXISTS {}", quote_ident(db_name))
@@ -198,18 +206,19 @@ impl Session {
         };
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("permission denied") {
-                    SqlError::PermissionDenied(format!("Dropping database requires appropriate privileges: {}", e))
-                } else if err_str.contains("does not exist") {
-                    SqlError::NotFound(format!("Database '{}' does not exist", db_name))
-                } else {
-                    SqlError::Execution(format!("Failed to drop database: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("permission denied") {
+                SqlError::PermissionDenied(format!(
+                    "Dropping database requires appropriate privileges: {}",
+                    e
+                ))
+            } else if err_str.contains("does not exist") {
+                SqlError::NotFound(format!("Database '{}' does not exist", db_name))
+            } else {
+                SqlError::Execution(format!("Failed to drop database: {}", e))
+            }
+        })?;
 
         Ok(())
     }

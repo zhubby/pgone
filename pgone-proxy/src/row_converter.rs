@@ -20,7 +20,7 @@ pub fn convert_row_to_data_row(
             )))
         })?;
         let pg_type = column.type_();
-        
+
         match *pg_type {
             tokio_postgres::types::Type::BOOL => {
                 let val: Option<bool> = row.get(i);
@@ -59,4 +59,3 @@ pub fn convert_row_to_data_row(
     }
     Ok(encoder)
 }
-

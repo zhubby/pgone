@@ -1,6 +1,6 @@
+use crate::replay::StorageType;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use crate::replay::StorageType;
 
 /// 数据库连接配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +17,7 @@ pub struct ConnectionExtractorConfig {
     pub replay: Option<ReplayExtractorConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize ,Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ReplayExtractorConfig {
     pub storage_type: StorageType,
     /// 数据库连接字符串 (DSN)
@@ -56,8 +56,6 @@ impl Default for SslExtractorConfig {
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

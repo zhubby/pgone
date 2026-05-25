@@ -23,4 +23,3 @@ pub fn convert_pg_type(pg_type: &tokio_postgres::types::Type) -> PgWireType {
         _ => PgWireType::TEXT, // 默认使用TEXT类型
     }
 }
-

@@ -40,7 +40,9 @@ pub async fn execute_sqls(
     });
 
     if config.ssl.is_some() {
-        warn!("SSL configuration provided but TLS is not enabled. Add TLS support to use SSL certificates.");
+        warn!(
+            "SSL configuration provided but TLS is not enabled. Add TLS support to use SSL certificates."
+        );
     }
 
     let mut results = Vec::new();
@@ -49,7 +51,7 @@ pub async fn execute_sqls(
     for sql in sqls {
         let start_time = Instant::now();
         let sql_trimmed = sql.trim();
-        
+
         if sql_trimmed.is_empty() {
             results.push(StatementResult {
                 sql: sql.clone(),
@@ -190,38 +192,44 @@ pub async fn execute_sqls(
 /// 格式化单元格值
 fn format_cell_value(row: &tokio_postgres::Row, index: usize) -> String {
     use tokio_postgres::types::Type;
-    
+
     let column = match row.columns().get(index) {
         Some(col) => col,
         None => return "".to_string(),
     };
-    
+
     let pg_type = column.type_();
-    
+
     match *pg_type {
         Type::BOOL => {
             let val: Option<bool> = row.get(index);
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
+            val.map(|v| v.to_string())
+                .unwrap_or_else(|| "NULL".to_string())
         }
         Type::INT2 => {
             let val: Option<i16> = row.get(index);
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
+            val.map(|v| v.to_string())
+                .unwrap_or_else(|| "NULL".to_string())
         }
         Type::INT4 => {
             let val: Option<i32> = row.get(index);
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
+            val.map(|v| v.to_string())
+                .unwrap_or_else(|| "NULL".to_string())
         }
         Type::INT8 => {
             let val: Option<i64> = row.get(index);
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
+            val.map(|v| v.to_string())
+                .unwrap_or_else(|| "NULL".to_string())
         }
         Type::FLOAT4 => {
             let val: Option<f32> = row.get(index);
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
+            val.map(|v| v.to_string())
+                .unwrap_or_else(|| "NULL".to_string())
         }
         Type::FLOAT8 => {
             let val: Option<f64> = row.get(index);
-            val.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string())
+            val.map(|v| v.to_string())
+                .unwrap_or_else(|| "NULL".to_string())
         }
         Type::TEXT | Type::VARCHAR => {
             let val: Option<String> = row.get(index);
@@ -234,4 +242,3 @@ fn format_cell_value(row: &tokio_postgres::Row, index: usize) -> String {
         }
     }
 }
-

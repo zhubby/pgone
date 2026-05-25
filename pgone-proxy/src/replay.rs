@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize,Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum StorageType {
     #[default]
     #[serde(rename = "sqlite")]

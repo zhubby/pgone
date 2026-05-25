@@ -56,14 +56,18 @@ impl Client {
     pub async fn files_list(&self) -> Result<Vec<FileInfo>> {
         let resp = self.inner().files().list(&()).await?;
 
-        Ok(resp.data.into_iter().map(|f| FileInfo {
-            id: f.id,
-            object: f.object,
-            bytes: f.bytes as u64,
-            created_at: f.created_at as u64,
-            filename: f.filename,
-            purpose: format!("{:?}", f.purpose),
-        }).collect())
+        Ok(resp
+            .data
+            .into_iter()
+            .map(|f| FileInfo {
+                id: f.id,
+                object: f.object,
+                bytes: f.bytes as u64,
+                created_at: f.created_at as u64,
+                filename: f.filename,
+                purpose: format!("{:?}", f.purpose),
+            })
+            .collect())
     }
 
     pub async fn files_retrieve(&self, file_id: String) -> Result<FileInfo> {
@@ -87,7 +91,8 @@ impl Client {
     pub async fn files_retrieve_content(&self, _file_id: String) -> Result<Vec<u8>> {
         // In async-openai 0.30, file content is retrieved differently
         // This is a placeholder - may need to use a different API endpoint
-        Err(LlmError::Api("File content retrieval not yet implemented for async-openai 0.30".to_string()))
+        Err(LlmError::Api(
+            "File content retrieval not yet implemented for async-openai 0.30".to_string(),
+        ))
     }
 }
-

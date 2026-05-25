@@ -1,10 +1,10 @@
-use egui_snarl::{InPinId, NodeId, OutPinId, Snarl};
 use egui_snarl::ui::{SnarlStyle, SnarlViewer};
+use egui_snarl::{InPinId, NodeId, OutPinId, Snarl};
 use pgone_sql::{Session, TableDetail};
 use poll_promise::Promise;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TableNode {
@@ -17,7 +17,7 @@ impl TableNode {
         let mut hasher = DefaultHasher::new();
         table_name.hash(&mut hasher);
         let hash = hasher.finish();
-        
+
         // Generate a color based on hash - use RGB
         let r = ((hash >> 0) & 0xFF) as u8;
         let g = ((hash >> 8) & 0xFF) as u8;
@@ -27,7 +27,7 @@ impl TableNode {
         let g = g.max(100);
         let b = b.max(100);
         let color = egui::Color32::from_rgb(r, g, b);
-        
+
         Self { table_name, color }
     }
 }
@@ -48,7 +48,7 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
             None => return 0,
         };
         let table = &self.tables[table_idx];
-        
+
         // Count foreign key columns as inputs
         table.foreign_keys.iter().map(|fk| fk.columns.len()).sum()
     }
@@ -59,9 +59,13 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
             None => return 0,
         };
         let table = &self.tables[table_idx];
-        
+
         // Count primary key columns as outputs
-        table.primary_key.as_ref().map(|pk| pk.columns.len()).unwrap_or(0)
+        table
+            .primary_key
+            .as_ref()
+            .map(|pk| pk.columns.len())
+            .unwrap_or(0)
     }
 
     fn show_input(
@@ -78,7 +82,7 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
                 None => return egui_snarl::ui::PinInfo::default(),
             };
             let table = &self.tables[table_idx];
-            
+
             // Find which foreign key column this pin represents
             let mut pin_idx = 0;
             for fk in &table.foreign_keys {
@@ -93,7 +97,7 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
                                 text.push_str(" NOT NULL");
                             }
                             text.push_str(" [FK]");
-                            
+
                             ui.label(text);
                             if let Some(comment) = &col.comment {
                                 ui.small(comment);
@@ -122,7 +126,7 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
                 None => return egui_snarl::ui::PinInfo::default(),
             };
             let table = &self.tables[table_idx];
-            
+
             // Find which primary key column this pin represents
             if let Some(pk) = &table.primary_key {
                 if let Some(col_name) = pk.columns.get(pin.id.output) {
@@ -134,7 +138,7 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
                             text.push_str(" NOT NULL");
                         }
                         text.push_str(" [PK]");
-                        
+
                         ui.label(text);
                         if let Some(comment) = &col.comment {
                             ui.small(comment);
@@ -165,31 +169,31 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
                 None => return,
             };
             let table = &self.tables[table_idx];
-            
+
             ui.vertical(|ui| {
                 // Show table comment if available
                 if let Some(comment) = &table.comment {
                     ui.label(egui::RichText::new(comment).italics());
                     ui.separator();
                 }
-                
+
                 // Show all columns
                 for col in &table.columns {
                     let mut text = col.name.clone();
                     text.push_str(": ");
                     text.push_str(&col.data_type);
-                    
+
                     if !col.nullable {
                         text.push_str(" NOT NULL");
                     }
-                    
+
                     // Add primary key indicator
                     if let Some(pk) = &table.primary_key {
                         if pk.columns.contains(&col.name) {
                             text.push_str(" [PK]");
                         }
                     }
-                    
+
                     // Add foreign key indicator
                     for fk in &table.foreign_keys {
                         if fk.columns.contains(&col.name) {
@@ -199,7 +203,7 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
                             break;
                         }
                     }
-                    
+
                     ui.horizontal(|ui| {
                         ui.label(text);
                         if let Some(comment) = &col.comment {
@@ -211,7 +215,13 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
         }
     }
 
-    fn has_node_style(&mut self, _node_id: NodeId, _inputs: &[egui_snarl::InPin], _outputs: &[egui_snarl::OutPin], _snarl: &Snarl<TableNode>) -> bool {
+    fn has_node_style(
+        &mut self,
+        _node_id: NodeId,
+        _inputs: &[egui_snarl::InPin],
+        _outputs: &[egui_snarl::OutPin],
+        _snarl: &Snarl<TableNode>,
+    ) -> bool {
         true
     }
 
@@ -224,7 +234,7 @@ impl SnarlViewer<TableNode> for SchemaGraphViewer {
         snarl: &Snarl<TableNode>,
     ) {
         if let Some(node) = snarl.get_node(node_id) {
-            // Apply node color - note: this might not work as expected, 
+            // Apply node color - note: this might not work as expected,
             // we may need to use a different approach for coloring nodes
             style.visuals.widgets.noninteractive.bg_fill = node.color;
         }
@@ -291,8 +301,9 @@ impl SchemaGraph {
                     .list_table_details(&schema_name)
                     .await
                     .map_err(|e| e.to_string())
-            }.await;
-            
+            }
+            .await;
+
             sender.send(result);
         });
     }
@@ -367,7 +378,7 @@ impl SchemaGraph {
         // Create nodes for each table
         for table in &self.tables {
             let node = TableNode::new(table.name.clone());
-            
+
             // Set initial position in a grid layout
             let table_idx = self
                 .tables
@@ -377,10 +388,10 @@ impl SchemaGraph {
             let cols = (self.tables.len() as f32).sqrt().ceil() as usize;
             let row = table_idx / cols;
             let col = table_idx % cols;
-            
+
             let x = (col as f32) * 300.0 + 100.0;
             let y = (row as f32) * 200.0 + 100.0;
-            
+
             let _node_id = self.snarl.insert_node(egui::Pos2::new(x, y), node);
         }
 
@@ -410,14 +421,16 @@ impl SchemaGraph {
                                 let mut input_pin_idx = 0;
                                 for fk2 in &table.foreign_keys {
                                     if fk2.columns.contains(fk_col) {
-                                        if let Some(pos) = fk2.columns.iter().position(|c| c == fk_col) {
+                                        if let Some(pos) =
+                                            fk2.columns.iter().position(|c| c == fk_col)
+                                        {
                                             input_pin_idx += pos;
                                             break;
                                         }
                                     }
                                     input_pin_idx += fk2.columns.len();
                                 }
-                                
+
                                 // Find output pin index (primary key column in referenced table)
                                 let ref_table = self.tables.iter().find(|t| t.name == fk.ref_table);
                                 let output_pin_idx = ref_table

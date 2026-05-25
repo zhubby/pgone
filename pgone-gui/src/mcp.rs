@@ -1,3 +1,4 @@
+use crate::futures;
 use anyhow::Result;
 use pgone_mcp::McpClient;
 use rmcp::model::{CallToolResult, Tool};
@@ -6,7 +7,6 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{info, warn};
-use crate::futures;
 
 /// MCP 客户端管理器
 /// 负责管理 MCP server 子进程和客户端连接
@@ -20,7 +20,7 @@ impl McpClientManager {
     /// 创建新的 MCP 客户端管理器并启动 stdio 服务器
     pub async fn new(storage_path: PathBuf) -> Result<Self> {
         info!("启动 MCP server (stdio 模式)...");
-        
+
         // 查找 pgone-mcp-server 可执行文件路径
         let server_path = Self::find_server_executable()?;
         info!("MCP server 路径: {}", server_path.display());
@@ -36,12 +36,14 @@ impl McpClientManager {
             .map_err(|e| anyhow::anyhow!("启动 MCP server 失败: {}", e))?;
 
         // 获取 stdin/stdout
-        let stdin = child.stdin.take().ok_or_else(|| {
-            anyhow::anyhow!("无法获取子进程 stdin")
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            anyhow::anyhow!("无法获取子进程 stdout")
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("无法获取子进程 stdin"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("无法获取子进程 stdout"))?;
 
         // 将 ChildStdin/ChildStdout 转换为 AsyncRead/AsyncWrite
         // 注意：ChildStdin 实现了 AsyncWrite，ChildStdout 实现了 AsyncRead

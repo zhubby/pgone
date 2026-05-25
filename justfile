@@ -44,10 +44,6 @@ run-proxy:
 run-apiserver:
     cargo run -p pgone-cli -- apiserver
 
-# 运行 A2A
-run-a2a:
-    cargo run -p pgone-cli -- a2a
-
 # 安装开发工具
 install-tools:
     cargo install cargo-bundle

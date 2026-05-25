@@ -1,9 +1,9 @@
 use super::ResultsTable;
+use super::utils;
 use crate::components::SqlCtx;
 use crate::futures;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
-use super::utils;
 
 impl ResultsTable {
     /// Execute SQL query
@@ -133,6 +133,4 @@ impl ResultsTable {
             }
         }
     }
-
 }
-

@@ -22,14 +22,20 @@ impl InputArea {
         ui.separator();
 
         ui.horizontal(|ui| {
-            ui.label(format!("{} Message", egui_phosphor::regular::PAPER_PLANE_TILT));
+            ui.label(format!(
+                "{} Message",
+                egui_phosphor::regular::PAPER_PLANE_TILT
+            ));
         });
 
         ui.separator();
 
         // 文件选择按钮
         ui.horizontal(|ui| {
-            if ui.button(format!("{} 选择图片", egui_phosphor::regular::IMAGE)).clicked() {
+            if ui
+                .button(format!("{} 选择图片", egui_phosphor::regular::IMAGE))
+                .clicked()
+            {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("Image", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
                     .pick_file()
@@ -37,11 +43,12 @@ impl InputArea {
                     self.pending_resources.push(path);
                 }
             }
-            
-            if ui.button(format!("{} 选择文件", egui_phosphor::regular::FILE)).clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .pick_file()
-                {
+
+            if ui
+                .button(format!("{} 选择文件", egui_phosphor::regular::FILE))
+                .clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
                     self.pending_resources.push(path);
                 }
             }
@@ -59,12 +66,14 @@ impl InputArea {
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("未知文件");
-                        
+
                         // 如果是图片，尝试显示缩略图
                         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                            let is_image = matches!(ext.to_lowercase().as_str(), 
-                                "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp");
-                            
+                            let is_image = matches!(
+                                ext.to_lowercase().as_str(),
+                                "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp"
+                            );
+
                             if is_image {
                                 if let Some(handle) = ctxs.preview.ensure_texture(ui.ctx(), path) {
                                     let thumb_size = egui::vec2(40.0, 40.0);
@@ -76,10 +85,13 @@ impl InputArea {
                                 ui.label(format!("{}", egui_phosphor::regular::FILE));
                             }
                         }
-                        
+
                         ui.label(file_name);
-                        
-                        if ui.small_button(format!("{}", egui_phosphor::regular::X)).clicked() {
+
+                        if ui
+                            .small_button(format!("{}", egui_phosphor::regular::X))
+                            .clicked()
+                        {
                             to_remove.push(idx);
                         }
                     });
@@ -95,14 +107,14 @@ impl InputArea {
         // 输入框
         let editor = ui.add_sized(
             egui::Vec2::new(ui.available_width(), ui.available_height()),
-            egui::TextEdit::multiline(&mut self.input).desired_rows(4)
+            egui::TextEdit::multiline(&mut self.input).desired_rows(4),
         );
-        
+
         if editor.has_focus() {
             let input = ui.input(|i| i.clone());
             let enter_pressed = input.key_pressed(egui::Key::Enter);
             let shift_pressed = input.modifiers.shift;
-            
+
             // Enter 发送，Shift+Enter 换行
             if enter_pressed && !shift_pressed {
                 // 阻止默认的换行行为
@@ -122,7 +134,7 @@ impl InputArea {
     pub fn send_resources(&mut self, ctxs: &mut ChatCtx) {
         // 先收集所有资源路径
         let resources: Vec<PathBuf> = self.pending_resources.drain(..).collect();
-        
+
         // 发送每个资源
         for path in resources {
             // 检查是否是图片
@@ -130,8 +142,10 @@ impl InputArea {
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(|ext| {
-                    matches!(ext.to_lowercase().as_str(), 
-                        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp")
+                    matches!(
+                        ext.to_lowercase().as_str(),
+                        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp"
+                    )
                 })
                 .unwrap_or(false);
 
@@ -143,13 +157,11 @@ impl InputArea {
                     let message = Message {
                         role: Role::User,
                         timestamp: Utc::now(),
-                        content: MessageContent::Markdown(
-                            format!("[文件] {}", path.display())
-                        ),
+                        content: MessageContent::Markdown(format!("[文件] {}", path.display())),
                     };
                     session.messages.push(message);
                     session.updated_at = Utc::now();
-                    
+
                     if let Err(e) = ctxs.storage.save_session(session) {
                         tracing::error!("保存文件消息失败: {}", e);
                     }
@@ -175,11 +187,10 @@ impl InputArea {
             };
             session.messages.push(message);
             session.updated_at = Utc::now();
-            
+
             if let Err(e) = ctxs.storage.save_session(session) {
                 tracing::error!("保存图片消息失败: {}", e);
             }
         }
     }
 }
-

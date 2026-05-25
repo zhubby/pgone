@@ -1,12 +1,12 @@
-use crate::{Client, LlmError, Result, LLMProvider};
 use crate::audit::{AuditLogger, AuditStatus};
+use crate::tools::{FunctionCall, Tool};
+use crate::{Client, LLMProvider, LlmError, Result};
 use async_openai::types::{
+    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestFunctionMessageArgs,
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
     ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
-    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestFunctionMessageArgs,
 };
 use futures::Stream;
-use crate::tools::{Tool, FunctionCall};
 use serde_json;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -173,16 +173,14 @@ impl Client {
         let result = match self.provider() {
             LLMProvider::Gemini => {
                 // 使用 Gemini 客户端
-                let gemini_client = crate::providers::gemini::GeminiClient::new(
-                    self.config().api_key.clone()
-                )?;
+                let gemini_client =
+                    crate::providers::gemini::GeminiClient::new(self.config().api_key.clone())?;
                 gemini_client.chat_create(request).await
             }
             LLMProvider::Ollama => {
                 // 使用 Ollama 客户端
-                let ollama_client = crate::providers::ollama::OllamaClient::new(
-                    self.config().base_url.clone()
-                )?;
+                let ollama_client =
+                    crate::providers::ollama::OllamaClient::new(self.config().base_url.clone())?;
                 ollama_client.chat_create(request).await
             }
             _ => {
@@ -220,22 +218,28 @@ impl Client {
                     req_builder.max_tokens(max_tokens as u16);
                 }
 
-                let req = req_builder.build().map_err(|e| LlmError::InvalidRequest(e.to_string()))?;
+                let req = req_builder
+                    .build()
+                    .map_err(|e| LlmError::InvalidRequest(e.to_string()))?;
                 let resp = self.inner().chat().create(req).await?;
 
-                let choice = resp.choices.first().ok_or_else(|| {
-                    LlmError::Api("No choices in response".to_string())
-                })?;
+                let choice = resp
+                    .choices
+                    .first()
+                    .ok_or_else(|| LlmError::Api("No choices in response".to_string()))?;
 
                 let content = choice.message.content.clone().unwrap_or_default();
                 let role = choice.message.role.to_string();
                 let finish_reason = choice.finish_reason.as_ref().map(|r| format!("{:?}", r));
 
                 let tool_calls = choice.message.tool_calls.as_ref().map(|calls| {
-                    calls.iter().map(|call| FunctionCall {
-                        name: call.function.name.clone(),
-                        arguments: call.function.arguments.clone(),
-                    }).collect()
+                    calls
+                        .iter()
+                        .map(|call| FunctionCall {
+                            name: call.function.name.clone(),
+                            arguments: call.function.arguments.clone(),
+                        })
+                        .collect()
                 });
 
                 Ok(ChatResponse {
@@ -261,11 +265,7 @@ impl Client {
                 );
             }
             Err(e) => {
-                audit_logger.record_error(
-                    &log_id,
-                    e.to_string(),
-                    None,
-                );
+                audit_logger.record_error(&log_id, e.to_string(), None);
             }
         }
 
@@ -275,7 +275,9 @@ impl Client {
     pub fn chat_create_stream(
         &self,
         request: ChatRequest,
-    ) -> Box<dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send> {
+    ) -> Box<
+        dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send,
+    > {
         // 初始化审计日志记录器（异步，但不阻塞）
         let audit_logger_future = AuditLogger::with_default_path();
         let provider = self.provider();
@@ -288,7 +290,7 @@ impl Client {
             LLMProvider::Ollama => {
                 // 使用 Ollama 客户端
                 let ollama_client = match crate::providers::ollama::OllamaClient::new(
-                    self.config().base_url.clone()
+                    self.config().base_url.clone(),
                 ) {
                     Ok(c) => c,
                     Err(e) => {
@@ -306,8 +308,13 @@ impl Client {
                                 audit_logger.record_error(&log_id, error_msg, None);
                             }
                         });
-                        let stream: Box<dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send> = 
-                            Box::new(futures::stream::once(futures::future::ready(Err(e.into()))));
+                        let stream: Box<
+                            dyn Stream<
+                                    Item = Result<
+                                        async_openai::types::CreateChatCompletionStreamResponse,
+                                    >,
+                                > + Send,
+                        > = Box::new(futures::stream::once(futures::future::ready(Err(e))));
                         return stream;
                     }
                 };
@@ -333,8 +340,13 @@ impl Client {
                                 audit_logger.record_error(&log_id, error_msg, None);
                             }
                         });
-                        let stream: Box<dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send> = 
-                            Box::new(futures::stream::once(futures::future::ready(Err(e))));
+                        let stream: Box<
+                            dyn Stream<
+                                    Item = Result<
+                                        async_openai::types::CreateChatCompletionStreamResponse,
+                                    >,
+                                > + Send,
+                        > = Box::new(futures::stream::once(futures::future::ready(Err(e))));
                         return stream;
                     }
                 };
@@ -390,10 +402,15 @@ impl Client {
                                 audit_logger.record_error(&log_id, error_msg, None);
                             }
                         });
-                        let stream: Box<dyn Stream<Item = Result<async_openai::types::CreateChatCompletionStreamResponse>> + Send> = 
-                            Box::new(futures::stream::once(futures::future::ready(
-                                Err(llm_error)
-                            )));
+                        let stream: Box<
+                            dyn Stream<
+                                    Item = Result<
+                                        async_openai::types::CreateChatCompletionStreamResponse,
+                                    >,
+                                > + Send,
+                        > = Box::new(futures::stream::once(futures::future::ready(Err(
+                            llm_error,
+                        ))));
                         return stream;
                     }
                 };
@@ -449,22 +466,21 @@ impl Client {
 
                     // 流完成后记录响应
                     let log_id_result = log_id.await;
-                    if let Ok(log_id) = log_id_result {
-                        if !log_id.is_empty() {
-                            if let Ok(audit_logger) = AuditLogger::with_default_path().await {
-                                if has_error {
-                                    audit_logger.record_error(&log_id, error_msg, None);
-                                } else {
-                                    let response_size = Some(accumulated_content.len());
-                                    audit_logger.record_response(
-                                        &log_id,
-                                        Some(accumulated_content),
-                                        response_size,
-                                        AuditStatus::Success,
-                                        None,
-                                    );
-                                }
-                            }
+                    if let Ok(log_id) = log_id_result
+                        && !log_id.is_empty()
+                        && let Ok(audit_logger) = AuditLogger::with_default_path().await
+                    {
+                        if has_error {
+                            audit_logger.record_error(&log_id, error_msg, None);
+                        } else {
+                            let response_size = Some(accumulated_content.len());
+                            audit_logger.record_response(
+                                &log_id,
+                                Some(accumulated_content),
+                                response_size,
+                                AuditStatus::Success,
+                                None,
+                            );
                         }
                     }
                 })
@@ -481,14 +497,19 @@ impl Client {
         for msg in messages {
             let converted = match msg.role {
                 ChatRole::System => {
-                    let content = msg.content
+                    let content = msg
+                        .content
                         .iter()
                         .find_map(|c| match c {
                             ChatMessageContent::Text(t) => Some(t.clone()),
                             _ => None,
                         })
-                        .ok_or_else(|| LlmError::InvalidRequest("System message must have text content".to_string()))?;
-                    
+                        .ok_or_else(|| {
+                            LlmError::InvalidRequest(
+                                "System message must have text content".to_string(),
+                            )
+                        })?;
+
                     ChatCompletionRequestMessage::System(
                         ChatCompletionRequestSystemMessageArgs::default()
                             .content(content)
@@ -506,21 +527,26 @@ impl Client {
                                     .map_err(|e| LlmError::InvalidRequest(e.to_string()))?,
                             )
                         } else {
-                            return Err(LlmError::InvalidRequest("Multi-modal user messages not yet fully supported".to_string()));
+                            return Err(LlmError::InvalidRequest(
+                                "Multi-modal user messages not yet fully supported".to_string(),
+                            ));
                         }
                     } else {
-                        return Err(LlmError::InvalidRequest("Multi-modal user messages not yet fully supported".to_string()));
+                        return Err(LlmError::InvalidRequest(
+                            "Multi-modal user messages not yet fully supported".to_string(),
+                        ));
                     }
                 }
                 ChatRole::Assistant => {
-                    let content = msg.content
+                    let content = msg
+                        .content
                         .iter()
                         .find_map(|c| match c {
                             ChatMessageContent::Text(t) => Some(t.clone()),
                             _ => None,
                         })
                         .unwrap_or_default();
-                    
+
                     ChatCompletionRequestMessage::Assistant(
                         ChatCompletionRequestAssistantMessageArgs::default()
                             .content(content)
@@ -532,14 +558,19 @@ impl Client {
                     let name = msg.name.as_ref().ok_or_else(|| {
                         LlmError::InvalidRequest("Function message must have a name".to_string())
                     })?;
-                    let content = msg.content
+                    let content = msg
+                        .content
                         .iter()
                         .find_map(|c| match c {
                             ChatMessageContent::Text(t) => Some(t.clone()),
                             _ => None,
                         })
-                        .ok_or_else(|| LlmError::InvalidRequest("Function message must have text content".to_string()))?;
-                    
+                        .ok_or_else(|| {
+                            LlmError::InvalidRequest(
+                                "Function message must have text content".to_string(),
+                            )
+                        })?;
+
                     ChatCompletionRequestMessage::Function(
                         ChatCompletionRequestFunctionMessageArgs::default()
                             .name(name.clone())
@@ -555,4 +586,3 @@ impl Client {
         Ok(result)
     }
 }
-

@@ -1,4 +1,4 @@
-.PHONY: help build test fmt clippy clean run-gui run-mcp-server run-proxy run-apiserver run-a2a install-tools
+.PHONY: help build test fmt clippy clean run-gui run-mcp-server run-proxy run-apiserver install-tools
 
 # 默认目标
 help:
@@ -14,7 +14,6 @@ help:
 	@echo "  make run-mcp-server  - 运行 MCP Server (STDIO 模式)"
 	@echo "  make run-proxy       - 运行 Proxy"
 	@echo "  make run-apiserver   - 运行 API Server"
-	@echo "  make run-a2a         - 运行 A2A"
 	@echo "  make install-tools   - 安装开发工具 (cargo-bundle 等)"
 	@echo "  make lint            - 运行 fmt 和 clippy"
 	@echo "  make check           - 运行 fmt, clippy 和 test"
@@ -58,10 +57,6 @@ run-proxy:
 # 运行 API Server
 run-apiserver:
 	cargo run -p pgone-cli -- apiserver
-
-# 运行 A2A
-run-a2a:
-	cargo run -p pgone-cli -- a2a
 
 # 安装开发工具
 install-tools:

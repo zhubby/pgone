@@ -1,3 +1,5 @@
+#![allow(clippy::all, dead_code, deprecated, unused_mut)]
+
 use eframe::egui::{self, Context};
 use egui_phosphor::Variant as PhosphorVariant;
 use icns::{IconFamily, IconType};
@@ -16,11 +18,14 @@ mod storage;
 use storage::SessionStorage;
 
 mod components;
-use components::{ChatPanel, DbManager, DbTree, ExportWindow, ImportWindow, PreviewManager, ResultsTable, SchemaGraph, SettingsPanel};
+use components::{
+    ChatPanel, DbManager, DbTree, ExportWindow, ImportWindow, PreviewManager, ResultsTable,
+    SchemaGraph, SettingsPanel,
+};
+mod mcp;
+mod prompt;
 mod skeletons;
 mod styles;
-mod prompt;
-mod mcp;
 
 pub struct AppFrame {
     #[allow(dead_code)]
@@ -50,17 +55,16 @@ pub struct AppFrame {
 }
 
 impl AppFrame {
-
     fn new() -> Self {
         // Initialize storage first to load settings
         let mut db_manager = components::DbManager::default();
         db_manager.ensure_storage();
-        
+
         // Load default database config if exists and verify connection
         if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(default_cfg)) = futures::block_on_async(async {
-                storage.get_default_db_config().await
-            }) {
+            if let Ok(Some(default_cfg)) =
+                futures::block_on_async(async { storage.get_default_db_config().await })
+            {
                 // Verify connection before setting as active
                 match components::DbManager::verify_connection_quickly(&default_cfg.dsn) {
                     Ok(()) => {
@@ -78,12 +82,11 @@ impl AppFrame {
                 }
             }
         }
-        
+
         // Load settings from database
         let settings = if let Some(ref storage) = db_manager.storage {
-            if let Ok(kv_map) = futures::block_on_async(async {
-                storage.get_all_settings().await
-            }) {
+            if let Ok(kv_map) = futures::block_on_async(async { storage.get_all_settings().await })
+            {
                 let loaded_settings = Settings::from_kv_map(&kv_map);
                 tracing::debug!("Loaded settings from DB: {:?}", loaded_settings);
                 loaded_settings
@@ -95,10 +98,10 @@ impl AppFrame {
             tracing::warn!("Storage not available, using default settings");
             Settings::default()
         };
-        
+
         // Initialize session storage
         let mut session_storage = SessionStorage::new();
-        
+
         // Load sessions from database
         let mut state = PersistedState {
             current_db_config_id: None,
@@ -107,7 +110,7 @@ impl AppFrame {
             current_index: 0,
             next_session_id: 1,
         };
-        
+
         // Load sessions from database
         if let Ok(loaded_sessions) = session_storage.load_sessions() {
             if !loaded_sessions.is_empty() {
@@ -117,9 +120,12 @@ impl AppFrame {
                     state.current_index = 0;
                 }
                 // Update next_session_id based on loaded sessions
-                if let Some(max_id) = state.sessions.iter()
+                if let Some(max_id) = state
+                    .sessions
+                    .iter()
                     .filter_map(|s| s.id.parse::<u64>().ok())
-                    .max() {
+                    .max()
+                {
                     state.next_session_id = max_id + 1;
                 }
             } else {
@@ -182,7 +188,6 @@ impl AppFrame {
         }
     }
 
-
     #[allow(dead_code)]
     fn save_state(&mut self) {
         // Save settings to database
@@ -196,7 +201,7 @@ impl AppFrame {
             });
         }
     }
-    
+
     /// Save settings to database
     pub fn save_settings(&mut self) {
         self.db.ensure_storage();
@@ -218,7 +223,7 @@ impl AppFrame {
         let mut open = true;
         egui::Window::new("导出数据")
             .open(&mut open)
-            .default_pos(ctx.screen_rect().center())
+            .default_pos(ctx.content_rect().center())
             .pivot(egui::Align2::CENTER_CENTER)
             .default_size([550.0, 600.0])
             .show(ctx, |ui| {
@@ -243,7 +248,7 @@ impl AppFrame {
         let mut open = true;
         egui::Window::new("导入数据")
             .open(&mut open)
-            .default_pos(ctx.screen_rect().center())
+            .default_pos(ctx.content_rect().center())
             .pivot(egui::Align2::CENTER_CENTER)
             .default_size([600.0, 700.0])
             .show(ctx, |ui| {
@@ -303,11 +308,7 @@ impl eframe::App for AppFrame {
         skeletons::windows::show_about_window(ctx, &mut self.show_about);
 
         // Monitor window
-        skeletons::monitors::window::show_monitor_window(
-            ctx,
-            &mut self.show_monitor,
-            &mut self.db,
-        );
+        skeletons::monitors::window::show_monitor_window(ctx, &mut self.show_monitor, &mut self.db);
 
         // Check for pending graph window open
         if let Some(schema_info) = self.db_tree.take_pending_open_graph() {
@@ -353,7 +354,12 @@ impl eframe::App for AppFrame {
             &self.db,
         );
 
-        skeletons::panels::show_center_panel(ctx, &mut self.db, &mut self.results_table, &self.state);
+        skeletons::panels::show_center_panel(
+            ctx,
+            &mut self.db,
+            &mut self.results_table,
+            &self.state,
+        );
 
         // Image preview window
         self.preview.ui_window(ctx);
@@ -421,11 +427,11 @@ pub fn run() -> anyhow::Result<()> {
             // Load settings from database
             let mut db_manager = components::DbManager::default();
             db_manager.ensure_storage();
-            
+
             let settings = if let Some(ref storage) = db_manager.storage {
-                if let Ok(kv_map) = futures::block_on_async(async {
-                    storage.get_all_settings().await
-                }) {
+                if let Ok(kv_map) =
+                    futures::block_on_async(async { storage.get_all_settings().await })
+                {
                     Settings::from_kv_map(&kv_map)
                 } else {
                     Settings::default()

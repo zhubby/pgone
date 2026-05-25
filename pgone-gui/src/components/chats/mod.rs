@@ -5,4 +5,3 @@ mod panel;
 mod session_selector;
 
 pub use panel::ChatPanel;
-

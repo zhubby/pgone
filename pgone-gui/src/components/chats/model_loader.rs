@@ -21,10 +21,7 @@ impl Default for ModelLoader {
 impl ModelLoader {
     pub fn check_and_load(&mut self, ctxs: &ChatCtx) {
         // 在首次显示时加载模型列表
-        if !self.models_loaded
-            && ctxs.openai_api_key.is_some()
-            && self.models_receiver.is_none()
-        {
+        if !self.models_loaded && ctxs.openai_api_key.is_some() && self.models_receiver.is_none() {
             self.load_models(ctxs);
         }
 
@@ -68,7 +65,7 @@ impl ModelLoader {
         let proxy_port = ctxs.state.settings.proxy_port;
         let (sender, receiver) = mpsc::channel(1);
         self.models_receiver = Some(receiver);
-        
+
         futures::spawn(async move {
             let mut config = pgone_llm::Config::new(api_key);
             if let Some(url) = base_url {
@@ -79,25 +76,19 @@ impl ModelLoader {
                     config = config.with_proxy(host, port);
                 }
             }
-            
+
             let result = match pgone_llm::Client::new(config, provider) {
-                Ok(client) => {
-                    match client.models_list().await {
-                        Ok(models) => {
-                            let model_ids: Vec<String> = models
-                                .into_iter()
-                                .map(|m| m.id)
-                                .collect();
-                            Ok(model_ids)
-                        }
-                        Err(e) => Err(e.to_string()),
+                Ok(client) => match client.models_list().await {
+                    Ok(models) => {
+                        let model_ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
+                        Ok(model_ids)
                     }
-                }
+                    Err(e) => Err(e.to_string()),
+                },
                 Err(e) => Err(e.to_string()),
             };
-            
+
             let _ = sender.send(result).await;
         });
     }
 }
-

@@ -19,7 +19,6 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("PGone MCP Server 启动（stdio 模式）");
     tracing::info!("Storage 路径: {}", storage_path.display());
     // 示例中需要提供 dbconfig_id，这里使用环境变量或默认值
-    let dbconfig_id = std::env::var("PGONE_DBCONFIG_ID")
-        .unwrap_or_else(|_| "default".to_string());
+    let dbconfig_id = std::env::var("PGONE_DBCONFIG_ID").unwrap_or_else(|_| "default".to_string());
     run_stdio(dbconfig_id).await
 }

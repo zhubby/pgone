@@ -75,4 +75,3 @@ pub struct QueryResult {
     /// 相似度距离（越小越相似）
     pub distance: f32,
 }
-

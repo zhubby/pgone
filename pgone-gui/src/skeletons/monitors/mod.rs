@@ -1,12 +1,12 @@
 use strum::{Display, EnumString};
 
 pub mod activity;
+pub mod bgwriter;
+pub mod indexes;
+pub mod locks;
+pub mod replication;
 pub mod statements;
 pub mod tables;
-pub mod indexes;
-pub mod bgwriter;
-pub mod replication;
-pub mod locks;
 pub mod window;
 
 /// 监控指标类型枚举
@@ -42,4 +42,3 @@ impl MonitorMetric {
         }
     }
 }
-

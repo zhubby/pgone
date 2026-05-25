@@ -1,8 +1,8 @@
 use eframe::egui;
 use egui_plot::{Bar, BarChart, Plot};
 use poll_promise::Promise;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 struct StatementData {
@@ -224,4 +224,3 @@ pub fn show(ui: &mut egui::Ui, dsn: Option<&str>) {
         m.ui(ui, dsn);
     }
 }
-

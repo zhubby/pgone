@@ -2,11 +2,9 @@ use anyhow::Result;
 use rmcp::model::{CallToolResult, Tool};
 use rmcp::service::RoleClient;
 use rmcp::transport::async_rw::AsyncRwTransport;
-use serde_json::{json, Value};
-use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::RwLock;
+use serde_json::{Value, json};
 use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 /// 客户端错误类型
 #[derive(Error, Debug)]
@@ -42,9 +40,8 @@ pub struct McpClient {
     // 对于 Streamable HTTP，我们需要一个 HTTP 客户端
     #[allow(dead_code)]
     http_client: Option<reqwest::Client>,
-    // 对于 STDIO，我们需要保持传输层和请求 ID 计数器
+    // 对于 STDIO，我们需要保持传输层
     // 注意：传输层类型取决于实际的 reader/writer 类型
-    stdio_request_id: Option<Arc<RwLock<u64>>>,
 }
 
 impl McpClient {
@@ -58,7 +55,6 @@ impl McpClient {
         Ok(Self {
             transport,
             http_client,
-            stdio_request_id: None,
         })
     }
 
@@ -69,8 +65,8 @@ impl McpClient {
         W: AsyncWrite + Unpin + Send + 'static,
     {
         // 创建传输层（暂时不保存，因为需要实现 JSON-RPC 通信）
-        let _transport: AsyncRwTransport<RoleClient, R, W> = AsyncRwTransport::new_client(reader, writer);
-        let request_id = Arc::new(RwLock::new(1u64));
+        let _transport: AsyncRwTransport<RoleClient, R, W> =
+            AsyncRwTransport::new_client(reader, writer);
 
         // TODO: 实现完整的 stdio 传输通信
         // 需要：
@@ -81,7 +77,6 @@ impl McpClient {
         Ok(Self {
             transport: Transport::Stdio,
             http_client: None,
-            stdio_request_id: Some(request_id),
         })
     }
 
@@ -97,7 +92,9 @@ impl McpClient {
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<CallToolResult> {
         match &self.transport {
             Transport::Stdio => self.call_tool_stdio(name, arguments).await,
-            Transport::StreamableHttp { url } => self.call_tool_streamable(url, name, arguments).await,
+            Transport::StreamableHttp { url } => {
+                self.call_tool_streamable(url, name, arguments).await
+            }
         }
     }
 
@@ -105,8 +102,12 @@ impl McpClient {
     // 注意：这些方法需要实现 JSON-RPC 协议通信
     // 暂时返回错误，提示使用 Streamable HTTP
     async fn list_tools_stdio(&self) -> Result<Vec<Tool>> {
-        tracing::warn!("STDIO transport for list_tools not fully implemented. Use StreamableHttp transport instead.");
-        Err(anyhow::anyhow!("STDIO transport not yet implemented. Please use StreamableHttp transport."))
+        tracing::warn!(
+            "STDIO transport for list_tools not fully implemented. Use StreamableHttp transport instead."
+        );
+        Err(anyhow::anyhow!(
+            "STDIO transport not yet implemented. Please use StreamableHttp transport."
+        ))
     }
 
     async fn call_tool_stdio(&self, _name: &str, _arguments: Value) -> Result<CallToolResult> {
@@ -116,13 +117,14 @@ impl McpClient {
 
     // Streamable HTTP 传输实现
     async fn list_tools_streamable(&self, url: &str) -> Result<Vec<Tool>> {
-        let client = self.http_client.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("HTTP client not initialized")
-        })?;
+        let client = self
+            .http_client
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
         // 构建请求 URL - Streamable HTTP 使用 SSE 端点
         let request_url = format!("{}/mcp", url.trim_end_matches('/'));
-        
+
         // 创建请求体 - MCP Streamable HTTP 使用特定的格式
         // 这里我们需要发送一个初始化请求或直接调用工具列表端点
         // 暂时使用简单的 HTTP POST 请求
@@ -134,11 +136,7 @@ impl McpClient {
         });
 
         // 发送 POST 请求
-        let response = client
-            .post(&request_url)
-            .json(&request_body)
-            .send()
-            .await?;
+        let response = client.post(&request_url).json(&request_body).send().await?;
 
         // 检查响应状态
         if !response.status().is_success() {
@@ -149,9 +147,13 @@ impl McpClient {
 
         // 解析响应
         let result: Value = response.json().await?;
-        
+
         // 提取工具列表
-        if let Some(tools_array) = result.get("result").and_then(|r| r.get("tools")).and_then(|t| t.as_array()) {
+        if let Some(tools_array) = result
+            .get("result")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.as_array())
+        {
             let mut tools = Vec::new();
             for tool_value in tools_array {
                 match serde_json::from_value::<Tool>(tool_value.clone()) {
@@ -170,16 +172,23 @@ impl McpClient {
         }
     }
 
-    async fn call_tool_streamable(&self, url: &str, name: &str, arguments: Value) -> Result<CallToolResult> {
-        let client = self.http_client.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("HTTP client not initialized")
-        })?;
+    async fn call_tool_streamable(
+        &self,
+        url: &str,
+        name: &str,
+        arguments: Value,
+    ) -> Result<CallToolResult> {
+        let client = self
+            .http_client
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
         // 构建请求 URL
         let request_url = format!("{}/mcp", url.trim_end_matches('/'));
-        
+
         // 将 arguments 转换为 HashMap
-        let args_map = arguments.as_object()
+        let args_map = arguments
+            .as_object()
             .ok_or_else(|| anyhow::anyhow!("Arguments must be an object"))?
             .clone();
 
@@ -195,11 +204,7 @@ impl McpClient {
         });
 
         // 发送 POST 请求
-        let response = client
-            .post(&request_url)
-            .json(&request_body)
-            .send()
-            .await?;
+        let response = client.post(&request_url).json(&request_body).send().await?;
 
         // 检查响应状态
         if !response.status().is_success() {
@@ -210,7 +215,7 @@ impl McpClient {
 
         // 解析响应
         let result: Value = response.json().await?;
-        
+
         // 检查错误
         if let Some(error) = result.get("error") {
             return Err(anyhow::anyhow!("Tool call error: {}", error));

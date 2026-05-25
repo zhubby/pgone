@@ -1,5 +1,5 @@
 use super::types::EditableColumn;
-use pgone_sql::{TableDetail, ColumnDetail};
+use pgone_sql::{ColumnDetail, TableDetail};
 
 /// 生成 ALTER TABLE 语句列表，对比原始结构和修改后的结构
 pub(super) fn generate_alter_statements(
@@ -9,14 +9,14 @@ pub(super) fn generate_alter_statements(
     modified: &[EditableColumn],
 ) -> Vec<String> {
     let mut statements = Vec::new();
-    
+
     // 创建列名到原始列的映射
     let original_columns_map: std::collections::HashMap<String, &ColumnDetail> = original
         .columns
         .iter()
         .map(|col| (col.name.clone(), col))
         .collect();
-    
+
     // 处理删除的列
     for col in modified {
         if col.is_deleted {
@@ -31,7 +31,7 @@ pub(super) fn generate_alter_statements(
             }
         }
     }
-    
+
     // 处理新增的列
     for col in modified {
         if col.is_new && !col.is_deleted {
@@ -42,7 +42,7 @@ pub(super) fn generate_alter_statements(
                 quote_ident(&col.name),
                 build_column_type(&col)
             ));
-            
+
             // 设置可空性
             if !col.nullable {
                 statements.push(format!(
@@ -52,7 +52,7 @@ pub(super) fn generate_alter_statements(
                     quote_ident(&col.name)
                 ));
             }
-            
+
             // 设置默认值
             if let Some(ref default) = col.default {
                 if !default.trim().is_empty() {
@@ -65,7 +65,7 @@ pub(super) fn generate_alter_statements(
                     ));
                 }
             }
-            
+
             // 设置注释
             if let Some(ref comment) = col.comment {
                 if !comment.trim().is_empty() {
@@ -80,7 +80,7 @@ pub(super) fn generate_alter_statements(
             }
         }
     }
-    
+
     // 处理修改的列
     for col in modified {
         if !col.is_new && !col.is_deleted {
@@ -96,7 +96,7 @@ pub(super) fn generate_alter_statements(
                         quote_ident(&col.name)
                     ));
                 }
-                
+
                 // 检查类型是否改变
                 let original_type = build_column_type_from_detail(original_col);
                 let new_type = build_column_type(col);
@@ -109,7 +109,7 @@ pub(super) fn generate_alter_statements(
                         new_type
                     ));
                 }
-                
+
                 // 检查可空性是否改变
                 if col.nullable != original_col.nullable {
                     if col.nullable {
@@ -128,10 +128,18 @@ pub(super) fn generate_alter_statements(
                         ));
                     }
                 }
-                
+
                 // 检查默认值是否改变
-                let original_default = original_col.default.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
-                let new_default = col.default.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
+                let original_default = original_col
+                    .default
+                    .as_ref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty());
+                let new_default = col
+                    .default
+                    .as_ref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty());
                 if original_default != new_default {
                     if let Some(ref default) = new_default {
                         statements.push(format!(
@@ -150,10 +158,18 @@ pub(super) fn generate_alter_statements(
                         ));
                     }
                 }
-                
+
                 // 检查注释是否改变
-                let original_comment = original_col.comment.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
-                let new_comment = col.comment.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
+                let original_comment = original_col
+                    .comment
+                    .as_ref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty());
+                let new_comment = col
+                    .comment
+                    .as_ref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty());
                 if original_comment != new_comment {
                     if let Some(ref comment) = new_comment {
                         statements.push(format!(
@@ -175,14 +191,14 @@ pub(super) fn generate_alter_statements(
             }
         }
     }
-    
+
     statements
 }
 
 /// 从 EditableColumn 构建列类型字符串
 fn build_column_type(col: &EditableColumn) -> String {
     let base_type = col.data_type.to_lowercase();
-    
+
     match base_type.as_str() {
         "character varying" | "varchar" => {
             if let Some(len) = col.character_maximum_length {
@@ -198,13 +214,11 @@ fn build_column_type(col: &EditableColumn) -> String {
                 "CHAR".to_string()
             }
         }
-        "numeric" | "decimal" => {
-            match (col.numeric_precision, col.numeric_scale) {
-                (Some(precision), Some(scale)) => format!("NUMERIC({},{})", precision, scale),
-                (Some(precision), None) => format!("NUMERIC({})", precision),
-                _ => "NUMERIC".to_string(),
-            }
-        }
+        "numeric" | "decimal" => match (col.numeric_precision, col.numeric_scale) {
+            (Some(precision), Some(scale)) => format!("NUMERIC({},{})", precision, scale),
+            (Some(precision), None) => format!("NUMERIC({})", precision),
+            _ => "NUMERIC".to_string(),
+        },
         "timestamp without time zone" | "timestamp" => {
             if let Some(precision) = col.numeric_precision {
                 format!("TIMESTAMP({})", precision)
@@ -233,13 +247,11 @@ fn build_column_type(col: &EditableColumn) -> String {
                 "TIME WITH TIME ZONE".to_string()
             }
         }
-        "interval" => {
-            match (col.numeric_precision, col.numeric_scale) {
-                (Some(precision), Some(scale)) => format!("INTERVAL({},{})", precision, scale),
-                (Some(precision), None) => format!("INTERVAL({})", precision),
-                _ => "INTERVAL".to_string(),
-            }
-        }
+        "interval" => match (col.numeric_precision, col.numeric_scale) {
+            (Some(precision), Some(scale)) => format!("INTERVAL({},{})", precision, scale),
+            (Some(precision), None) => format!("INTERVAL({})", precision),
+            _ => "INTERVAL".to_string(),
+        },
         _ => {
             // 对于其他类型，尝试使用 UDT 名称或原始类型
             col.data_type.to_uppercase()
@@ -250,7 +262,7 @@ fn build_column_type(col: &EditableColumn) -> String {
 /// 从 ColumnDetail 构建列类型字符串（用于对比）
 fn build_column_type_from_detail(col: &pgone_sql::ColumnDetail) -> String {
     let base_type = col.data_type.to_lowercase();
-    
+
     match base_type.as_str() {
         "character varying" | "varchar" => {
             if let Some(len) = col.character_maximum_length {
@@ -266,13 +278,11 @@ fn build_column_type_from_detail(col: &pgone_sql::ColumnDetail) -> String {
                 "CHAR".to_string()
             }
         }
-        "numeric" | "decimal" => {
-            match (col.numeric_precision, col.numeric_scale) {
-                (Some(precision), Some(scale)) => format!("NUMERIC({},{})", precision, scale),
-                (Some(precision), None) => format!("NUMERIC({})", precision),
-                _ => "NUMERIC".to_string(),
-            }
-        }
+        "numeric" | "decimal" => match (col.numeric_precision, col.numeric_scale) {
+            (Some(precision), Some(scale)) => format!("NUMERIC({},{})", precision, scale),
+            (Some(precision), None) => format!("NUMERIC({})", precision),
+            _ => "NUMERIC".to_string(),
+        },
         "timestamp without time zone" | "timestamp" => {
             if let Some(precision) = col.numeric_precision {
                 format!("TIMESTAMP({})", precision)
@@ -301,13 +311,11 @@ fn build_column_type_from_detail(col: &pgone_sql::ColumnDetail) -> String {
                 "TIME WITH TIME ZONE".to_string()
             }
         }
-        "interval" => {
-            match (col.numeric_precision, col.numeric_scale) {
-                (Some(precision), Some(scale)) => format!("INTERVAL({},{})", precision, scale),
-                (Some(precision), None) => format!("INTERVAL({})", precision),
-                _ => "INTERVAL".to_string(),
-            }
-        }
+        "interval" => match (col.numeric_precision, col.numeric_scale) {
+            (Some(precision), Some(scale)) => format!("INTERVAL({},{})", precision, scale),
+            (Some(precision), None) => format!("INTERVAL({})", precision),
+            _ => "INTERVAL".to_string(),
+        },
         _ => {
             // 对于其他类型，尝试使用 UDT 名称或原始类型
             if let Some(ref udt_name) = col.udt_name {
@@ -328,4 +336,3 @@ fn quote_ident(ident: &str) -> String {
 fn quote_literal(literal: &str) -> String {
     format!("'{}'", literal.replace('\'', "''"))
 }
-

@@ -1,8 +1,8 @@
 use eframe::egui;
 use egui_plot::{Bar, BarChart, Plot};
 use poll_promise::Promise;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 struct ActivityData {
@@ -161,9 +161,7 @@ impl ActivityMonitor {
                 .enumerate()
                 .map(|(i, item)| {
                     let name = item.state.as_deref().unwrap_or("NULL");
-                    Bar::new(i as f64, item.count as f64)
-                        .width(0.6)
-                        .name(name)
+                    Bar::new(i as f64, item.count as f64).width(0.6).name(name)
                 })
                 .collect();
 
@@ -189,4 +187,3 @@ pub fn show(ui: &mut egui::Ui, dsn: Option<&str>) {
         m.ui(ui, dsn);
     }
 }
-

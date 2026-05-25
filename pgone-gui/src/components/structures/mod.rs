@@ -1,10 +1,9 @@
-mod types;
-mod ui;
+mod design;
+mod dialogs;
 mod loading;
 mod operations;
-mod dialogs;
+mod types;
+mod ui;
 pub mod utils;
-mod design;
 
 pub use types::DbTree;
-

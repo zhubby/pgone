@@ -3,11 +3,11 @@ use poll_promise::Promise;
 use std::collections::HashSet;
 use tracing::debug;
 
-mod utils;
-mod sql_editor;
-mod executor;
-mod table_view;
 mod database_loader;
+mod executor;
+mod sql_editor;
+mod table_view;
+mod utils;
 
 /// SQL 执行计划信息
 #[derive(Clone, Default)]
@@ -57,7 +57,7 @@ pub struct ResultsTable {
     pub completion_cursor_pos: usize,
     pub completion_word_start: usize,
     pub completion_word_end: usize,
-    pub previous_sql_input: String, // 用于检测文本变化位置
+    pub previous_sql_input: String,        // 用于检测文本变化位置
     pub pending_cursor_pos: Option<usize>, // 待设置的光标位置
 }
 
@@ -132,7 +132,7 @@ impl ResultsTable {
         let has_ctxs = ctxs.is_some();
 
         // SQL Editor section - fixed height at 1/4 of window height, filling horizontally
-        let window_height = ui.ctx().screen_rect().height();
+        let window_height = ui.ctx().content_rect().height();
         let editor_height = window_height / 4.0;
 
         ui.allocate_ui_with_layout(
@@ -156,4 +156,3 @@ impl ResultsTable {
         self.ui_results_table(ui, sql.as_deref(), ctxs, has_ctxs);
     }
 }
-

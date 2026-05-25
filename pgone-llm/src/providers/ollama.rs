@@ -1,8 +1,8 @@
-use crate::chat::{ChatRequest, ChatResponse, ChatRole, ChatMessageContent};
+use crate::chat::{ChatMessageContent, ChatRequest, ChatResponse, ChatRole};
 use crate::{LlmError, Result};
-use serde::{Deserialize, Serialize};
-use futures::Stream;
 use async_openai::types::CreateChatCompletionStreamResponse;
+use futures::Stream;
+use serde::{Deserialize, Serialize};
 
 /// Ollama 客户端实现
 pub struct OllamaClient {
@@ -102,15 +102,12 @@ struct OllamaToolCall {
 
 #[derive(Debug, Deserialize)]
 struct OllamaToolCallFunctionRaw {
-    #[serde(default)]
-    index: Option<u32>,
     name: String,
     arguments: serde_json::Value,
 }
 
 #[derive(Debug)]
 struct OllamaToolCallFunction {
-    index: Option<u32>,
     name: String,
     arguments: String,
 }
@@ -123,11 +120,11 @@ impl<'de> Deserialize<'de> for OllamaToolCallFunction {
         let raw = OllamaToolCallFunctionRaw::deserialize(deserializer)?;
         let arguments = match raw.arguments {
             serde_json::Value::String(s) => s,
-            obj => serde_json::to_string(&obj)
-                .map_err(|e| serde::de::Error::custom(format!("Failed to serialize arguments: {}", e)))?,
+            obj => serde_json::to_string(&obj).map_err(|e| {
+                serde::de::Error::custom(format!("Failed to serialize arguments: {}", e))
+            })?,
         };
         Ok(OllamaToolCallFunction {
-            index: raw.index,
             name: raw.name,
             arguments,
         })
@@ -138,8 +135,6 @@ impl<'de> Deserialize<'de> for OllamaToolCallFunction {
 struct OllamaResponseMessage {
     role: String,
     content: String,
-    #[serde(default)]
-    thinking: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<OllamaToolCall>>,
 }
@@ -184,11 +179,12 @@ struct OllamaStreamMessage {
 impl OllamaClient {
     pub fn new(base_url: Option<String>) -> crate::Result<Self> {
         let base_url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
-        let http_client = reqwest::Client::builder().no_proxy()
+        let http_client = reqwest::Client::builder()
+            .no_proxy()
             .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| LlmError::Api(format!("Failed to create HTTP client: {}", e)))?;
-        
+
         Ok(Self {
             base_url,
             http_client,
@@ -199,7 +195,7 @@ impl OllamaClient {
     pub async fn chat_create(&self, request: ChatRequest) -> Result<ChatResponse> {
         // 转换消息格式
         let mut ollama_messages = Vec::new();
-        
+
         for msg in &request.messages {
             // 提取文本内容
             let mut content_parts = Vec::new();
@@ -209,30 +205,33 @@ impl OllamaClient {
                         content_parts.push(text.clone());
                     }
                     ChatMessageContent::ImageUrl { url: _ } => {
-                        return Err(LlmError::Api("Ollama does not support image URLs in current implementation".to_string()));
+                        return Err(LlmError::Api(
+                            "Ollama does not support image URLs in current implementation"
+                                .to_string(),
+                        ));
                     }
                     ChatMessageContent::ImageBase64 { data: _ } => {
-                        return Err(LlmError::Api("Ollama does not support base64 images in current implementation".to_string()));
+                        return Err(LlmError::Api(
+                            "Ollama does not support base64 images in current implementation"
+                                .to_string(),
+                        ));
                     }
                 }
             }
-            
+
             let content = content_parts.join("\n");
             if content.is_empty() {
                 continue;
             }
-            
+
             let role = match msg.role {
                 ChatRole::System => "system".to_string(),
                 ChatRole::User => "user".to_string(),
                 ChatRole::Assistant => "assistant".to_string(),
                 ChatRole::Function => "tool".to_string(),
             };
-            
-            ollama_messages.push(OllamaMessage {
-                role,
-                content,
-            });
+
+            ollama_messages.push(OllamaMessage { role, content });
         }
 
         // 构建选项
@@ -241,7 +240,7 @@ impl OllamaClient {
             top_p: None,
             num_predict: None,
         };
-        
+
         if let Some(temp) = request.temperature {
             options.temperature = Some(temp);
         }
@@ -254,14 +253,17 @@ impl OllamaClient {
 
         // 转换 tools
         let ollama_tools = request.tools.map(|tools| {
-            tools.into_iter().map(|tool| OllamaTool {
-                tool_type: "function".to_string(),
-                function: OllamaToolFunction {
-                    name: tool.function.name,
-                    description: tool.function.description,
-                    parameters: tool.function.parameters,
-                },
-            }).collect()
+            tools
+                .into_iter()
+                .map(|tool| OllamaTool {
+                    tool_type: "function".to_string(),
+                    function: OllamaToolFunction {
+                        name: tool.function.name,
+                        description: tool.function.description,
+                        parameters: tool.function.parameters,
+                    },
+                })
+                .collect()
         });
 
         // 构建请求
@@ -277,37 +279,59 @@ impl OllamaClient {
 
         // 发送请求
         let url = format!("{}/api/chat", self.base_url.trim_end_matches('/'));
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(&url)
             .json(&ollama_request)
             .send()
             .await
-            .map_err(|e| LlmError::Network(e))?;
+            .map_err(LlmError::Network)?;
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(LlmError::Api(format!("Ollama API error ({}): {}", status, error_text)));
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(LlmError::Api(format!(
+                "Ollama API error ({}): {}",
+                status, error_text
+            )));
         }
 
         // 先获取响应文本用于调试
-        let response_text = response.text().await
+        let response_text = response
+            .text()
+            .await
             .map_err(|e| LlmError::Api(format!("Failed to read Ollama response: {}", e)))?;
-        
+
         // 尝试解析响应
-        let ollama_response: OllamaResponse = serde_json::from_str(&response_text)
-            .map_err(|e| {
-                tracing::error!("Failed to parse Ollama response. Response body: {}", response_text);
-                LlmError::Api(format!("Failed to parse Ollama response: {}. Response preview: {}", e, 
-                    if response_text.len() > 500 { &response_text[..500] } else { &response_text }))
+        let ollama_response: OllamaResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                tracing::error!(
+                    "Failed to parse Ollama response. Response body: {}",
+                    response_text
+                );
+                LlmError::Api(format!(
+                    "Failed to parse Ollama response: {}. Response preview: {}",
+                    e,
+                    if response_text.len() > 500 {
+                        &response_text[..500]
+                    } else {
+                        &response_text
+                    }
+                ))
             })?;
 
         // 转换 tool_calls
         let tool_calls = ollama_response.message.tool_calls.map(|calls| {
-            calls.into_iter().map(|call| crate::tools::FunctionCall {
-                name: call.function.name,
-                arguments: call.function.arguments,
-            }).collect()
+            calls
+                .into_iter()
+                .map(|call| crate::tools::FunctionCall {
+                    name: call.function.name,
+                    arguments: call.function.arguments,
+                })
+                .collect()
         });
 
         // 转换响应
@@ -326,11 +350,11 @@ impl OllamaClient {
     ) -> Box<dyn Stream<Item = Result<CreateChatCompletionStreamResponse>> + Send> {
         let base_url = self.base_url.clone();
         let http_client = self.http_client.clone();
-        
+
         Box::new(async_stream::stream! {
             // 转换消息格式
             let mut ollama_messages = Vec::new();
-            
+
             for msg in &request.messages {
                 // 提取文本内容
                 let mut content_parts = Vec::new();
@@ -340,28 +364,28 @@ impl OllamaClient {
                             content_parts.push(text.clone());
                         }
                         ChatMessageContent::ImageUrl { url: _ } => {
-                            yield Err(LlmError::Api("Ollama does not support image URLs in current implementation".to_string()).into());
+                            yield Err(LlmError::Api("Ollama does not support image URLs in current implementation".to_string()));
                             return;
                         }
                         ChatMessageContent::ImageBase64 { data: _ } => {
-                            yield Err(LlmError::Api("Ollama does not support base64 images in current implementation".to_string()).into());
+                            yield Err(LlmError::Api("Ollama does not support base64 images in current implementation".to_string()));
                             return;
                         }
                     }
                 }
-                
+
                 let content = content_parts.join("\n");
                 if content.is_empty() {
                     continue;
                 }
-                
+
                 let role = match msg.role {
                     ChatRole::System => "system".to_string(),
                     ChatRole::User => "user".to_string(),
                     ChatRole::Assistant => "assistant".to_string(),
                     ChatRole::Function => "tool".to_string(),
                 };
-                
+
                 ollama_messages.push(OllamaMessage {
                     role,
                     content,
@@ -374,7 +398,7 @@ impl OllamaClient {
                 top_p: None,
                 num_predict: None,
             };
-            
+
             if let Some(temp) = request.temperature {
                 options.temperature = Some(temp);
             }
@@ -418,7 +442,7 @@ impl OllamaClient {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    yield Err(LlmError::Network(e).into());
+                    yield Err(LlmError::Network(e));
                     return;
                 }
             };
@@ -429,7 +453,7 @@ impl OllamaClient {
                     Ok(text) => text,
                     Err(_) => "Unknown error".to_string(),
                 };
-                yield Err(LlmError::Api(format!("Ollama API error ({}): {}", status, error_text)).into());
+                yield Err(LlmError::Api(format!("Ollama API error ({}): {}", status, error_text)));
                 return;
             }
 
@@ -444,7 +468,7 @@ impl OllamaClient {
                 let chunk = match chunk_result {
                     Ok(c) => c,
                     Err(e) => {
-                        yield Err(LlmError::Network(e).into());
+                        yield Err(LlmError::Network(e));
                         return;
                     }
                 };
@@ -453,7 +477,7 @@ impl OllamaClient {
                 let text = match String::from_utf8(chunk.to_vec()) {
                     Ok(t) => t,
                     Err(e) => {
-                        yield Err(LlmError::Api(format!("Invalid UTF-8 in stream: {}", e)).into());
+                        yield Err(LlmError::Api(format!("Invalid UTF-8 in stream: {}", e)));
                         return;
                     }
                 };
@@ -473,7 +497,7 @@ impl OllamaClient {
                     let stream_response: OllamaStreamResponse = match serde_json::from_str(&line) {
                         Ok(r) => r,
                         Err(e) => {
-                            yield Err(LlmError::Api(format!("Failed to parse Ollama stream response: {}", e)).into());
+                            yield Err(LlmError::Api(format!("Failed to parse Ollama stream response: {}", e)));
                             continue;
                         }
                     };
@@ -522,9 +546,9 @@ impl OllamaClient {
 
                     // 创建 OpenAI 兼容的流式响应
                     let choice = async_openai::types::ChatChoiceStream {
-                        index: index as u32,
+                        index,
                         delta,
-                        finish_reason: finish_reason.clone(),
+                        finish_reason,
                         logprobs: None,
                     };
 
@@ -575,15 +599,13 @@ mod tests {
     #[ignore] // 需要运行中的 Ollama 服务，默认忽略
     async fn test_chat_create_with_simple_request() {
         let client = OllamaClient::new(Some("http://localhost:11434".to_string())).unwrap();
-        
+
         let request = ChatRequest::new("llama2".to_string())
-            .with_messages(vec![
-                ChatMessage::user("Hello, how are you?".to_string()),
-            ]);
-        
+            .with_messages(vec![ChatMessage::user("Hello, how are you?".to_string())]);
+
         let result = client.chat_create(request).await;
         assert!(result.is_ok(), "应该能够成功调用 Ollama API");
-        
+
         let response = result.unwrap();
         assert!(!response.content.is_empty(), "响应内容不应该为空");
         assert_eq!(response.role, "assistant");
@@ -593,16 +615,15 @@ mod tests {
     #[ignore]
     async fn test_chat_create_with_system_prompt() {
         let client = OllamaClient::new(Some("http://localhost:11434".to_string())).unwrap();
-        
-        let request = ChatRequest::new("llama2".to_string())
-            .with_messages(vec![
-                ChatMessage::system("You are a helpful assistant.".to_string()),
-                ChatMessage::user("What is 2+2?".to_string()),
-            ]);
-        
+
+        let request = ChatRequest::new("llama2".to_string()).with_messages(vec![
+            ChatMessage::system("You are a helpful assistant.".to_string()),
+            ChatMessage::user("What is 2+2?".to_string()),
+        ]);
+
         let result = client.chat_create(request).await;
         assert!(result.is_ok(), "应该能够成功调用带系统提示的请求");
-        
+
         let response = result.unwrap();
         assert!(!response.content.is_empty());
     }
@@ -611,18 +632,16 @@ mod tests {
     #[ignore]
     async fn test_chat_create_with_parameters() {
         let client = OllamaClient::new(Some("http://localhost:11434".to_string())).unwrap();
-        
+
         let request = ChatRequest::new("llama2".to_string())
-            .with_messages(vec![
-                ChatMessage::user("Tell me a short joke.".to_string()),
-            ])
+            .with_messages(vec![ChatMessage::user("Tell me a short joke.".to_string())])
             .with_temperature(0.7)
             .with_top_p(0.9)
             .with_max_tokens(100);
-        
+
         let result = client.chat_create(request).await;
         assert!(result.is_ok(), "应该能够成功调用带参数的请求");
-        
+
         let response = result.unwrap();
         assert!(!response.content.is_empty());
     }
@@ -630,33 +649,34 @@ mod tests {
     #[tokio::test]
     async fn test_chat_create_rejects_function_calls() {
         let client = OllamaClient::new(None).unwrap();
-        
-        let request = ChatRequest::new("llama2".to_string())
-            .with_messages(vec![
-                ChatMessage::function("test_function".to_string(), "test_content".to_string()),
-            ]);
-        
+
+        let request =
+            ChatRequest::new("llama2".to_string()).with_messages(vec![ChatMessage::function(
+                "test_function".to_string(),
+                "test_content".to_string(),
+            )]);
+
         let result = client.chat_create(request).await;
         assert!(result.is_err(), "应该拒绝 Function 消息");
-        
+
         if let Err(e) = result {
-            assert!(e.to_string().contains("function calls"), 
-                "错误消息应该说明不支持 function calls");
+            assert!(
+                e.to_string().contains("function calls"),
+                "错误消息应该说明不支持 function calls"
+            );
         }
     }
 
     #[tokio::test]
     async fn test_chat_create_rejects_image_urls() {
         let client = OllamaClient::new(None).unwrap();
-        
-        let request = ChatRequest::new("llama2".to_string())
-            .with_messages(vec![
-                ChatMessage::user("test".to_string())
-                    .with_image_url("http://example.com/image.jpg".to_string()),
-            ]);
-        
+
+        let request = ChatRequest::new("llama2".to_string()).with_messages(vec![
+            ChatMessage::user("test".to_string())
+                .with_image_url("http://example.com/image.jpg".to_string()),
+        ]);
+
         let result = client.chat_create(request).await;
         assert!(result.is_err(), "应该拒绝包含图片 URL 的消息");
     }
 }
-

@@ -22,7 +22,6 @@ Run service entrypoints through the same binary:
 cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio
 cargo run -p pgone-cli -- apiserver
 cargo run -p pgone-cli -- proxy
-cargo run -p pgone-cli -- a2a
 ```
 
 The package name is `pgone-cli`, and the installed binary name is `pgone`.

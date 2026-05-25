@@ -13,7 +13,7 @@ impl SessionSelector {
                 .get(ctxs.state.current_index)
                 .map(|s| s.title.clone())
                 .unwrap_or_else(|| "无会话".to_string());
-            
+
             let mut selected_index = ctxs.state.current_index;
             egui::ComboBox::from_id_salt("session_selector")
                 .selected_text(&current_session)
@@ -28,9 +28,12 @@ impl SessionSelector {
                         }
                     }
                 });
-            
+
             // 新建 Session 按钮
-            if ui.button(format!("{} 新建", egui_phosphor::regular::PLUS)).clicked() {
+            if ui
+                .button(format!("{} 新建", egui_phosphor::regular::PLUS))
+                .clicked()
+            {
                 Self::create_new_session(ctxs);
             }
         });
@@ -39,16 +42,15 @@ impl SessionSelector {
     fn create_new_session(ctxs: &mut ChatCtx) {
         let new_id = ctxs.state.next_session_id.to_string();
         ctxs.state.next_session_id += 1;
-        
+
         let new_session = ChatSession::default_with_timestamp(new_id.clone());
-        
+
         ctxs.state.sessions.push(new_session.clone());
         ctxs.state.current_index = ctxs.state.sessions.len() - 1;
-        
+
         // 保存到存储
         if let Err(e) = ctxs.storage.save_session(&new_session) {
             tracing::error!("保存新会话失败: {}", e);
         }
     }
 }
-

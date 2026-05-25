@@ -1,11 +1,11 @@
-use crate::models::{Settings, SendShortcut, Theme};
 use crate::futures;
+use crate::models::{SendShortcut, Settings, Theme};
 use crate::styles::toggle::toggle;
 use egui::{ComboBox, Ui};
+use pgone_llm::LLMProvider;
 use std::fs;
 use std::path::Path;
 use tokio::sync::mpsc;
-use pgone_llm::LLMProvider;
 
 pub struct SettingsPanel {
     previous_font_size: Option<f32>,
@@ -34,7 +34,6 @@ impl Default for SettingsPanel {
 }
 
 impl SettingsPanel {
-
     pub fn new(settings: Settings) -> Self {
         Self {
             previous_font_size: None,
@@ -52,7 +51,7 @@ impl SettingsPanel {
     pub fn get_available_fonts() -> Vec<String> {
         let fonts_dir = Path::new("assets/fonts");
         let mut fonts = Vec::new();
-        
+
         if let Ok(entries) = fs::read_dir(fonts_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -69,7 +68,7 @@ impl SettingsPanel {
                 }
             }
         }
-        
+
         // Sort fonts for consistent display
         fonts.sort();
         fonts
@@ -79,7 +78,7 @@ impl SettingsPanel {
     pub fn get_available_font_sizes() -> Vec<f32> {
         vec![10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 24.0]
     }
-    
+
     /// Get all available LLM providers
     pub fn all_llm_providers() -> &'static [LLMProvider] {
         &[
@@ -92,7 +91,7 @@ impl SettingsPanel {
             LLMProvider::OpenRouter,
         ]
     }
-    
+
     /// Get display name for LLM provider
     pub fn llm_provider_display_name(provider: &LLMProvider) -> &'static str {
         match provider {
@@ -110,12 +109,12 @@ impl SettingsPanel {
     pub fn init_original_settings(&mut self, settings: &Settings) {
         self.original_settings = Some(settings.clone());
     }
-    
+
     /// Check if original settings are initialized
     pub fn has_original_settings(&self) -> bool {
         self.original_settings.is_some()
     }
-    
+
     /// Check if settings have been modified
     pub fn has_changes(&self, current_settings: &Settings) -> bool {
         if let Some(ref original) = self.original_settings {
@@ -124,12 +123,12 @@ impl SettingsPanel {
             false
         }
     }
-    
+
     /// Reset original settings (call after saving)
     pub fn reset_original_settings(&mut self, settings: &Settings) {
         self.original_settings = Some(settings.clone());
     }
-    
+
     /// Clear original settings (call when closing window)
     pub fn clear_original_settings(&mut self) {
         self.original_settings = None;
@@ -141,7 +140,7 @@ impl SettingsPanel {
         // 检查 API key 或 base_url 是否改变，如果改变则重新加载模型列表
         let api_key_changed = self.last_api_key != settings.openai_api_key;
         let base_url_changed = self.last_base_url != settings.openai_base_url;
-        
+
         if (api_key_changed || base_url_changed) && settings.openai_api_key.is_some() {
             self.last_api_key = settings.openai_api_key.clone();
             self.last_base_url = settings.openai_base_url.clone();
@@ -149,7 +148,7 @@ impl SettingsPanel {
             self.models_receiver = None;
             self.load_models(settings);
         }
-        
+
         // 检查模型加载结果
         if let Some(ref mut receiver) = self.models_receiver {
             match receiver.try_recv() {
@@ -185,18 +184,18 @@ impl SettingsPanel {
                 }
             }
         }
-        
+
         // 如果还没有加载过且有 API key，则开始加载
-        if !self.models_loaded 
-            && settings.openai_api_key.is_some() 
-            && self.models_receiver.is_none() 
+        if !self.models_loaded
+            && settings.openai_api_key.is_some()
+            && self.models_receiver.is_none()
         {
             self.load_models(settings);
         }
-        
+
         ui.heading("设置");
         ui.separator();
-        
+
         // Send shortcut selection
         ui.horizontal(|ui| {
             ui.label("发送快捷键:");
@@ -206,11 +205,7 @@ impl SettingsPanel {
                     SendShortcut::CmdEnter => "Cmd+Enter / Ctrl+Enter",
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut settings.send_shortcut,
-                        SendShortcut::Enter,
-                        "Enter",
-                    );
+                    ui.selectable_value(&mut settings.send_shortcut, SendShortcut::Enter, "Enter");
                     ui.selectable_value(
                         &mut settings.send_shortcut,
                         SendShortcut::CmdEnter,
@@ -218,14 +213,14 @@ impl SettingsPanel {
                     );
                 });
         });
-        
+
         ui.add_space(10.0);
         ui.separator();
         ui.add_space(10.0);
-        
+
         ui.heading("LLM 配置");
         ui.separator();
-        
+
         // LLM Provider selection
         ui.horizontal(|ui| {
             ui.label("模型供应商:");
@@ -241,9 +236,9 @@ impl SettingsPanel {
                     }
                 });
         });
-        
+
         ui.add_space(5.0);
-        
+
         // OpenAI API Key
         ui.horizontal(|ui| {
             ui.label("API Key:");
@@ -258,14 +253,18 @@ impl SettingsPanel {
                 };
             }
         });
-        
+
         ui.add_space(5.0);
-        
+
         // OpenAI Base URL
         ui.horizontal(|ui| {
             ui.label("Base URL:");
             // Use a mutable reference to the Option<String> directly
-            let mut base_url_str = settings.openai_base_url.as_deref().unwrap_or("").to_string();
+            let mut base_url_str = settings
+                .openai_base_url
+                .as_deref()
+                .unwrap_or("")
+                .to_string();
             let response = ui.text_edit_singleline(&mut base_url_str);
             if response.changed() {
                 settings.openai_base_url = if base_url_str.is_empty() {
@@ -275,9 +274,9 @@ impl SettingsPanel {
                 };
             }
         });
-        
+
         ui.add_space(5.0);
-        
+
         // Proxy Configuration
         ui.checkbox(&mut settings.proxy_enabled, "启用网络代理");
         if settings.proxy_enabled {
@@ -285,7 +284,8 @@ impl SettingsPanel {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.label("代理地址:");
-                    let mut proxy_host_str = settings.proxy_host.as_deref().unwrap_or("").to_string();
+                    let mut proxy_host_str =
+                        settings.proxy_host.as_deref().unwrap_or("").to_string();
                     let response = ui.text_edit_singleline(&mut proxy_host_str);
                     if response.changed() {
                         settings.proxy_host = if proxy_host_str.is_empty() {
@@ -298,7 +298,10 @@ impl SettingsPanel {
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
                     ui.label("代理端口:");
-                    let mut proxy_port_str = settings.proxy_port.map(|p| p.to_string()).unwrap_or_default();
+                    let mut proxy_port_str = settings
+                        .proxy_port
+                        .map(|p| p.to_string())
+                        .unwrap_or_default();
                     let response = ui.text_edit_singleline(&mut proxy_port_str);
                     if response.changed() {
                         settings.proxy_port = if proxy_port_str.is_empty() {
@@ -310,17 +313,17 @@ impl SettingsPanel {
                 });
             });
         }
-        
+
         ui.add_space(5.0);
-        
+
         // Stream API toggle
         ui.horizontal(|ui| {
             ui.label("启用流式 API:");
             ui.add(toggle(&mut settings.enable_stream_api));
         });
-        
+
         ui.add_space(5.0);
-        
+
         // OpenAI Model
         ui.horizontal(|ui| {
             ui.label("模型:");
@@ -336,14 +339,14 @@ impl SettingsPanel {
             } else {
                 self.available_models.clone()
             };
-            
+
             // 如果正在加载，显示加载状态
             let display_text = if self.models_receiver.is_some() {
                 format!("{} (加载中...)", settings.openai_model)
             } else {
                 settings.openai_model.clone()
             };
-            
+
             ComboBox::from_id_salt("openai_model")
                 .selected_text(&display_text)
                 .show_ui(ui, |ui| {
@@ -357,11 +360,11 @@ impl SettingsPanel {
                     }
                 });
         });
-        
+
         ui.add_space(10.0);
         ui.separator();
         ui.add_space(10.0);
-        
+
         // Theme selection
         ui.horizontal(|ui| {
             ui.label("主题:");
@@ -370,25 +373,21 @@ impl SettingsPanel {
                 .selected_text(settings.theme.display_name())
                 .show_ui(ui, |ui| {
                     for theme in Theme::all() {
-                        ui.selectable_value(
-                            &mut settings.theme,
-                            *theme,
-                            theme.display_name(),
-                        );
+                        ui.selectable_value(&mut settings.theme, *theme, theme.display_name());
                     }
                 });
             if old_theme != settings.theme {
                 Self::apply_theme(ctx, settings.theme);
             }
         });
-        
+
         ui.add_space(10.0);
         ui.separator();
         ui.add_space(10.0);
-        
+
         ui.heading("字体设置");
         ui.separator();
-        
+
         // Font family selection
         ui.horizontal(|ui| {
             ui.label("字体:");
@@ -397,17 +396,13 @@ impl SettingsPanel {
                 .selected_text(&settings.font_family)
                 .show_ui(ui, |ui| {
                     for font in &available_fonts {
-                        ui.selectable_value(
-                            &mut settings.font_family,
-                            font.clone(),
-                            font,
-                        );
+                        ui.selectable_value(&mut settings.font_family, font.clone(), font);
                     }
                 });
         });
-        
+
         ui.add_space(10.0);
-        
+
         // Font size selection
         let mut size_changed = false;
         ui.horizontal(|ui| {
@@ -418,18 +413,14 @@ impl SettingsPanel {
                 .selected_text(format!("{:.0}", settings.font_size))
                 .show_ui(ui, |ui| {
                     for size in &available_sizes {
-                        ui.selectable_value(
-                            &mut settings.font_size,
-                            *size,
-                            format!("{:.0}", size),
-                        );
+                        ui.selectable_value(&mut settings.font_size, *size, format!("{:.0}", size));
                     }
                 });
             if old_size != settings.font_size {
                 size_changed = true;
             }
         });
-        
+
         // Apply font size changes immediately
         if size_changed || self.previous_font_size != Some(settings.font_size) {
             let mut style = (*ctx.style()).clone();
@@ -439,27 +430,27 @@ impl SettingsPanel {
             ctx.set_style(style);
             self.previous_font_size = Some(settings.font_size);
         }
-        
+
         // Note: Font family changes require font reloading which is complex
         // For now, we'll save the preference and it will be applied on next startup
         ui.add_space(10.0);
         ui.label("提示: 字体更改将在下次启动时生效");
-        
+
         ui.add_space(20.0);
         ui.separator();
         ui.add_space(10.0);
-        
+
         ui.heading("系统选项");
         ui.separator();
-        
+
         // Enable monitor checkbox
         ui.checkbox(&mut settings.enable_monitor, "启用系统监控");
         ui.label("在状态栏显示当前进程的 CPU、内存和网络使用情况");
-        
+
         ui.add_space(20.0);
         ui.separator();
         ui.add_space(10.0);
-        
+
         // Save button
         let has_changes = self.has_changes(settings);
         let mut save_clicked = false;
@@ -474,7 +465,7 @@ impl SettingsPanel {
                 }
             });
         });
-        
+
         save_clicked
     }
 
@@ -501,7 +492,7 @@ impl SettingsPanel {
             }
         }
     }
-    
+
     fn load_models(&mut self, settings: &Settings) {
         let Some(api_key) = settings.openai_api_key.clone() else {
             return;
@@ -514,7 +505,7 @@ impl SettingsPanel {
         let proxy_port = settings.proxy_port;
         let (sender, receiver) = mpsc::channel(1);
         self.models_receiver = Some(receiver);
-        
+
         futures::spawn(async move {
             let mut config = pgone_llm::Config::new(api_key);
             if let Some(url) = base_url {
@@ -525,25 +516,19 @@ impl SettingsPanel {
                     config = config.with_proxy(host, port);
                 }
             }
-            
+
             let result = match pgone_llm::Client::new(config, provider) {
-                Ok(client) => {
-                    match client.models_list().await {
-                        Ok(models) => {
-                            let model_ids: Vec<String> = models
-                                .into_iter()
-                                .map(|m| m.id)
-                                .collect();
-                            Ok(model_ids)
-                        }
-                        Err(e) => Err(e.to_string()),
+                Ok(client) => match client.models_list().await {
+                    Ok(models) => {
+                        let model_ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
+                        Ok(model_ids)
                     }
-                }
+                    Err(e) => Err(e.to_string()),
+                },
                 Err(e) => Err(e.to_string()),
             };
-            
+
             let _ = sender.send(result).await;
         });
     }
 }
-

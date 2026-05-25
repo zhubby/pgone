@@ -1,31 +1,24 @@
 use crate::error::{Result, VectorStoreError};
-use arrow::array::{FixedSizeListArray, Float32Array, StringArray, Int64Array};
+use arrow::array::{ArrayRef, FixedSizeListArray, Float32Array, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
+use lancedb::Connection;
 use lancedb::table::Table;
-use lancedb::Database;
 use std::sync::Arc;
 
 const TABLE_NAME: &str = "chat_vectors";
 
 /// 创建或获取表结构
-pub async fn create_or_open_table(
-    db: &Database,
-    vector_dimension: usize,
-) -> Result<Table> {
+pub async fn create_or_open_table(db: &Connection, vector_dimension: usize) -> Result<Table> {
     // 尝试打开已存在的表
-    if let Ok(table) = db.open_table(TABLE_NAME).await {
+    if let Ok(table) = db.open_table(TABLE_NAME).execute().await {
         return Ok(table);
     }
 
     // 创建新表
-    let schema = create_schema(vector_dimension)?;
-    
-    // 创建空记录批次用于初始化表
-    let empty_batch = RecordBatch::new_empty(Arc::new(schema));
-    
     let table = db
-        .create_table(TABLE_NAME, empty_batch)
+        .create_empty_table(TABLE_NAME, Arc::new(create_schema(vector_dimension)?))
+        .execute()
         .await
         .map_err(|e| VectorStoreError::TableOperation(format!("创建表失败: {}", e)))?;
 
@@ -33,7 +26,10 @@ pub async fn create_or_open_table(
 }
 
 /// 创建表结构
-fn create_schema(vector_dimension: usize) -> Result<Schema> {
+pub(crate) fn create_schema(vector_dimension: usize) -> Result<Schema> {
+    let vector_dimension = i32::try_from(vector_dimension)
+        .map_err(|_| VectorStoreError::Serialization("向量维度超过 i32 范围".to_string()))?;
+
     let fields = vec![
         Field::new("id", DataType::Utf8, false),
         Field::new("session_id", DataType::Utf8, false),
@@ -77,16 +73,11 @@ pub fn records_to_batch(
 
     let ids: Vec<String> = records.iter().map(|r| r.id.clone()).collect();
     let session_ids: Vec<String> = records.iter().map(|r| r.session_id.clone()).collect();
-    let roles: Vec<String> = records
-        .iter()
-        .map(|r| format!("{:?}", r.role))
-        .collect();
+    let roles: Vec<String> = records.iter().map(|r| format!("{:?}", r.role)).collect();
     let contents: Vec<String> = records.iter().map(|r| r.content.clone()).collect();
     let timestamps: Vec<i64> = records.iter().map(|r| r.timestamp).collect();
-    let embedding_models: Vec<Option<String>> = records
-        .iter()
-        .map(|r| r.embedding_model.clone())
-        .collect();
+    let embedding_models: Vec<Option<String>> =
+        records.iter().map(|r| r.embedding_model.clone()).collect();
 
     // 构建向量数组
     let mut vector_values = Vec::new();
@@ -108,9 +99,11 @@ pub fn records_to_batch(
 
     // 创建固定大小的向量数组
     let float32_values = Float32Array::from(vector_values);
-    let vector_array = FixedSizeListArray::try_new_from_values(
-        float32_values,
+    let vector_array = FixedSizeListArray::try_new(
+        Arc::new(Field::new("item", DataType::Float32, true)),
         vector_dimension as i32,
+        Arc::new(float32_values) as ArrayRef,
+        None,
     )
     .map_err(|e| VectorStoreError::Serialization(format!("创建向量数组失败: {}", e)))?;
 
@@ -131,4 +124,3 @@ pub fn records_to_batch(
 
     Ok(batch)
 }
-

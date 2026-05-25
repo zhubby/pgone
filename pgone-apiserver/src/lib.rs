@@ -481,7 +481,7 @@ async fn oauth_github_callback(
         .get("id")
         .and_then(|v| v.as_i64())
         .map(|v| v.to_string())
-        .unwrap_or_else(|| uuid());
+        .unwrap_or_else(uuid);
     let login = user_json
         .get("login")
         .and_then(|v| v.as_str())
@@ -556,10 +556,10 @@ async fn oauth_github_callback(
 
 #[utoipa::path(get, path = "/auth/me", responses((status = 200)))]
 async fn auth_me() -> impl IntoResponse {
-    if let Some(st) = STORAGE.get() {
-        if let Ok(Some(u)) = st.get_current_user().await {
-            return Json(u).into_response();
-        }
+    if let Some(st) = STORAGE.get()
+        && let Ok(Some(u)) = st.get_current_user().await
+    {
+        return Json(u).into_response();
     }
     (StatusCode::NOT_FOUND, "").into_response()
 }

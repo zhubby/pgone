@@ -9,7 +9,7 @@ impl MessageList {
         if should_scroll {
             ctxs.should_scroll_to_bottom = false;
         }
-        
+
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
@@ -24,9 +24,11 @@ impl MessageList {
                 for msg in &messages {
                     ui.horizontal(|ui| {
                         ui.strong(match msg.role {
-                            Role::User => format!("{} User",egui_phosphor::regular::USER),
-                            Role::Assistant => format!("{} Assistant",egui_phosphor::regular::ROBOT),
-                            Role::System => format!("{} System",egui_phosphor::regular::USER_GEAR),
+                            Role::User => format!("{} User", egui_phosphor::regular::USER),
+                            Role::Assistant => {
+                                format!("{} Assistant", egui_phosphor::regular::ROBOT)
+                            }
+                            Role::System => format!("{} System", egui_phosphor::regular::USER_GEAR),
                         });
                         ui.label(msg.timestamp.format("%Y-%m-%d %H:%M:%S").to_string());
                         if ui.small_button("Copy").clicked()
@@ -44,13 +46,11 @@ impl MessageList {
                             width,
                             height,
                         } => {
-                            if let Some(handle) =
-                                ctxs.preview.ensure_texture(ui.ctx(), path)
-                            {
+                            if let Some(handle) = ctxs.preview.ensure_texture(ui.ctx(), path) {
                                 let size = egui::vec2(*width as f32, *height as f32)
                                     .min(egui::vec2(512.0, 512.0));
-                                let img = egui::widgets::Image::new(&handle)
-                                    .fit_to_exact_size(size);
+                                let img =
+                                    egui::widgets::Image::new(&handle).fit_to_exact_size(size);
                                 let resp = ui.add(img);
                                 if resp.clicked() {
                                     ctxs.preview.open(path.clone());
@@ -75,4 +75,3 @@ impl MessageList {
             });
     }
 }
-

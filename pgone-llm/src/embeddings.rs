@@ -41,12 +41,14 @@ impl Client {
         let mut req_builder = CreateEmbeddingRequestArgs::default();
         req_builder.model(request.model.clone());
         req_builder.input(request.input.clone());
-        
+
         if let Some(user) = request.user {
             req_builder.user(user);
         }
 
-        let req = req_builder.build().map_err(|e| LlmError::InvalidRequest(e.to_string()))?;
+        let req = req_builder
+            .build()
+            .map_err(|e| LlmError::InvalidRequest(e.to_string()))?;
         let resp = self.inner().embeddings().create(req).await?;
 
         let embeddings: Vec<Vec<f32>> = resp.data.into_iter().map(|e| e.embedding).collect();
@@ -65,9 +67,10 @@ impl Client {
     pub async fn embedding_create(&self, model: String, text: String) -> Result<Vec<f32>> {
         let request = EmbeddingRequest::new(model, vec![text]);
         let response = self.embeddings_create(request).await?;
-        response.embeddings.into_iter().next().ok_or_else(|| {
-            LlmError::Api("No embedding in response".to_string())
-        })
+        response
+            .embeddings
+            .into_iter()
+            .next()
+            .ok_or_else(|| LlmError::Api("No embedding in response".to_string()))
     }
 }
-

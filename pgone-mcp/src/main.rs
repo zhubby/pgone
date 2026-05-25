@@ -46,7 +46,10 @@ async fn main() -> anyhow::Result<()> {
             "stdio" => Protocol::Stdio,
             "streamable" => Protocol::Streamable,
             _ => {
-                eprintln!("警告: 无效的协议类型 '{}'，使用默认值 streamable", protocol_str);
+                eprintln!(
+                    "警告: 无效的协议类型 '{}'，使用默认值 streamable",
+                    protocol_str
+                );
                 Protocol::Streamable
             }
         }

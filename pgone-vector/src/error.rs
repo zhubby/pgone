@@ -27,4 +27,3 @@ pub enum VectorStoreError {
 
 /// 结果类型别名
 pub type Result<T> = std::result::Result<T, VectorStoreError>;
-

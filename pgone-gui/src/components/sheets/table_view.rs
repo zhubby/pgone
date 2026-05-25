@@ -1,3 +1,4 @@
+use super::utils;
 use super::{ExplainInfo, ResultsTable};
 use crate::components::SqlCtx;
 use crate::futures;
@@ -5,7 +6,6 @@ use egui_data_table::{DataTable, Renderer, RowViewer};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Column, Row};
 use std::collections::HashSet;
-use super::utils;
 
 /// 查询结果行数据结构
 /// 将动态的 Vec<String> 转换为结构化的行数据，便于 egui-data-table 使用
@@ -29,7 +29,7 @@ impl QueryRowViewer {
     /// 使用字符迭代器确保正确处理多字节字符（如中文）
     fn truncate_cell_text(text: &str) -> String {
         const MAX_LENGTH: usize = 12;
-        
+
         // 首先处理换行符：找到第一个换行符的位置
         // 优先处理 \r\n（Windows 换行符），然后是单独的 \n 或 \r
         let first_line = if let Some(crlf_pos) = text.find("\r\n") {
@@ -48,7 +48,7 @@ impl QueryRowViewer {
             // 没有换行符，使用原文本
             text.to_string()
         };
-        
+
         // 然后处理长度限制
         if first_line.chars().count() <= MAX_LENGTH {
             first_line
@@ -116,8 +116,7 @@ impl RowViewer<QueryRow> for QueryRowViewer {
         if let Some(col_name) = self.columns.get(column) {
             if self.primary_keys.contains(col_name) {
                 // 主键列：返回带钥匙图标的列名
-                format!("{} {}", egui_phosphor::regular::KEY, col_name)
-                    .into()
+                format!("{} {}", egui_phosphor::regular::KEY, col_name).into()
             } else {
                 col_name.clone().into()
             }
@@ -281,7 +280,7 @@ impl ResultsTable {
         // 检查是否是 SELECT 查询（EXPLAIN 主要适用于 SELECT）
         let sql_trimmed = sql.trim();
         let sql_upper = sql_trimmed.to_uppercase();
-        
+
         // 跳过非 SELECT 查询或已经是 EXPLAIN 的查询
         if !sql_upper.starts_with("SELECT")
             && !sql_upper.starts_with("WITH")
@@ -292,14 +291,14 @@ impl ResultsTable {
 
         // 构建 EXPLAIN 查询
         let explain_sql = format!("EXPLAIN (FORMAT TEXT) {}", sql_trimmed);
-        
+
         // 执行 EXPLAIN 查询
         let explain_result: Result<String, String> = futures::block_on_async(async {
             let rows: Vec<PgRow> = sqlx::query(&explain_sql)
                 .fetch_all(pool)
                 .await
                 .map_err(|e| e.to_string())?;
-            
+
             // 将 EXPLAIN 输出合并为字符串
             let mut output = String::new();
             for row in rows {
@@ -330,17 +329,17 @@ impl ResultsTable {
     fn parse_explain_output(output: &str) -> Option<ExplainInfo> {
         // 获取第一行（通常是查询计划树的根节点）
         let first_line = output.lines().next()?;
-        
+
         // 提取扫描类型（操作名称）
         // 匹配常见的操作类型：Seq Scan, Index Scan, Index Only Scan, Hash Join, Nested Loop, etc.
         let scan_type = Self::extract_scan_type(first_line);
-        
+
         // 提取成本信息：cost=X.XX..Y.YY
         let cost = Self::extract_cost(first_line);
-        
+
         // 提取行数：rows=XXXX
         let rows = Self::extract_rows(first_line);
-        
+
         Some(ExplainInfo {
             scan_type,
             cost,
@@ -369,13 +368,13 @@ impl ResultsTable {
             "Function Scan",
             "Materialize",
         ];
-        
+
         for pattern in &patterns {
             if line.contains(pattern) {
                 return pattern.to_string();
             }
         }
-        
+
         // 如果没有匹配到已知类型，尝试提取第一个大写单词
         if let Some(start) = line.find(|c: char| c.is_uppercase()) {
             let end = line[start..]
@@ -383,7 +382,7 @@ impl ResultsTable {
                 .unwrap_or(line.len() - start);
             return line[start..start + end].to_string();
         }
-        
+
         "Unknown".to_string()
     }
 
@@ -509,7 +508,11 @@ impl ResultsTable {
         // 更新当前 SQL 语句（但不自动执行）
         if let Some(sql_str) = sql {
             // 只更新当前 SQL，不自动执行
-            let sql_changed = self.current_sql.as_ref().map(|s| s != sql_str).unwrap_or(true);
+            let sql_changed = self
+                .current_sql
+                .as_ref()
+                .map(|s| s != sql_str)
+                .unwrap_or(true);
             if sql_changed {
                 self.current_sql = Some(sql_str.to_string());
                 self.previous_sql = self.current_sql.clone();
@@ -563,17 +566,11 @@ impl ResultsTable {
                 } else {
                     first_line.to_string()
                 };
-                ui.label(
-                    egui::RichText::new(truncated_sql)
-                        .color(egui::Color32::GRAY),
-                );
+                ui.label(egui::RichText::new(truncated_sql).color(egui::Color32::GRAY));
             } else {
-                ui.label(
-                    egui::RichText::new("No SQL statement")
-                        .color(egui::Color32::GRAY),
-                );
+                ui.label(egui::RichText::new("No SQL statement").color(egui::Color32::GRAY));
             }
-            
+
             // 右侧：EXPLAIN 信息显示区域，固定宽度
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(ref explain_info) = self.explain_info {
@@ -592,9 +589,13 @@ impl ResultsTable {
                 } else if let Some(ref error) = self.explain_error {
                     // 显示 EXPLAIN 错误
                     ui.label(
-                        egui::RichText::new(format!("{} {}", egui_phosphor::regular::WARNING, error))
-                            .color(egui::Color32::from_rgb(200, 100, 100))
-                            .small(),
+                        egui::RichText::new(format!(
+                            "{} {}",
+                            egui_phosphor::regular::WARNING,
+                            error
+                        ))
+                        .color(egui::Color32::from_rgb(200, 100, 100))
+                        .small(),
                     );
                 } else {
                     // 没有 EXPLAIN 信息时显示占位符
@@ -612,8 +613,12 @@ impl ResultsTable {
         if let Some(ref error) = self.sql_error {
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new(format!("{} Error: {}", egui_phosphor::regular::WARNING, error))
-                        .color(egui::Color32::RED),
+                    egui::RichText::new(format!(
+                        "{} Error: {}",
+                        egui_phosphor::regular::WARNING,
+                        error
+                    ))
+                    .color(egui::Color32::RED),
                 );
             });
             ui.separator();
@@ -634,9 +639,7 @@ impl ResultsTable {
         let table_data: Vec<QueryRow> = self
             .query_rows
             .iter()
-            .map(|row| QueryRow {
-                cells: row.clone(),
-            })
+            .map(|row| QueryRow { cells: row.clone() })
             .collect();
 
         // 创建 DataTable 实例
@@ -680,4 +683,3 @@ impl ResultsTable {
         {}
     }
 }
-

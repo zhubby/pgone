@@ -35,7 +35,7 @@ impl PreviewManager {
             (p.path.clone(), p.zoom)
         };
         let mut open = true;
-        let center = ctx.screen_rect().center();
+        let center = ctx.content_rect().center();
         egui::Window::new("Image Preview")
             .open(&mut open)
             .default_pos(center)

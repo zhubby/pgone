@@ -1,6 +1,5 @@
 use crate::{LlmError, Result};
 use serde::Deserialize;
-use rig::providers::openrouter::Client;
 
 /// OpenRouter Models API 响应结构
 #[derive(Debug, Deserialize)]
@@ -44,7 +43,11 @@ pub struct OpenRouterModel {
 }
 
 /// 获取 OpenRouter 模型列表
-pub async fn list_models(api_key: &str, base_url: Option<&str>, proxy_url: Option<String>) -> Result<Vec<crate::models::ModelInfo>> {
+pub async fn list_models(
+    api_key: &str,
+    base_url: Option<&str>,
+    proxy_url: Option<String>,
+) -> Result<Vec<crate::models::ModelInfo>> {
     // OpenRouter Models API endpoint
     // If base_url is provided, use it; otherwise use the default OpenRouter API endpoint
     let url = if let Some(custom_base_url) = base_url {
@@ -59,24 +62,21 @@ pub async fn list_models(api_key: &str, base_url: Option<&str>, proxy_url: Optio
         // Default OpenRouter Models API endpoint
         "https://openrouter.ai/api/v1/models".to_string()
     };
-    
-    let mut client_builder = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60));
-    
+
+    let mut client_builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60));
+
     // Configure proxy if provided
     if let Some(proxy_url) = proxy_url {
         client_builder = client_builder.proxy(
-            reqwest::Proxy::http(&proxy_url)
-                .map_err(|e| LlmError::Api(format!("Invalid proxy URL: {}", e)))?
+            reqwest::Proxy::http(proxy_url)
+                .map_err(|e| LlmError::Api(format!("Invalid proxy URL: {}", e)))?,
         );
     } else {
         client_builder = client_builder.no_proxy();
     }
-    
-    let client = client_builder
-        .build()
-        .map_err(|e| LlmError::Network(e))?;
-    
+
+    let client = client_builder.build().map_err(LlmError::Network)?;
+
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {}", api_key))
@@ -86,52 +86,57 @@ pub async fn list_models(api_key: &str, base_url: Option<&str>, proxy_url: Optio
         .header("X-Title", "PGone") // Optional: for analytics
         .send()
         .await
-        .map_err(|e| LlmError::Network(e))?;
-    
+        .map_err(LlmError::Network)?;
+
     if !response.status().is_success() {
         let status = response.status();
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         return Err(LlmError::Api(format!(
             "OpenRouter API request failed ({}): {}",
             status, error_text
         )));
     }
-    
-    let response_text = response.text().await
-        .map_err(|e| LlmError::Network(e))?;
-    
+
+    let response_text = response.text().await.map_err(LlmError::Network)?;
+
     // Check if response is empty
     if response_text.trim().is_empty() {
         return Err(LlmError::Api(
-            "OpenRouter API returned empty response".to_string()
+            "OpenRouter API returned empty response".to_string(),
         ));
     }
-    
+
     // Check if response is HTML (likely an error page)
-    if response_text.trim_start().starts_with("<!DOCTYPE") || response_text.trim_start().starts_with("<html") {
+    if response_text.trim_start().starts_with("<!DOCTYPE")
+        || response_text.trim_start().starts_with("<html")
+    {
         return Err(LlmError::Api(format!(
             "OpenRouter API returned HTML instead of JSON. This usually indicates an authentication error or incorrect endpoint. Response preview: {}",
-            if response_text.len() > 500 { 
-                format!("{}...", &response_text[..500]) 
-            } else { 
-                response_text.clone() 
+            if response_text.len() > 500 {
+                format!("{}...", &response_text[..500])
+            } else {
+                response_text.clone()
             }
         )));
     }
-    
+
     // Try to parse JSON with better error handling
     let openrouter_response: OpenRouterModelsResponse = serde_json::from_str(&response_text)
         .map_err(|e| {
-            tracing::error!("Failed to parse OpenRouter response. Response body: {}", 
-                if response_text.len() > 500 { 
-                    format!("{}...", &response_text[..500]) 
-                } else { 
-                    response_text.clone() 
+            tracing::error!(
+                "Failed to parse OpenRouter response. Response body: {}",
+                if response_text.len() > 500 {
+                    format!("{}...", &response_text[..500])
+                } else {
+                    response_text.clone()
                 }
             );
             LlmError::Parse(e)
         })?;
-    
+
     // 转换为统一的 ModelInfo 格式
     Ok(openrouter_response
         .data
@@ -216,4 +221,3 @@ mod tests {
         assert_eq!(model.context_length, None);
     }
 }
-

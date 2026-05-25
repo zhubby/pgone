@@ -26,7 +26,7 @@ pub struct MessagesQueryOptions {
 /// 生成查询 messages 表的 SQL 语句
 pub fn build_messages_query(options: MessagesQueryOptions) -> (String, Vec<sea_query::Value>) {
     let mut query = Query::select();
-    
+
     // 选择所有列
     query
         .column("id")
@@ -93,23 +93,23 @@ pub fn build_messages_query(options: MessagesQueryOptions) -> (String, Vec<sea_q
 
     // 生成 SQL
     let (sql, _values) = query.build(SqliteQueryBuilder);
-    
+
     // 注意：由于我们使用 Expr::cust 构建 WHERE 子句，sea-query 不会自动绑定参数
     // 所以我们需要手动返回参数列表
     // 在实际使用时，需要确保 SQL 中的 ? 占位符与参数顺序匹配
-    
+
     (sql, params)
 }
 
 /// 查询 messages 表中指定 id 和 session_id 的记录，按创建时间从近到远排序，返回前 10 条
-/// 
+///
 /// # 参数
 /// - `id`: message 的 id（可选，如果为 None 则不按 id 过滤）
 /// - `session_id`: session 的 id（必需）
-/// 
+///
 /// # 返回
 /// 返回生成的 SQL 语句和参数列表
-/// 
+///
 /// # 排序
 /// 按 timestamp 降序排列，最新的记录在前
 pub fn build_messages_query_by_id_and_session(
@@ -117,7 +117,7 @@ pub fn build_messages_query_by_id_and_session(
     session_id: String,
 ) -> (String, Vec<sea_query::Value>) {
     let mut query = Query::select();
-    
+
     // 选择所有列
     query
         .column("id")
@@ -161,7 +161,7 @@ pub fn build_messages_query_by_id_and_session(
 
     // 生成 SQL
     let (sql, _values) = query.build(SqliteQueryBuilder);
-    
+
     (sql, params)
 }
 
@@ -225,7 +225,7 @@ mod tests {
         assert!(sql.contains("timestamp"));
         assert!(sql.contains("LIMIT"));
         assert_eq!(params.len(), 2);
-        
+
         // 验证参数顺序：session_id 在前，id 在后
         match &params[0] {
             sea_query::Value::String(Some(s)) => {
@@ -243,16 +243,13 @@ mod tests {
 
     #[test]
     fn test_query_by_session_only() {
-        let (sql, params) = build_messages_query_by_id_and_session(
-            None,
-            "session-789".to_string(),
-        );
+        let (sql, params) = build_messages_query_by_id_and_session(None, "session-789".to_string());
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("messages"));
         assert!(sql.contains("session_id"));
         assert!(sql.contains("LIMIT"));
         assert_eq!(params.len(), 1);
-        
+
         match &params[0] {
             sea_query::Value::String(Some(s)) => {
                 assert_eq!(s, "session-789");

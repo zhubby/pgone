@@ -1,4 +1,4 @@
-use axum::{extract::Json, response::IntoResponse, routing::post, Router};
+use axum::{Router, extract::Json, response::IntoResponse, routing::post};
 use http::StatusCode;
 use pgone_proxy::extractor::ConnectionExtractorConfig;
 use serde::{Deserialize, Serialize};
@@ -66,12 +66,15 @@ pub async fn execute_proxy(Json(req): Json<ProxyRequest>) -> impl IntoResponse {
     let config = ConnectionExtractorConfig {
         dsn: req.config.dsn,
         sql: vec![], // SQL 从请求中获取
-        ssl: req.config.ssl.map(|s| pgone_proxy::extractor::SslExtractorConfig {
-            cert: s.cert.map(|p| p.into()),
-            key: s.key.map(|p| p.into()),
-            ca: s.ca.map(|p| p.into()),
-            mode: s.mode,
-        }),
+        ssl: req
+            .config
+            .ssl
+            .map(|s| pgone_proxy::extractor::SslExtractorConfig {
+                cert: s.cert.map(|p| p.into()),
+                key: s.key.map(|p| p.into()),
+                ca: s.ca.map(|p| p.into()),
+                mode: s.mode,
+            }),
         replay: None,
     };
 
@@ -86,7 +89,8 @@ pub async fn execute_proxy(Json(req): Json<ProxyRequest>) -> impl IntoResponse {
                     duration_ms: r.duration_ms,
                     rows_affected: r.rows_affected,
                     columns: r.columns,
-                    rows: r.rows
+                    rows: r
+                        .rows
                         .into_iter()
                         .map(|values| RowResponse { values })
                         .collect(),
@@ -94,17 +98,18 @@ pub async fn execute_proxy(Json(req): Json<ProxyRequest>) -> impl IntoResponse {
                 })
                 .collect();
 
-            (StatusCode::OK, Json(ProxyResponse {
-                results: response_results,
-            }))
+            (
+                StatusCode::OK,
+                Json(ProxyResponse {
+                    results: response_results,
+                }),
+            )
         }
         Err(e) => {
             tracing::error!(error = ?e, "Failed to execute proxy");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ProxyResponse {
-                    results: vec![],
-                }),
+                Json(ProxyResponse { results: vec![] }),
             )
         }
     }
@@ -113,4 +118,3 @@ pub async fn execute_proxy(Json(req): Json<ProxyRequest>) -> impl IntoResponse {
 pub fn router() -> Router {
     Router::new().route("/api/v1/proxy/execute", post(execute_proxy))
 }
-

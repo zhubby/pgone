@@ -53,7 +53,6 @@ pub fn system_prompt() -> String {
 请始终以帮助用户更好地理解和使用 PostgreSQL 数据库为目标，提供专业、准确、有用的建议和解答。"#.to_string()
 }
 
-
 /// 用于总结用户的第一次提问来重命名会话的名称
 pub fn topic_prompt() -> String {
     r#"基于该次提问，总结出一个核心的话题名称，要求简洁明了，中文不超过在20个汉字。英文则为10个单词左右"#.to_string()

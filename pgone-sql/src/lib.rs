@@ -25,7 +25,7 @@ pub mod schema;
 
 pub use error::{Result, SqlError};
 pub use models::{
-    ColumnDetail, DatabaseInfo, ForeignKeyDetail, FunctionInfo, IndexInfo, MaterializedViewInfo, PrimaryKeyDetail, SchemaInfo,
-    TableDetail, TableInfo, TriggerInfo, UserInfo, ViewInfo,
+    ColumnDetail, DatabaseInfo, ForeignKeyDetail, FunctionInfo, IndexInfo, MaterializedViewInfo,
+    PrimaryKeyDetail, SchemaInfo, TableDetail, TableInfo, TriggerInfo, UserInfo, ViewInfo,
 };
 pub use session::Session;

@@ -1,7 +1,7 @@
 use eframe::egui;
 use poll_promise::Promise;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 struct ReplicationData {
@@ -100,7 +100,12 @@ impl ReplicationMonitor {
                             let ts_str: Option<String> = row.get(7);
                             ts_str.and_then(|s| {
                                 chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S%.f")
-                                    .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f"))
+                                    .or_else(|_| {
+                                        chrono::NaiveDateTime::parse_from_str(
+                                            &s,
+                                            "%Y-%m-%dT%H:%M:%S%.f",
+                                        )
+                                    })
                                     .ok()
                             })
                         },
@@ -184,7 +189,7 @@ impl ReplicationMonitor {
             for (idx, item) in self.data.iter().enumerate() {
                 ui.group(|ui| {
                     ui.heading(format!("复制连接 #{}", idx + 1));
-                    
+
                     egui::Grid::new(format!("replication_grid_{}", idx))
                         .num_columns(2)
                         .spacing([40.0, 4.0])
@@ -279,4 +284,3 @@ pub fn show(ui: &mut egui::Ui, dsn: Option<&str>) {
         m.ui(ui, dsn);
     }
 }
-

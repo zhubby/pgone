@@ -7,7 +7,7 @@ impl Session {
     /// List all triggers in the current database
     pub async fn list_triggers(&self, schema: Option<&str>) -> Result<Vec<TriggerInfo>> {
         info!(schema = schema, "Listing triggers");
-        
+
         let conn = self.get_connection().await?;
         let rows = if let Some(s) = schema {
             conn.query(
@@ -56,7 +56,8 @@ impl Session {
 
         // Group triggers by name and timing (same trigger can have multiple events)
         use std::collections::BTreeMap;
-        let mut trigger_map: BTreeMap<(String, String, String, String), TriggerInfo> = BTreeMap::new();
+        let mut trigger_map: BTreeMap<(String, String, String, String), TriggerInfo> =
+            BTreeMap::new();
 
         for row in rows {
             let schema: String = row.get("schema");
@@ -106,10 +107,11 @@ impl Session {
             trigger_name = trigger_name,
             "Getting trigger info"
         );
-        
+
         let conn = self.get_connection().await?;
-        let rows = conn.query(
-            r#"
+        let rows = conn
+            .query(
+                r#"
             SELECT 
                 t.trigger_schema AS schema,
                 t.trigger_name AS name,
@@ -125,10 +127,10 @@ impl Session {
             WHERE t.trigger_schema = $1 AND t.trigger_name = $2
             ORDER BY t.event_object_schema, t.event_object_table, t.action_timing
             "#,
-            &[&schema, &trigger_name],
-        )
-        .await
-        .map_err(SqlError::Connection)?;
+                &[&schema, &trigger_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?;
 
         if rows.is_empty() {
             return Err(SqlError::NotFound(format!(
@@ -151,11 +153,7 @@ impl Session {
             let function_name: Option<String> = row.try_get("function_name").ok();
             let description: Option<String> = row.try_get("description").ok();
 
-            let key = (
-                table_schema.clone(),
-                table_name.clone(),
-                timing.clone(),
-            );
+            let key = (table_schema.clone(), table_name.clone(), timing.clone());
 
             let trigger = trigger_map.entry(key).or_insert_with(|| TriggerInfo {
                 schema: schema.clone(),
@@ -180,7 +178,7 @@ impl Session {
     /// Create a trigger using DDL SQL
     pub async fn create_trigger(&self, ddl: &str) -> Result<()> {
         info!("Creating trigger with DDL");
-        
+
         let conn = self.get_connection().await?;
         conn.execute(ddl, &[])
             .await
@@ -258,19 +256,17 @@ impl Session {
         };
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("does not exist") {
-                    SqlError::NotFound(format!(
-                        "Trigger '{}.{}' on table '{}.{}' does not exist",
-                        schema, trigger_name, schema, table_name
-                    ))
-                } else {
-                    SqlError::Execution(format!("Failed to drop trigger: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("does not exist") {
+                SqlError::NotFound(format!(
+                    "Trigger '{}.{}' on table '{}.{}' does not exist",
+                    schema, trigger_name, schema, table_name
+                ))
+            } else {
+                SqlError::Execution(format!("Failed to drop trigger: {}", e))
+            }
+        })?;
 
         Ok(())
     }

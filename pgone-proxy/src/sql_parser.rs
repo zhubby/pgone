@@ -6,7 +6,7 @@ use tracing::{info, warn};
 pub fn parse_and_log_sql(sql: &str) {
     let dialect = PostgreSqlDialect {};
     let ast_result = Parser::parse_sql(&dialect, sql);
-    
+
     match &ast_result {
         Ok(statements) => {
             info!(
@@ -33,4 +33,3 @@ pub fn parse_and_log_sql(sql: &str) {
         }
     }
 }
-

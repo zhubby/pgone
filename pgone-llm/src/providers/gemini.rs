@@ -1,4 +1,4 @@
-use crate::chat::{ChatRequest, ChatResponse, ChatRole, ChatMessageContent};
+use crate::chat::{ChatMessageContent, ChatRequest, ChatResponse, ChatRole};
 use crate::{LlmError, Result};
 use gemini_rust::Gemini;
 
@@ -19,7 +19,7 @@ impl GeminiClient {
         // 提取系统消息和用户消息
         let mut system_prompt = String::new();
         let mut user_prompt = String::new();
-        
+
         for msg in &request.messages {
             match &msg.role {
                 ChatRole::System => {
@@ -27,7 +27,7 @@ impl GeminiClient {
                     for content in &msg.content {
                         if let ChatMessageContent::Text(text) = content {
                             if !system_prompt.is_empty() {
-                                system_prompt.push_str("\n");
+                                system_prompt.push('\n');
                             }
                             system_prompt.push_str(text);
                         }
@@ -38,7 +38,7 @@ impl GeminiClient {
                     for content in &msg.content {
                         if let ChatMessageContent::Text(text) = content {
                             if !user_prompt.is_empty() {
-                                user_prompt.push_str("\n");
+                                user_prompt.push('\n');
                             }
                             user_prompt.push_str(text);
                         }
@@ -50,22 +50,24 @@ impl GeminiClient {
                 }
                 ChatRole::Function => {
                     // Function 消息在 Gemini 中可能需要特殊处理
-                    return Err(LlmError::Api("Function calls not yet supported for Gemini".to_string()));
+                    return Err(LlmError::Api(
+                        "Function calls not yet supported for Gemini".to_string(),
+                    ));
                 }
             }
         }
 
         // 调用 Gemini API - 使用 generate_content 构建器
         let mut builder = self.inner.generate_content();
-        
+
         // 设置系统提示（如果有）
         if !system_prompt.is_empty() {
             builder = builder.with_system_prompt(system_prompt);
         }
-        
+
         // 设置用户消息
         builder = builder.with_user_message(user_prompt);
-        
+
         // 设置温度和其他参数（如果请求中有）
         if let Some(temp) = request.temperature {
             builder = builder.with_temperature(temp);
@@ -76,7 +78,7 @@ impl GeminiClient {
         if let Some(max_tokens) = request.max_tokens {
             builder = builder.with_max_output_tokens(max_tokens as i32);
         }
-        
+
         // 执行请求
         let response = builder
             .execute()
@@ -85,7 +87,7 @@ impl GeminiClient {
 
         // 提取响应文本内容
         let content = response.text();
-        
+
         Ok(ChatResponse {
             content,
             role: "assistant".to_string(),
@@ -123,17 +125,15 @@ mod tests {
     async fn test_chat_create_with_simple_request() {
         let api_key = std::env::var("GEMINI_API_KEY")
             .expect("GEMINI_API_KEY environment variable must be set for integration tests");
-        
+
         let client = GeminiClient::new(api_key).unwrap();
-        
+
         let request = ChatRequest::new("gemini-pro".to_string())
-            .with_messages(vec![
-                ChatMessage::user("Hello, how are you?".to_string()),
-            ]);
-        
+            .with_messages(vec![ChatMessage::user("Hello, how are you?".to_string())]);
+
         let result = client.chat_create(request).await;
         assert!(result.is_ok(), "应该能够成功调用 Gemini API");
-        
+
         let response = result.unwrap();
         assert!(!response.content.is_empty(), "响应内容不应该为空");
         assert_eq!(response.role, "assistant");
@@ -144,18 +144,17 @@ mod tests {
     async fn test_chat_create_with_system_prompt() {
         let api_key = std::env::var("GEMINI_API_KEY")
             .expect("GEMINI_API_KEY environment variable must be set for integration tests");
-        
+
         let client = GeminiClient::new(api_key).unwrap();
-        
-        let request = ChatRequest::new("gemini-pro".to_string())
-            .with_messages(vec![
-                ChatMessage::system("You are a helpful assistant.".to_string()),
-                ChatMessage::user("What is 2+2?".to_string()),
-            ]);
-        
+
+        let request = ChatRequest::new("gemini-pro".to_string()).with_messages(vec![
+            ChatMessage::system("You are a helpful assistant.".to_string()),
+            ChatMessage::user("What is 2+2?".to_string()),
+        ]);
+
         let result = client.chat_create(request).await;
         assert!(result.is_ok(), "应该能够成功调用带系统提示的请求");
-        
+
         let response = result.unwrap();
         assert!(!response.content.is_empty());
     }
@@ -165,20 +164,18 @@ mod tests {
     async fn test_chat_create_with_parameters() {
         let api_key = std::env::var("GEMINI_API_KEY")
             .expect("GEMINI_API_KEY environment variable must be set for integration tests");
-        
+
         let client = GeminiClient::new(api_key).unwrap();
-        
+
         let request = ChatRequest::new("gemini-pro".to_string())
-            .with_messages(vec![
-                ChatMessage::user("Tell me a short joke.".to_string()),
-            ])
+            .with_messages(vec![ChatMessage::user("Tell me a short joke.".to_string())])
             .with_temperature(0.7)
             .with_top_p(0.9)
             .with_max_tokens(100);
-        
+
         let result = client.chat_create(request).await;
         assert!(result.is_ok(), "应该能够成功调用带参数的请求");
-        
+
         let response = result.unwrap();
         assert!(!response.content.is_empty());
     }
@@ -187,18 +184,21 @@ mod tests {
     async fn test_chat_create_rejects_function_calls() {
         let api_key = "test_api_key".to_string();
         let client = GeminiClient::new(api_key).unwrap();
-        
-        let request = ChatRequest::new("gemini-pro".to_string())
-            .with_messages(vec![
-                ChatMessage::function("test_function".to_string(), "test_content".to_string()),
-            ]);
-        
+
+        let request =
+            ChatRequest::new("gemini-pro".to_string()).with_messages(vec![ChatMessage::function(
+                "test_function".to_string(),
+                "test_content".to_string(),
+            )]);
+
         let result = client.chat_create(request).await;
         assert!(result.is_err(), "应该拒绝 Function 消息");
-        
+
         if let Err(e) = result {
-            assert!(e.to_string().contains("Function calls not yet supported"), 
-                "错误消息应该说明不支持 Function calls");
+            assert!(
+                e.to_string().contains("Function calls not yet supported"),
+                "错误消息应该说明不支持 Function calls"
+            );
         }
     }
 
@@ -206,13 +206,12 @@ mod tests {
     async fn test_chat_create_with_multiple_user_messages() {
         let api_key = "test_api_key".to_string();
         let client = GeminiClient::new(api_key).unwrap();
-        
-        let request = ChatRequest::new("gemini-pro".to_string())
-            .with_messages(vec![
-                ChatMessage::user("First message".to_string()),
-                ChatMessage::user("Second message".to_string()),
-            ]);
-        
+
+        let request = ChatRequest::new("gemini-pro".to_string()).with_messages(vec![
+            ChatMessage::user("First message".to_string()),
+            ChatMessage::user("Second message".to_string()),
+        ]);
+
         // 这个测试主要验证不会 panic，实际 API 调用会失败因为没有真实的 key
         // 但我们可以测试消息提取逻辑不会出错
         let _ = client.chat_create(request).await;
@@ -222,13 +221,12 @@ mod tests {
     async fn test_chat_create_with_assistant_message() {
         let api_key = "test_api_key".to_string();
         let client = GeminiClient::new(api_key).unwrap();
-        
-        let request = ChatRequest::new("gemini-pro".to_string())
-            .with_messages(vec![
-                ChatMessage::assistant("Previous response".to_string()),
-                ChatMessage::user("Follow up question".to_string()),
-            ]);
-        
+
+        let request = ChatRequest::new("gemini-pro".to_string()).with_messages(vec![
+            ChatMessage::assistant("Previous response".to_string()),
+            ChatMessage::user("Follow up question".to_string()),
+        ]);
+
         // Assistant 消息应该被忽略（当前实现），但不会导致错误
         let _ = client.chat_create(request).await;
     }
@@ -236,18 +234,16 @@ mod tests {
     #[test]
     fn test_message_extraction_logic() {
         // 测试消息提取逻辑（不涉及实际 API 调用）
-        let request = ChatRequest::new("gemini-pro".to_string())
-            .with_messages(vec![
-                ChatMessage::system("System prompt 1".to_string()),
-                ChatMessage::system("System prompt 2".to_string()),
-                ChatMessage::user("User message 1".to_string()),
-                ChatMessage::user("User message 2".to_string()),
-            ]);
-        
+        let request = ChatRequest::new("gemini-pro".to_string()).with_messages(vec![
+            ChatMessage::system("System prompt 1".to_string()),
+            ChatMessage::system("System prompt 2".to_string()),
+            ChatMessage::user("User message 1".to_string()),
+            ChatMessage::user("User message 2".to_string()),
+        ]);
+
         // 验证消息结构正确
         assert_eq!(request.messages.len(), 4);
         assert!(matches!(request.messages[0].role, ChatRole::System));
         assert!(matches!(request.messages[2].role, ChatRole::User));
     }
 }
-

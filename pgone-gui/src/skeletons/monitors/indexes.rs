@@ -1,8 +1,8 @@
 use eframe::egui;
 use egui_plot::{Bar, BarChart, Plot};
 use poll_promise::Promise;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 struct IndexData {
@@ -191,11 +191,9 @@ impl IndexesMonitor {
 
             let chart = BarChart::new("索引扫描次数 TOP 10", bars);
 
-            Plot::new("indexes_plot")
-                .height(300.0)
-                .show(ui, |plot_ui| {
-                    plot_ui.bar_chart(chart);
-                });
+            Plot::new("indexes_plot").height(300.0).show(ui, |plot_ui| {
+                plot_ui.bar_chart(chart);
+            });
         }
     }
 }
@@ -211,4 +209,3 @@ pub fn show(ui: &mut egui::Ui, dsn: Option<&str>) {
         m.ui(ui, dsn);
     }
 }
-

@@ -2,15 +2,15 @@ mod config;
 mod error;
 mod providers;
 
+pub mod audio;
 pub mod audit;
 pub mod chat;
 pub mod embeddings;
-pub mod images;
-pub mod audio;
 pub mod files;
+pub mod images;
 pub mod models;
-pub mod tools;
 pub mod services;
+pub mod tools;
 
 pub use config::Config;
 pub use error::{LlmError, Result};
@@ -26,7 +26,9 @@ pub struct Client {
     provider: LLMProvider,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Display, EnumString)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Display, EnumString,
+)]
 pub enum LLMProvider {
     #[default]
     OpenAI,
@@ -41,7 +43,7 @@ pub enum LLMProvider {
 impl Client {
     pub fn new(config: Config, provider: LLMProvider) -> crate::error::Result<Self> {
         config.validate()?;
-        
+
         // Build HTTP client with proxy if configured
         let http_client = if config.proxy_enabled {
             reqwest::Client::builder()
@@ -50,18 +52,21 @@ impl Client {
         } else {
             reqwest::Client::builder().no_proxy().build()?
         };
-        
-        let mut openai_config = OpenAIConfig::new()
-            .with_api_key(config.api_key.clone());
-            // .with_http_client(http_client);
-        
+
+        let mut openai_config = OpenAIConfig::new().with_api_key(config.api_key.clone());
+        // .with_http_client(http_client);
+
         if let Some(ref base_url) = config.base_url {
             openai_config = openai_config.with_api_base(base_url.clone());
         }
 
         let inner = OpenAiClient::with_config(openai_config).with_http_client(http_client);
-        
-        Ok(Self { inner, config, provider })
+
+        Ok(Self {
+            inner,
+            config,
+            provider,
+        })
     }
 
     pub fn from_api_key(api_key: String) -> crate::error::Result<Self> {

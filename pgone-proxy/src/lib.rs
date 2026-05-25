@@ -8,8 +8,6 @@ pub mod session;
 pub mod sql_parser;
 pub mod type_converter;
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,11 +98,11 @@ mod tests {
     fn test_module_integration() {
         // 集成测试：测试多个模块协同工作
         let sql_with_dsn = "-- DSN: postgres://test@localhost:5432/test\nSELECT * FROM users;";
-        
+
         // 1. 提取 DSN
         let dsn_result = dsn_extractor::extract_dsn_from_sql(sql_with_dsn);
         assert!(dsn_result.is_some());
-        
+
         // 2. 解析 SQL
         if let Some((_, actual_sql)) = &dsn_result {
             sql_parser::parse_and_log_sql(actual_sql);

@@ -248,4 +248,3 @@ mod tests {
         assert_eq!(db_info.owner, "postgres");
     }
 }
-

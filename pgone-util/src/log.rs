@@ -153,8 +153,7 @@ pub fn init_log_simple(level: &str) -> Result<()> {
 /// 读取环境变量 `RUST_LOG` 来设置日志级别
 /// 如果未设置，默认使用 `info` 级别
 pub fn init_log_from_env() -> Result<()> {
-    let level = std::env::var("RUST_LOG")
-        .unwrap_or_else(|_| "info".to_string());
+    let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     init_log_simple(&level)
 }
 
@@ -164,4 +163,3 @@ pub fn shutdown_otel() {
     // OpenTelemetry SDK 会自动清理资源
     // 如果需要显式清理，可以在这里添加相应的清理代码
 }
-

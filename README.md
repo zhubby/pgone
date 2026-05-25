@@ -39,7 +39,6 @@ PGone provides:
 - **`pgone-llm`** — LLM provider integrations (OpenAI, Gemini, Ollama)
 - **`pgone-proxy`** — Database proxy and query analysis
 - **`pgone-apiserver`** — HTTP/gRPC API server
-- **`pgone-a2a`** — Agent-to-agent communication
 - **`pgone-util`** — Shared utilities and logging
 - **`pgone-vector`** — Vector database support
 - **`pgone-cli`** — Unified `pgone` command entrypoint for GUI and services
@@ -85,7 +84,6 @@ Existing service-specific binaries, such as `pgone-gui` and the `pgone-mcp-serve
 ```bash
 cargo run -p pgone-cli -- apiserver
 cargo run -p pgone-cli -- proxy
-cargo run -p pgone-cli -- a2a
 ```
 
 ---

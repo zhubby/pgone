@@ -1,19 +1,19 @@
 use eframe::egui;
 use poll_promise::Promise;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 struct LockData {
     locktype: String,
-    database: Option<i32>,  // OID type (decoded as i32 by sqlx)
-    relation: Option<i32>,    // OID type (decoded as i32 by sqlx)
+    database: Option<i32>, // OID type (decoded as i32 by sqlx)
+    relation: Option<i32>, // OID type (decoded as i32 by sqlx)
     page: Option<i32>,
     tuple: Option<i16>,
     virtualxid: Option<String>,
     transactionid: Option<i32>,
-    classid: Option<i32>,      // OID type (decoded as i32 by sqlx)
-    objid: Option<i32>,       // OID type (decoded as i32 by sqlx)
+    classid: Option<i32>, // OID type (decoded as i32 by sqlx)
+    objid: Option<i32>,   // OID type (decoded as i32 by sqlx)
     objsubid: Option<i16>,
     virtualtransaction: String,
     pid: Option<i32>,
@@ -226,7 +226,11 @@ impl LocksMonitor {
                             } else {
                                 egui::Color32::RED
                             },
-                            if item.granted { "已授予" } else { "等待中" },
+                            if item.granted {
+                                "已授予"
+                            } else {
+                                "等待中"
+                            },
                         );
                         ui.end_row();
                     }
@@ -246,4 +250,3 @@ pub fn show(ui: &mut egui::Ui, dsn: Option<&str>) {
         m.ui(ui, dsn);
     }
 }
-

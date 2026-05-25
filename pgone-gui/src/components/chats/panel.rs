@@ -3,10 +3,10 @@ use crate::futures;
 use crate::models::{Message, MessageContent, Role};
 use chrono::Utc;
 use egui::Widget;
-use tokio::sync::mpsc;
 use pgone_llm::{Client, Config};
 use pgone_mcp::mcp::PgoneMcpServer;
 use serde_json::Value;
+use tokio::sync::mpsc;
 
 use super::input_area::InputArea;
 use super::message_list::MessageList;
@@ -68,7 +68,10 @@ impl ChatPanel {
             ui.heading(format!("{} Chat", egui_phosphor::regular::CHATS));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // 关闭按钮
-                if ui.button(format!("{}", egui_phosphor::regular::X)).clicked() {
+                if ui
+                    .button(format!("{}", egui_phosphor::regular::X))
+                    .clicked()
+                {
                     self.show_delete_confirm = true;
                 }
                 ui.add_space(5.0);
@@ -91,12 +94,12 @@ impl ChatPanel {
                 strip.cell(|ui| {
                     let mut should_send = false;
                     self.input_area.ui(ctxs, ui, &mut should_send);
-                    
+
                     // 检查快捷键发送
                     if should_send {
                         self.send_openai_with_tools(ctxs);
                     }
-                    
+
                     // 检查流式响应
                     if let Some(ref mut receiver) = self.stream_receiver {
                         let mut has_update = false;
@@ -105,11 +108,18 @@ impl ChatPanel {
                                 Ok(result) => {
                                     match result {
                                         Ok(chunk) => {
-                                            if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                                            if let Some(sess) = ctxs
+                                                .state
+                                                .sessions
+                                                .get_mut(ctxs.state.current_index)
+                                            {
                                                 // 更新最后一条 assistant 消息，如果不存在则创建
                                                 if let Some(last_msg) = sess.messages.last_mut() {
                                                     if matches!(last_msg.role, Role::Assistant) {
-                                                        if let MessageContent::Markdown(ref mut content) = last_msg.content {
+                                                        if let MessageContent::Markdown(
+                                                            ref mut content,
+                                                        ) = last_msg.content
+                                                        {
                                                             content.push_str(&chunk);
                                                             has_update = true;
                                                         }
@@ -118,7 +128,9 @@ impl ChatPanel {
                                                         let message = Message {
                                                             role: Role::Assistant,
                                                             timestamp: Utc::now(),
-                                                            content: MessageContent::Markdown(chunk),
+                                                            content: MessageContent::Markdown(
+                                                                chunk,
+                                                            ),
                                                         };
                                                         sess.messages.push(message);
                                                         has_update = true;
@@ -151,7 +163,9 @@ impl ChatPanel {
                                 }
                                 Err(mpsc::error::TryRecvError::Disconnected) => {
                                     // Channel已断开，流式响应完成，保存最终消息
-                                    if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                                    if let Some(sess) =
+                                        ctxs.state.sessions.get_mut(ctxs.state.current_index)
+                                    {
                                         if let Err(e) = ctxs.storage.save_session(sess) {
                                             tracing::error!("保存会话失败: {}", e);
                                         }
@@ -165,14 +179,16 @@ impl ChatPanel {
                             ctxs.should_scroll_to_bottom = true;
                         }
                     }
-                    
+
                     // 检查OpenAI请求结果（非流式）
                     if let Some(ref mut receiver) = self.openai_receiver {
                         match receiver.try_recv() {
                             Ok(result) => {
                                 match result {
                                     Ok(text) => {
-                                        if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                                        if let Some(sess) =
+                                            ctxs.state.sessions.get_mut(ctxs.state.current_index)
+                                        {
                                             let message = Message {
                                                 role: Role::Assistant,
                                                 timestamp: Utc::now(),
@@ -180,7 +196,7 @@ impl ChatPanel {
                                             };
                                             sess.messages.push(message.clone());
                                             sess.updated_at = Utc::now();
-                                            
+
                                             if let Err(e) = ctxs.storage.save_session(sess) {
                                                 tracing::error!("保存会话失败: {}", e);
                                             }
@@ -210,13 +226,19 @@ impl ChatPanel {
                 // 底部按钮栏
                 strip.cell(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(format!("{} Send", egui_phosphor::regular::PAPER_PLANE_RIGHT)).clicked() {
+                        if ui
+                            .button(format!(
+                                "{} Send",
+                                egui_phosphor::regular::PAPER_PLANE_RIGHT
+                            ))
+                            .clicked()
+                        {
                             self.send_openai_with_tools(ctxs);
                         }
 
                         egui::widgets::Checkbox::new(&mut self.enable_search, "联网搜索").ui(ui);
                         egui::widgets::Checkbox::new(&mut self.enable_thinking, "深度思考").ui(ui);
-                        
+
                         // 模型选择下拉框
                         ui.add_space(10.0);
                         let available_models = if self.model_loader.available_models.is_empty() {
@@ -230,7 +252,7 @@ impl ChatPanel {
                         } else {
                             self.model_loader.available_models.clone()
                         };
-                        
+
                         let mut selected_model = ctxs.openai_model.clone();
                         egui::ComboBox::from_id_salt("model_selector")
                             .selected_text(&selected_model)
@@ -245,7 +267,7 @@ impl ChatPanel {
                                     );
                                 }
                             });
-                        
+
                         // 如果模型改变了，更新到ctxs和settings
                         if selected_model != ctxs.openai_model {
                             ctxs.openai_model = selected_model.clone();
@@ -258,7 +280,7 @@ impl ChatPanel {
         // 显示删除确认对话框
         if self.show_delete_confirm {
             let mut open = true;
-            let center = ui.ctx().screen_rect().center();
+            let center = ui.ctx().content_rect().center();
             let current_session_title = ctxs
                 .state
                 .sessions
@@ -272,14 +294,20 @@ impl ChatPanel {
                 .pivot(egui::Align2::CENTER_CENTER)
                 .show(ui.ctx(), |ui| {
                     ui.label(format!("确定要删除会话 '{}' 吗？", current_session_title));
-                    ui.label(egui::RichText::new("此操作不可恢复，会话及其所有消息将被永久删除。").color(egui::Color32::RED));
+                    ui.label(
+                        egui::RichText::new("此操作不可恢复，会话及其所有消息将被永久删除。")
+                            .color(egui::Color32::RED),
+                    );
                     ui.add_space(10.0);
 
                     ui.horizontal(|ui| {
                         if ui.button("取消").clicked() {
                             self.show_delete_confirm = false;
                         }
-                        if ui.button(egui::RichText::new("确认删除").color(egui::Color32::RED)).clicked() {
+                        if ui
+                            .button(egui::RichText::new("确认删除").color(egui::Color32::RED))
+                            .clicked()
+                        {
                             self.delete_current_session(ctxs);
                             self.show_delete_confirm = false;
                         }
@@ -300,7 +328,7 @@ impl ChatPanel {
         let current_index = ctxs.state.current_index;
         if let Some(session) = ctxs.state.sessions.get(current_index) {
             let session_id = session.id.clone();
-            
+
             // 从存储中删除会话
             if let Err(e) = ctxs.storage.delete_session(&session_id) {
                 tracing::error!("删除会话失败: {}", e);
@@ -316,10 +344,11 @@ impl ChatPanel {
                 // 如果没有会话了，创建一个新的默认会话
                 let new_id = ctxs.state.next_session_id.to_string();
                 ctxs.state.next_session_id += 1;
-                let new_session = crate::models::ChatSession::default_with_timestamp(new_id.clone());
+                let new_session =
+                    crate::models::ChatSession::default_with_timestamp(new_id.clone());
                 ctxs.state.sessions.push(new_session.clone());
                 ctxs.state.current_index = 0;
-                
+
                 // 保存新会话
                 if let Err(e) = ctxs.storage.save_session(&new_session) {
                     tracing::error!("保存新会话失败: {}", e);
@@ -343,15 +372,15 @@ impl ChatPanel {
         let base_url = ctxs.state.settings.openai_base_url.clone();
         let model = ctxs.openai_model.clone();
         let prompt = self.input_area.input.trim().to_string();
-        
+
         // 先发送所有待发送的资源
         self.input_area.send_resources(ctxs);
-        
+
         // 如果文本输入为空且没有资源，直接返回
         if prompt.is_empty() && self.input_area.pending_resources.is_empty() {
             return;
         }
-        
+
         // 查询历史消息（在保存当前消息之前）
         let mut history_messages = Vec::new();
         if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
@@ -364,8 +393,12 @@ impl ChatPanel {
                         if let MessageContent::Markdown(content) = &msg.content {
                             let chat_msg = match msg.role {
                                 Role::User => pgone_llm::chat::ChatMessage::user(content.clone()),
-                                Role::Assistant => pgone_llm::chat::ChatMessage::assistant(content.clone()),
-                                Role::System => pgone_llm::chat::ChatMessage::system(content.clone()),
+                                Role::Assistant => {
+                                    pgone_llm::chat::ChatMessage::assistant(content.clone())
+                                }
+                                Role::System => {
+                                    pgone_llm::chat::ChatMessage::system(content.clone())
+                                }
                             };
                             history_messages.push(chat_msg);
                         }
@@ -376,7 +409,7 @@ impl ChatPanel {
                 }
             }
         }
-        
+
         // 保存用户消息（如果有文本）
         if !prompt.is_empty() {
             if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
@@ -387,7 +420,7 @@ impl ChatPanel {
                 };
                 sess.messages.push(user_message);
                 sess.updated_at = Utc::now();
-                
+
                 if let Err(e) = ctxs.storage.save_session(sess) {
                     tracing::error!("保存用户消息失败: {}", e);
                 }
@@ -395,7 +428,7 @@ impl ChatPanel {
                 ctxs.should_scroll_to_bottom = true;
             }
         }
-        
+
         // 检查是否选择了数据库
         let dbconfig_id = ctxs.active_db_config_id.clone();
         if dbconfig_id.is_none() {
@@ -403,7 +436,7 @@ impl ChatPanel {
             return;
         }
         let dbconfig_id = dbconfig_id.unwrap();
-        
+
         self.input_area.input.clear();
         let key_clone = key.clone();
         let model_clone = model.clone();
@@ -424,9 +457,9 @@ impl ChatPanel {
         };
 
         // 构建消息列表：系统提示 + 历史消息 + 当前用户输入
-        let mut chat_messages = vec![
-            pgone_llm::chat::ChatMessage::system(crate::prompt::system_prompt()),
-        ];
+        let mut chat_messages = vec![pgone_llm::chat::ChatMessage::system(
+            crate::prompt::system_prompt(),
+        )];
         chat_messages.extend(history_messages);
         if !prompt_clone.is_empty() {
             chat_messages.push(pgone_llm::chat::ChatMessage::user(prompt_clone.clone()));
@@ -470,7 +503,7 @@ impl ChatPanel {
                 let mut request = pgone_llm::chat::ChatRequest::new(model_clone.clone())
                     .with_messages(chat_messages.clone())
                     .with_tools(tools.iter().map(|t| t.clone().into()).collect());
-                
+
                 // 设置会话ID用于审计
                 if let Some(ref sid) = session_id {
                     request = request.with_session_id(sid.clone());
@@ -490,15 +523,17 @@ impl ChatPanel {
                     match result {
                         Ok(chunk) => {
                             // 提取内容增量
-                            if let Some(delta) = chunk.choices.first()
-                                .and_then(|c| c.delta.content.as_ref())
+                            if let Some(delta) =
+                                chunk.choices.first().and_then(|c| c.delta.content.as_ref())
                             {
                                 accumulated_content.push_str(delta);
                                 let _ = stream_sender.send(Ok(delta.to_string())).await;
                             }
-                            
+
                             // 检查是否完成
-                            if chunk.choices.first()
+                            if chunk
+                                .choices
+                                .first()
                                 .and_then(|c| c.finish_reason.as_ref())
                                 .is_some()
                             {
@@ -537,36 +572,40 @@ impl ChatPanel {
                         return;
                     }
                 };
-                
+
                 // 创建 MCP 服务器实例
                 let mcp_server = match PgoneMcpServer::new(dbconfig_id_clone.clone()).await {
                     Ok(server) => server,
                     Err(e) => {
-                        let _ = sender.send(Err(format!("创建 MCP 服务器失败: {}", e))).await;
+                        let _ = sender
+                            .send(Err(format!("创建 MCP 服务器失败: {}", e)))
+                            .await;
                         return;
                     }
                 };
-                
+
                 // 处理多轮对话，直到没有 tool_calls
                 let mut current_messages = chat_messages;
                 let mut max_iterations = 10; // 防止无限循环
-                
+
                 loop {
                     if max_iterations == 0 {
-                        let _ = sender.send(Err("达到最大工具调用轮次限制".to_string())).await;
+                        let _ = sender
+                            .send(Err("达到最大工具调用轮次限制".to_string()))
+                            .await;
                         return;
                     }
                     max_iterations -= 1;
-                    
+
                     let mut request = pgone_llm::chat::ChatRequest::new(model_clone.clone())
                         .with_messages(current_messages.clone())
                         .with_tools(tools.iter().map(|t| t.clone().into()).collect());
-                    
+
                     // 设置会话ID用于审计
                     if let Some(ref sid) = session_id {
                         request = request.with_session_id(sid.clone());
                     }
-                    
+
                     let resp = match client.chat_create(request).await {
                         Ok(resp) => resp,
                         Err(e) => {
@@ -574,27 +613,29 @@ impl ChatPanel {
                             return;
                         }
                     };
-                    
+
                     // 检查是否有 tool_calls
                     if let Some(tool_calls) = &resp.tool_calls {
                         if !tool_calls.is_empty() {
                             // 需要调用工具
                             let mut function_messages = Vec::new();
-                            
+
                             for tool_call in tool_calls {
                                 // 解析参数
                                 let args: Value = match serde_json::from_str(&tool_call.arguments) {
                                     Ok(v) => v,
                                     Err(e) => {
                                         let error_msg = format!("解析工具参数失败: {}", e);
-                                        function_messages.push(pgone_llm::chat::ChatMessage::function(
-                                            tool_call.name.clone(),
-                                            error_msg,
-                                        ));
+                                        function_messages.push(
+                                            pgone_llm::chat::ChatMessage::function(
+                                                tool_call.name.clone(),
+                                                error_msg,
+                                            ),
+                                        );
                                         continue;
                                     }
                                 };
-                                
+
                                 // 调用工具
                                 match mcp_server.call_tool_direct(&tool_call.name, args).await {
                                     Ok(result) => {
@@ -603,31 +644,37 @@ impl ChatPanel {
                                             Ok(s) => s,
                                             Err(e) => format!("序列化工具结果失败: {}", e),
                                         };
-                                        function_messages.push(pgone_llm::chat::ChatMessage::function(
-                                            tool_call.name.clone(),
-                                            result_str,
-                                        ));
+                                        function_messages.push(
+                                            pgone_llm::chat::ChatMessage::function(
+                                                tool_call.name.clone(),
+                                                result_str,
+                                            ),
+                                        );
                                     }
                                     Err(e) => {
                                         let error_msg = format!("工具调用失败: {}", e);
-                                        function_messages.push(pgone_llm::chat::ChatMessage::function(
-                                            tool_call.name.clone(),
-                                            error_msg,
-                                        ));
+                                        function_messages.push(
+                                            pgone_llm::chat::ChatMessage::function(
+                                                tool_call.name.clone(),
+                                                error_msg,
+                                            ),
+                                        );
                                     }
                                 }
                             }
-                            
+
                             // 将 assistant 消息（包含 tool_calls）和 function messages 添加到消息历史
                             // 即使 content 为空，也需要添加 assistant 消息以保持对话连续性
-                            current_messages.push(pgone_llm::chat::ChatMessage::assistant(resp.content.clone()));
+                            current_messages.push(pgone_llm::chat::ChatMessage::assistant(
+                                resp.content.clone(),
+                            ));
                             current_messages.extend(function_messages);
-                            
+
                             // 继续下一轮
                             continue;
                         }
                     }
-                    
+
                     // 没有 tool_calls，返回最终响应
                     let final_response = resp.content;
                     let _ = sender.send(Ok(final_response)).await;

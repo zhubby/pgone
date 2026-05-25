@@ -228,26 +228,20 @@ pub fn list_tools() -> Vec<Tool> {
                 }
             }),
         ),
-        PgoneMcpServer::create_tool(
-            "health_check",
-            "检查数据库连接健康状态",
-            json!({}),
-        ),
+        PgoneMcpServer::create_tool("health_check", "检查数据库连接健康状态", json!({})),
     ]
 }
 
 impl ServerHandler for PgoneMcpServer {
-    fn list_tools(
+    async fn list_tools(
         &self,
         _request: Option<rmcp::model::PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        async move {
-            Ok(ListToolsResult {
-                tools: list_tools(),
-                next_cursor: None,
-            })
-        }
+    ) -> Result<ListToolsResult, McpError> {
+        Ok(ListToolsResult {
+            tools: list_tools(),
+            next_cursor: None,
+        })
     }
 
     fn call_tool(
@@ -260,7 +254,7 @@ impl ServerHandler for PgoneMcpServer {
             let tool_name = request.name.as_ref();
             let args_value = request
                 .arguments
-                .map(|m| serde_json::Value::Object(m))
+                .map(serde_json::Value::Object)
                 .unwrap_or_default();
 
             let result = match tool_name {
@@ -594,7 +588,11 @@ impl PgoneMcpServer {
     }
 
     /// 直接调用工具（用于 GUI 等非 MCP 协议场景）
-    pub async fn call_tool_direct(&self, tool_name: &str, arguments: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    pub async fn call_tool_direct(
+        &self,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
         match tool_name {
             "introspect_all" => self.handle_introspect_all(arguments).await,
             "get_table" => self.handle_get_table(arguments).await,

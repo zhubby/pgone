@@ -3,9 +3,9 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
+use pgwire::api::PgWireServerHandlers;
 use pgwire::api::auth::StartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
-use pgwire::api::PgWireServerHandlers;
 use pgwire::tokio::process_socket;
 
 use crate::processor::PostgresProxyProcessorFactory;
@@ -27,10 +27,7 @@ pub async fn start() {
     let server_addr = "127.0.0.1:5432";
     let listener = match TcpListener::bind(server_addr).await {
         Ok(listener) => {
-            info!(
-                address = server_addr,
-                "PostgreSQL proxy server started"
-            );
+            info!(address = server_addr, "PostgreSQL proxy server started");
             listener
         }
         Err(e) => {
@@ -70,4 +67,3 @@ pub async fn start() {
         }
     }
 }
-

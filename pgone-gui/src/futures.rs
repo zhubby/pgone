@@ -34,9 +34,7 @@ where
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
             // 如果当前线程已经在 runtime 中，使用 block_in_place 避免阻塞
-            tokio::task::block_in_place(|| {
-                handle.block_on(f)
-            })
+            tokio::task::block_in_place(|| handle.block_on(f))
         }
         Err(_) => {
             // 如果没有 runtime，创建一个新的

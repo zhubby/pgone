@@ -29,13 +29,13 @@ fn truncate_text(text: &str) -> String {
 /// Extract text content from WidgetText and truncate if needed
 fn truncate_message(message: impl Into<egui::WidgetText>) -> egui::WidgetText {
     let widget_text = message.into();
-    
+
     // Convert WidgetText to string using Debug format, then clean it up
     let wstr = format!("{}", widget_text.text());
-    
+
     // Truncate if needed
     let truncated = truncate_text(&wstr);
-    
+
     truncated.into()
 }
 

@@ -18,7 +18,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
-pgone-a2a = { workspace = true }
 pgone-apiserver = { workspace = true }
 pgone-gui = { workspace = true }
 pgone-mcp = { workspace = true }

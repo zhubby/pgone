@@ -23,8 +23,8 @@ keywords = ["postgresql", "database", "tools", "mcp", "gui"]
 categories = ["database", "tools", "mcp", "gui"]
 
 [workspace]
+default-members = ["pgone-cli"]
 members = [
-    "pgone-a2a",
     "pgone-apiserver",
     "pgone-gui",
     "pgone-storage",
@@ -40,6 +40,15 @@ members = [
 ]
 
 resolver = "2"
+
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
 
 [patch.crates-io]
 catppuccin-egui = { path = "vendor/catppuccin-egui" }
@@ -99,7 +108,6 @@ pgone-gui = { path = "pgone-gui" }
 pgone-proxy = { path = "pgone-proxy" }
 pgone-storage = { path = "pgone-storage" }
 pgone-apiserver = { path = "pgone-apiserver" }
-pgone-a2a = { path = "pgone-a2a" }
 pgone-cli = { path = "pgone-cli" }
 pgone-util = { path = "pgone-util" }
 pgone-sql = { path = "pgone-sql" }

@@ -1,5 +1,4 @@
 use std::env;
-use std::net::SocketAddr;
 use std::str::FromStr;
 
 use anyhow::Result;
@@ -26,8 +25,6 @@ pub enum Command {
     Apiserver(ApiServerArgs),
     /// Run the PostgreSQL proxy server.
     Proxy(ServiceLogArgs),
-    /// Run the A2A schema query server.
-    A2a(A2aArgs),
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,13 +108,6 @@ pub struct ServiceLogArgs {
     pub service_name: String,
 }
 
-#[derive(Parser, Debug)]
-pub struct A2aArgs {
-    /// A2A server bind address.
-    #[arg(long)]
-    pub addr: Option<SocketAddr>,
-}
-
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     run_cli(cli).await
@@ -129,7 +119,6 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Command::McpServer(args) => run_mcp_server(args).await,
         Command::Apiserver(args) => run_apiserver(args).await,
         Command::Proxy(args) => run_proxy(args).await,
-        Command::A2a(args) => run_a2a(args).await,
     }
 }
 
@@ -178,18 +167,6 @@ async fn run_proxy(args: ServiceLogArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn run_a2a(args: A2aArgs) -> Result<()> {
-    log::init_log_simple("info")?;
-    let addr = match args.addr {
-        Some(addr) => addr,
-        None => env::var("PGONE_A2A_ADDR")
-            .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
-            .parse()?,
-    };
-
-    pgone_a2a::start_server(addr).await
 }
 
 fn resolve_protocol(protocol: Option<Protocol>) -> Protocol {
@@ -252,19 +229,6 @@ mod tests {
         };
         assert_eq!(args.http_port, 8765);
         assert_eq!(args.grpc_port, 50051);
-    }
-
-    #[test]
-    fn a2a_addr_can_be_overridden() {
-        let cli = Cli::parse_from(["pgone", "a2a", "--addr", "127.0.0.1:9000"]);
-
-        let Some(Command::A2a(args)) = cli.command else {
-            panic!("expected a2a command");
-        };
-        assert_eq!(
-            args.addr,
-            Some("127.0.0.1:9000".parse::<SocketAddr>().unwrap())
-        );
     }
 
     #[test]

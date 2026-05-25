@@ -38,15 +38,19 @@ impl From<async_openai::error::OpenAIError> for LlmError {
         // In async-openai 0.30, error structure may have changed
         // Convert to string representation
         let err_str = err.to_string();
-        
+
         // Try to match common error patterns
-        if err_str.contains("json") || err_str.contains("parse") || err_str.contains("deserialize") {
+        if err_str.contains("json") || err_str.contains("parse") || err_str.contains("deserialize")
+        {
             // Try to create a parse error
             match serde_json::from_str::<serde_json::Value>("invalid") {
                 Err(e) => LlmError::Parse(e),
                 Ok(_) => LlmError::Parse(serde_json::from_str::<String>("").unwrap_err()),
             }
-        } else if err_str.contains("network") || err_str.contains("connection") || err_str.contains("timeout") {
+        } else if err_str.contains("network")
+            || err_str.contains("connection")
+            || err_str.contains("timeout")
+        {
             // For network errors, we can't easily create a reqwest::Error from scratch
             // So we'll use Unknown error type instead
             LlmError::Unknown(format!("Network error: {}", err_str))
@@ -58,4 +62,3 @@ impl From<async_openai::error::OpenAIError> for LlmError {
 }
 
 pub type Result<T> = std::result::Result<T, LlmError>;
-

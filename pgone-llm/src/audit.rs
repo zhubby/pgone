@@ -100,23 +100,23 @@ impl AuditLogger {
             tokio::spawn(async move {
                 let s = storage_clone.write().await;
                 // 先查询原始记录
-                if let Ok(logs) = s.query_llm_audit_logs(None, Some(1000)).await {
-                    if let Some(mut log) = logs.into_iter().find(|l| l.id == log_id) {
-                        log.response_time = Some(response_time);
-                        log.response_size = response_size.map(|s| s as i64);
-                        log.response_content = response_content;
-                        log.status = status_str.to_string();
-                        if let Some(rt) = log.response_time {
-                            log.duration_ms = Some(rt - log.request_time);
-                        }
-                        if let Some(err_msg) = error_message {
-                            log.error_message = Some(err_msg);
-                        }
+                if let Ok(logs) = s.query_llm_audit_logs(None, Some(1000)).await
+                    && let Some(mut log) = logs.into_iter().find(|l| l.id == log_id)
+                {
+                    log.response_time = Some(response_time);
+                    log.response_size = response_size.map(|s| s as i64);
+                    log.response_content = response_content;
+                    log.status = status_str.to_string();
+                    if let Some(rt) = log.response_time {
+                        log.duration_ms = Some(rt - log.request_time);
+                    }
+                    if let Some(err_msg) = error_message {
+                        log.error_message = Some(err_msg);
+                    }
 
-                        // 使用 INSERT OR REPLACE 更新记录
-                        if let Err(e) = s.insert_llm_audit_log(&log).await {
-                            warn!("Failed to update audit log: {}", e);
-                        }
+                    // 使用 INSERT OR REPLACE 更新记录
+                    if let Err(e) = s.insert_llm_audit_log(&log).await {
+                        warn!("Failed to update audit log: {}", e);
                     }
                 }
             });
@@ -169,4 +169,3 @@ pub enum AuditStatus {
     Error,
     Timeout,
 }
-

@@ -1,5 +1,4 @@
 use crate::{Client, LlmError, Result};
-use async_openai::types::ResponseFormat;
 
 #[derive(Debug, Clone)]
 pub struct TranscriptionRequest {
@@ -116,41 +115,31 @@ impl SpeechRequest {
     }
 }
 
-fn parse_response_format(_format: &str) -> ResponseFormat {
-    // In async-openai 0.30, ResponseFormat enum may have changed
-    // This function is currently unused as audio APIs are placeholders
-    // Always return Text format (the only available variant in 0.30)
-    ResponseFormat::Text
-}
-
-fn parse_voice(voice: &str) -> String {
-    // Validate voice name
-    match voice {
-        "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" => voice.to_string(),
-        _ => "alloy".to_string(),
-    }
-}
-
 impl Client {
     pub async fn audio_transcribe(&self, request: TranscriptionRequest) -> Result<String> {
         // Note: Audio transcription API may have changed in async-openai 0.25
         // This is a placeholder implementation
         let _ = request;
-        Err(LlmError::Api("Audio transcription API not yet implemented for this version".to_string()))
+        Err(LlmError::Api(
+            "Audio transcription API not yet implemented for this version".to_string(),
+        ))
     }
 
     pub async fn audio_translate(&self, request: TranslationRequest) -> Result<String> {
         // Note: Audio translation API may have changed in async-openai 0.25
         // This is a placeholder implementation
         let _ = request;
-        Err(LlmError::Api("Audio translation API not yet implemented for this version".to_string()))
+        Err(LlmError::Api(
+            "Audio translation API not yet implemented for this version".to_string(),
+        ))
     }
 
     pub async fn audio_speech(&self, request: SpeechRequest) -> Result<Vec<u8>> {
         // Note: Audio speech API may have changed in async-openai 0.25
         // This is a placeholder implementation
         let _ = request;
-        Err(LlmError::Api("Audio speech API not yet implemented for this version".to_string()))
+        Err(LlmError::Api(
+            "Audio speech API not yet implemented for this version".to_string(),
+        ))
     }
 }
-

@@ -1,5 +1,5 @@
-use crate::models::*;
 use crate::models::LlmAuditLog;
+use crate::models::*;
 use anyhow::Result;
 #[cfg(feature = "backend-libsql")]
 use libsql::{Connection, params};
@@ -239,11 +239,11 @@ pub async fn list_messages(
 }
 
 /// 查询 messages 表中指定 session_id 的记录，按创建时间从近到远排序，返回前 10 条
-/// 
+///
 /// # 参数
 /// - `conn`: 数据库连接
 /// - `session_id`: session 的 id（必需）
-/// 
+///
 /// # 返回
 /// 返回 Message 数组，按 timestamp 降序排列，最新的记录在前，最多 10 条
 pub async fn query_messages_by_session(
@@ -314,14 +314,16 @@ pub async fn insert_auth_token(conn: &mut Connection, t: &AuthToken) -> Result<(
 }
 
 pub async fn get_current_user(conn: &mut Connection) -> Result<Option<AuthUser>> {
-    let mut rows = conn.query(
-        "SELECT u.id, u.login, u.name, u.avatar_url, u.email, u.created_at, u.updated_at
+    let mut rows = conn
+        .query(
+            "SELECT u.id, u.login, u.name, u.avatar_url, u.email, u.created_at, u.updated_at
          FROM auth_users u
          JOIN auth_tokens t ON t.user_id = u.id
          ORDER BY t.updated_at DESC
          LIMIT 1",
-        params![],
-    ).await?;
+            params![],
+        )
+        .await?;
     if let Some(r) = rows.next().await? {
         Ok(Some(AuthUser {
             id: r.get::<String>(0)?,
@@ -509,5 +511,3 @@ pub async fn query_llm_audit_logs(
     }
     Ok(out)
 }
-
-

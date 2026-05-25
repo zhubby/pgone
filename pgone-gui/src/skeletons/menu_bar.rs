@@ -1,6 +1,6 @@
 use crate::components::DbManager;
 use crate::skeletons::monitors::MonitorMetric;
-use eframe::egui::{Context, TopBottomPanel};
+use eframe::egui::{Context, Panel};
 
 pub fn show_menu_bar(
     ctx: &Context,
@@ -13,7 +13,7 @@ pub fn show_menu_bar(
     show_export: &mut bool,
     show_import: &mut bool,
 ) {
-    TopBottomPanel::top("menu_top").show(ctx, |ui| {
+    Panel::top("menu_top").show(ctx, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("New Connection").clicked() {
@@ -110,4 +110,3 @@ pub fn show_menu_bar(
         });
     });
 }
-

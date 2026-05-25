@@ -1,14 +1,23 @@
 use crate::error::{Result, SqlError};
-use crate::models::{ColumnDetail, ForeignKeyDetail, IndexInfo, PrimaryKeyDetail, TableDetail, TableInfo};
+use crate::models::{
+    ColumnDetail, ForeignKeyDetail, IndexInfo, PrimaryKeyDetail, TableDetail, TableInfo,
+};
 use crate::session::Session;
 use std::collections::BTreeMap;
 use tracing::info;
+
+type ForeignKeyColumns = (
+    Vec<String>,
+    (String, Vec<String>),
+    Option<String>,
+    Option<String>,
+);
 
 impl Session {
     /// List all tables in the current database
     pub async fn list_tables(&self, schema: Option<&str>) -> Result<Vec<TableInfo>> {
         info!(schema = schema, "Listing tables");
-        
+
         let conn = self.get_connection().await?;
         let rows = if let Some(s) = schema {
             conn.query(
@@ -76,8 +85,12 @@ impl Session {
 
     /// Get detailed information about a specific table
     pub async fn get_table_info(&self, schema: &str, table_name: &str) -> Result<TableInfo> {
-        info!(schema = schema, table_name = table_name, "Getting table info");
-        
+        info!(
+            schema = schema,
+            table_name = table_name,
+            "Getting table info"
+        );
+
         let conn = self.get_connection().await?;
         let row = conn.query_opt(
             r#"
@@ -117,7 +130,7 @@ impl Session {
     /// Create a table using DDL SQL
     pub async fn create_table(&self, ddl: &str) -> Result<()> {
         info!("Creating table with DDL");
-        
+
         let conn = self.get_connection().await?;
         conn.execute(ddl, &[])
             .await
@@ -128,17 +141,8 @@ impl Session {
 
     /// Alter table structure
     /// Supports: ADD COLUMN, DROP COLUMN, ALTER COLUMN, RENAME COLUMN, RENAME TABLE
-    pub async fn alter_table(
-        &self,
-        schema: &str,
-        table_name: &str,
-        alter_ddl: &str,
-    ) -> Result<()> {
-        info!(
-            schema = schema,
-            table_name = table_name,
-            "Altering table"
-        );
+    pub async fn alter_table(&self, schema: &str, table_name: &str, alter_ddl: &str) -> Result<()> {
+        info!(schema = schema, table_name = table_name, "Altering table");
 
         let full_ddl = format!(
             "ALTER TABLE {}.{} {}",
@@ -172,9 +176,17 @@ impl Session {
         );
 
         let mut sql = if if_exists {
-            format!("DROP TABLE IF EXISTS {}.{}", quote_ident(schema), quote_ident(table_name))
+            format!(
+                "DROP TABLE IF EXISTS {}.{}",
+                quote_ident(schema),
+                quote_ident(table_name)
+            )
         } else {
-            format!("DROP TABLE {}.{}", quote_ident(schema), quote_ident(table_name))
+            format!(
+                "DROP TABLE {}.{}",
+                quote_ident(schema),
+                quote_ident(table_name)
+            )
         };
 
         if cascade {
@@ -182,31 +194,21 @@ impl Session {
         }
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("does not exist") {
-                    SqlError::NotFound(format!("Table '{}.{}' does not exist", schema, table_name))
-                } else {
-                    SqlError::Execution(format!("Failed to drop table: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("does not exist") {
+                SqlError::NotFound(format!("Table '{}.{}' does not exist", schema, table_name))
+            } else {
+                SqlError::Execution(format!("Failed to drop table: {}", e))
+            }
+        })?;
 
         Ok(())
     }
 
     /// Truncate a table (clear all data)
-    pub async fn truncate_table(
-        &self,
-        schema: &str,
-        table_name: &str,
-    ) -> Result<()> {
-        info!(
-            schema = schema,
-            table_name = table_name,
-            "Truncating table"
-        );
+    pub async fn truncate_table(&self, schema: &str, table_name: &str) -> Result<()> {
+        info!(schema = schema, table_name = table_name, "Truncating table");
 
         let sql = format!(
             "TRUNCATE TABLE {}.{}",
@@ -215,16 +217,14 @@ impl Session {
         );
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("does not exist") {
-                    SqlError::NotFound(format!("Table '{}.{}' does not exist", schema, table_name))
-                } else {
-                    SqlError::Execution(format!("Failed to truncate table: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("does not exist") {
+                SqlError::NotFound(format!("Table '{}.{}' does not exist", schema, table_name))
+            } else {
+                SqlError::Execution(format!("Failed to truncate table: {}", e))
+            }
+        })?;
 
         Ok(())
     }
@@ -245,19 +245,20 @@ impl Session {
         );
 
         let conn = self.get_connection().await?;
-        
+
         // Build query
         let mut query = format!(
             "SELECT * FROM {}.{}",
             quote_ident(schema),
             quote_ident(table_name)
         );
-        
+
         if let Some(lim) = limit {
             query.push_str(&format!(" LIMIT {}", lim));
         }
 
-        let rows = conn.query(&query, &[])
+        let rows = conn
+            .query(&query, &[])
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to query table data: {}", e)))?;
 
@@ -286,7 +287,11 @@ impl Session {
 
     /// Get detailed information about a table including columns, primary keys, and foreign keys
     pub async fn get_table_detail(&self, schema: &str, table_name: &str) -> Result<TableDetail> {
-        info!(schema = schema, table_name = table_name, "Getting table detail");
+        info!(
+            schema = schema,
+            table_name = table_name,
+            "Getting table detail"
+        );
 
         let conn = self.get_connection().await?;
 
@@ -386,15 +391,7 @@ impl Session {
             .map_err(SqlError::Connection)?;
 
         // Group by constraint_name
-        let mut fk_map: BTreeMap<
-            String,
-            (
-                Vec<String>,
-                (String, Vec<String>),
-                Option<String>,
-                Option<String>,
-            ),
-        > = BTreeMap::new();
+        let mut fk_map: BTreeMap<String, ForeignKeyColumns> = BTreeMap::new();
 
         for row in fk_rows {
             let constraint_name: String = row.get("constraint_name");
@@ -405,31 +402,29 @@ impl Session {
             let on_update: Option<String> = row.try_get("update_rule").ok();
             let on_delete: Option<String> = row.try_get("delete_rule").ok();
 
-            let entry = fk_map
-                .entry(constraint_name)
-                .or_insert((
-                    Vec::new(),
-                    (format!("{}.{}", ref_schema, ref_table), Vec::new()),
-                    None,
-                    None,
-                ));
+            let entry = fk_map.entry(constraint_name).or_insert((
+                Vec::new(),
+                (format!("{}.{}", ref_schema, ref_table), Vec::new()),
+                None,
+                None,
+            ));
             entry.0.push(column);
-            entry.1 .1.push(ref_column);
+            entry.1.1.push(ref_column);
             entry.2 = on_update;
             entry.3 = on_delete;
         }
 
         let foreign_keys: Vec<ForeignKeyDetail> = fk_map
             .into_values()
-            .map(|(cols, (ref_table, ref_cols), on_update, on_delete)| {
-                ForeignKeyDetail {
+            .map(
+                |(cols, (ref_table, ref_cols), on_update, on_delete)| ForeignKeyDetail {
                     columns: cols,
                     ref_table,
                     ref_columns: ref_cols,
                     on_update,
                     on_delete,
-                }
-            })
+                },
+            )
             .collect();
 
         Ok(TableDetail {
@@ -469,14 +464,23 @@ impl Session {
     }
 
     /// List all indexes for a specific table
-    pub async fn list_table_indexes(&self, schema: &str, table_name: &str) -> Result<Vec<IndexInfo>> {
-        info!(schema = schema, table_name = table_name, "Listing table indexes");
-        
+    pub async fn list_table_indexes(
+        &self,
+        schema: &str,
+        table_name: &str,
+    ) -> Result<Vec<IndexInfo>> {
+        info!(
+            schema = schema,
+            table_name = table_name,
+            "Listing table indexes"
+        );
+
         let conn = self.get_connection().await?;
-        
+
         // Query indexes using pg_indexes view
-        let rows = conn.query(
-            r#"
+        let rows = conn
+            .query(
+                r#"
             SELECT 
                 i.indexname AS name,
                 i.indexdef AS definition,
@@ -487,20 +491,20 @@ impl Session {
             WHERE i.schemaname = $1 AND i.tablename = $2
             ORDER BY i.indexname
             "#,
-            &[&schema, &table_name],
-        )
-        .await
-        .map_err(SqlError::Connection)?;
+                &[&schema, &table_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?;
 
         let mut indexes = Vec::new();
         for row in rows {
             let name: String = row.get("name");
             let definition: String = row.get("definition");
             let description: Option<String> = row.try_get("description").ok();
-            
+
             // Check if index is unique (UNIQUE keyword in definition)
             let unique = definition.to_uppercase().contains(" UNIQUE ");
-            
+
             // Extract columns from definition
             // Format: CREATE [UNIQUE] INDEX ... ON ... USING ... (column1, column2, ...)
             let columns = if let Some(start_pos) = definition.rfind('(') {
@@ -516,7 +520,7 @@ impl Session {
             } else {
                 Vec::new()
             };
-            
+
             indexes.push(IndexInfo {
                 name,
                 unique,
@@ -533,54 +537,37 @@ impl Session {
 /// Format a cell value to string
 fn format_cell(row: &tokio_postgres::Row, idx: usize) -> String {
     use tokio_postgres::types::Type;
-    
+
     let col_type = row.columns().get(idx).map(|c| c.type_());
-    
+
     match col_type {
         Some(t) => match *t {
-            Type::TEXT | Type::VARCHAR => {
-                row.try_get::<_, String>(idx).unwrap_or_default()
-            }
-            Type::INT4 => {
-                row.try_get::<_, i32>(idx)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
-            }
-            Type::INT8 => {
-                row.try_get::<_, i64>(idx)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
-            }
-            Type::FLOAT4 => {
-                row.try_get::<_, f32>(idx)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
-            }
-            Type::FLOAT8 => {
-                row.try_get::<_, f64>(idx)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
-            }
-            Type::BOOL => {
-                row.try_get::<_, bool>(idx)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
-            }
-            Type::JSON | Type::JSONB => {
-                format_json_value(row, idx)
-            }
-            Type::TIMESTAMPTZ => {
-                format_timestamptz(row, idx)
-            }
-            Type::TIMESTAMP => {
-                format_timestamp(row, idx)
-            }
-            Type::DATE => {
-                format_date(row, idx)
-            }
-            Type::TIME => {
-                format_time(row, idx)
-            }
+            Type::TEXT | Type::VARCHAR => row.try_get::<_, String>(idx).unwrap_or_default(),
+            Type::INT4 => row
+                .try_get::<_, i32>(idx)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            Type::INT8 => row
+                .try_get::<_, i64>(idx)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            Type::FLOAT4 => row
+                .try_get::<_, f32>(idx)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            Type::FLOAT8 => row
+                .try_get::<_, f64>(idx)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            Type::BOOL => row
+                .try_get::<_, bool>(idx)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            Type::JSON | Type::JSONB => format_json_value(row, idx),
+            Type::TIMESTAMPTZ => format_timestamptz(row, idx),
+            Type::TIMESTAMP => format_timestamp(row, idx),
+            Type::DATE => format_date(row, idx),
+            Type::TIME => format_time(row, idx),
             _ => {
                 // Fallback: try as string
                 row.try_get::<_, String>(idx)
@@ -666,7 +653,12 @@ fn format_time(row: &tokio_postgres::Row, idx: usize) -> String {
 /// Fallback: try to format as bytes (hex)
 fn format_bytes_fallback(row: &tokio_postgres::Row, idx: usize) -> String {
     row.try_get::<_, Vec<u8>>(idx)
-        .map(|v| format!("\\x{}", v.iter().map(|b| format!("{:02x}", b)).collect::<String>()))
+        .map(|v| {
+            format!(
+                "\\x{}",
+                v.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+            )
+        })
         .unwrap_or_else(|_| "<unformatted>".to_string())
 }
 

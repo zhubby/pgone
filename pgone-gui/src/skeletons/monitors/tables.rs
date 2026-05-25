@@ -1,8 +1,8 @@
 use eframe::egui;
 use egui_plot::{Bar, BarChart, Plot};
 use poll_promise::Promise;
-use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 struct TableData {
@@ -261,11 +261,9 @@ impl TablesMonitor {
 
             let chart = BarChart::new(chart_name, bars);
 
-            Plot::new("tables_plot")
-                .height(300.0)
-                .show(ui, |plot_ui| {
-                    plot_ui.bar_chart(chart);
-                });
+            Plot::new("tables_plot").height(300.0).show(ui, |plot_ui| {
+                plot_ui.bar_chart(chart);
+            });
         }
     }
 }
@@ -281,4 +279,3 @@ pub fn show(ui: &mut egui::Ui, dsn: Option<&str>) {
         m.ui(ui, dsn);
     }
 }
-

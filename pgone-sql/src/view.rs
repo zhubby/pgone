@@ -1,5 +1,5 @@
 use crate::error::{Result, SqlError};
-use crate::models::{ViewInfo, MaterializedViewInfo};
+use crate::models::{MaterializedViewInfo, ViewInfo};
 use crate::session::Session;
 use tracing::info;
 
@@ -7,7 +7,7 @@ impl Session {
     /// List all views in the current database
     pub async fn list_views(&self, schema: Option<&str>) -> Result<Vec<ViewInfo>> {
         info!(schema = schema, "Listing views");
-        
+
         let conn = self.get_connection().await?;
         let rows = if let Some(s) = schema {
             conn.query(
@@ -65,11 +65,12 @@ impl Session {
     /// Get detailed information about a specific view
     pub async fn get_view_info(&self, schema: &str, view_name: &str) -> Result<ViewInfo> {
         info!(schema = schema, view_name = view_name, "Getting view info");
-        
+
         let conn = self.get_connection().await?;
-        
-        let row = conn.query_opt(
-            r#"
+
+        let row = conn
+            .query_opt(
+                r#"
             SELECT 
                 v.table_schema AS schema,
                 v.table_name AS name,
@@ -81,11 +82,13 @@ impl Session {
             JOIN pg_catalog.pg_namespace n ON n.nspname = v.table_schema AND n.oid = c.relnamespace
             WHERE v.table_schema = $1 AND v.table_name = $2
             "#,
-            &[&schema, &view_name],
-        )
-        .await
-        .map_err(SqlError::Connection)?
-        .ok_or_else(|| SqlError::NotFound(format!("View '{}.{}' not found", schema, view_name)))?;
+                &[&schema, &view_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?
+            .ok_or_else(|| {
+                SqlError::NotFound(format!("View '{}.{}' not found", schema, view_name))
+            })?;
 
         Ok(ViewInfo {
             schema: row.get("schema"),
@@ -99,7 +102,7 @@ impl Session {
     /// Create a view using DDL SQL
     pub async fn create_view(&self, ddl: &str) -> Result<()> {
         info!("Creating view with DDL");
-        
+
         let conn = self.get_connection().await?;
         conn.execute(ddl, &[])
             .await
@@ -116,11 +119,7 @@ impl Session {
         view_name: &str,
         new_definition: &str,
     ) -> Result<()> {
-        info!(
-            schema = schema,
-            view_name = view_name,
-            "Altering view"
-        );
+        info!(schema = schema, view_name = view_name, "Altering view");
 
         let conn = self.get_connection().await?;
 
@@ -184,24 +183,25 @@ impl Session {
         }
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("does not exist") {
-                    SqlError::NotFound(format!("View '{}.{}' does not exist", schema, view_name))
-                } else {
-                    SqlError::Execution(format!("Failed to drop view: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("does not exist") {
+                SqlError::NotFound(format!("View '{}.{}' does not exist", schema, view_name))
+            } else {
+                SqlError::Execution(format!("Failed to drop view: {}", e))
+            }
+        })?;
 
         Ok(())
     }
 
     /// List all materialized views in the current database
-    pub async fn list_materialized_views(&self, schema: Option<&str>) -> Result<Vec<MaterializedViewInfo>> {
+    pub async fn list_materialized_views(
+        &self,
+        schema: Option<&str>,
+    ) -> Result<Vec<MaterializedViewInfo>> {
         info!(schema = schema, "Listing materialized views");
-        
+
         let conn = self.get_connection().await?;
         let rows = if let Some(s) = schema {
             conn.query(
@@ -257,13 +257,22 @@ impl Session {
     }
 
     /// Get detailed information about a specific materialized view
-    pub async fn get_materialized_view_info(&self, schema: &str, view_name: &str) -> Result<MaterializedViewInfo> {
-        info!(schema = schema, view_name = view_name, "Getting materialized view info");
-        
+    pub async fn get_materialized_view_info(
+        &self,
+        schema: &str,
+        view_name: &str,
+    ) -> Result<MaterializedViewInfo> {
+        info!(
+            schema = schema,
+            view_name = view_name,
+            "Getting materialized view info"
+        );
+
         let conn = self.get_connection().await?;
-        
-        let row = conn.query_opt(
-            r#"
+
+        let row = conn
+            .query_opt(
+                r#"
             SELECT 
                 m.schemaname AS schema,
                 m.matviewname AS name,
@@ -275,11 +284,16 @@ impl Session {
             JOIN pg_catalog.pg_namespace n ON n.nspname = m.schemaname AND n.oid = c.relnamespace
             WHERE m.schemaname = $1 AND m.matviewname = $2
             "#,
-            &[&schema, &view_name],
-        )
-        .await
-        .map_err(SqlError::Connection)?
-        .ok_or_else(|| SqlError::NotFound(format!("Materialized view '{}.{}' not found", schema, view_name)))?;
+                &[&schema, &view_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?
+            .ok_or_else(|| {
+                SqlError::NotFound(format!(
+                    "Materialized view '{}.{}' not found",
+                    schema, view_name
+                ))
+            })?;
 
         Ok(MaterializedViewInfo {
             schema: row.get("schema"),

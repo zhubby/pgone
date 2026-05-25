@@ -36,4 +36,3 @@ pub fn replace_database_in_dsn(dsn: &str, new_database: &str) -> Option<String> 
 
     None
 }
-

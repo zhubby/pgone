@@ -111,4 +111,3 @@ impl Default for Config {
         }
     }
 }
-

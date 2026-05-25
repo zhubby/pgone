@@ -5,12 +5,11 @@ use libsql::{Builder, Connection, Database};
 use turso::{Builder, Connection, Database};
 
 pub mod blocking;
+pub mod file_sys;
 pub mod models;
+pub mod query;
 pub mod schema;
 pub mod storage;
-pub mod file_sys;
-pub mod query;
-
 
 pub const DATABASE_PATH: &str = "pgone.db";
 

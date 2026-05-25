@@ -2,13 +2,13 @@ use crate::core::models::{
     Column, DatabaseSchema, ForeignKey, Index, IntrospectOptions, PrimaryKey, RoutineDetail,
     RoutineKind, TableDetail, TriggerDetail, TypeDetail, TypeKind, ViewDetail,
 };
+use pgone_sql::Session;
 use pgone_sql::models::{
     ColumnDetail as SqlColumnDetail, ForeignKeyDetail as SqlForeignKeyDetail,
     FunctionInfo as SqlFunctionInfo, IndexInfo as SqlIndexInfo,
     PrimaryKeyDetail as SqlPrimaryKeyDetail, TableDetail as SqlTableDetail,
     TriggerInfo as SqlTriggerInfo, ViewInfo as SqlViewInfo,
 };
-use pgone_sql::Session;
 
 /// 将 pgone-sql 的模型转换为 core::models
 pub struct ModelAdapter;
@@ -22,7 +22,11 @@ impl ModelAdapter {
             comment: sql.comment,
             columns: sql.columns.into_iter().map(Self::column).collect(),
             primary_key: sql.primary_key.map(Self::primary_key),
-            foreign_keys: sql.foreign_keys.into_iter().map(Self::foreign_key).collect(),
+            foreign_keys: sql
+                .foreign_keys
+                .into_iter()
+                .map(Self::foreign_key)
+                .collect(),
             indexes: indexes.into_iter().map(Self::index).collect(),
         }
     }
@@ -171,14 +175,11 @@ impl SqlSessionIntrospector {
                 table_details
             };
 
-            let views = if opts.schemas.is_some() {
-                self.session
-                    .list_views(Some(&schema_name))
-                    .await
-                    .unwrap_or_default()
-            } else {
-                self.session.list_views(Some(&schema_name)).await.unwrap_or_default()
-            };
+            let views = self
+                .session
+                .list_views(Some(&schema_name))
+                .await
+                .unwrap_or_default();
 
             schemas_vec.push(crate::core::models::Schema {
                 name: schema_name,
@@ -196,10 +197,7 @@ impl SqlSessionIntrospector {
     /// 列出表
     pub async fn list_tables(&self, schema: Option<&str>) -> anyhow::Result<Vec<(String, String)>> {
         let tables = self.session.list_tables(schema).await?;
-        Ok(tables
-            .into_iter()
-            .map(|t| (t.schema, t.name))
-            .collect())
+        Ok(tables.into_iter().map(|t| (t.schema, t.name)).collect())
     }
 
     /// 获取表详情
@@ -262,4 +260,3 @@ impl SqlSessionIntrospector {
         Ok(Vec::new())
     }
 }
-

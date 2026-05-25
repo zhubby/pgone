@@ -1,9 +1,12 @@
-use crate::models::{ChatSession, Message, MessageContent, Role};
 use crate::futures;
+use crate::models::{ChatSession, Message, MessageContent, Role};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use pgone_storage::blocking::StorageBlocking;
-use pgone_storage::models::{Message as StorageMessage, Role as StorageRole, Session as StorageSession, MessageKind as StorageMessageKind};
+use pgone_storage::models::{
+    Message as StorageMessage, MessageKind as StorageMessageKind, Role as StorageRole,
+    Session as StorageSession,
+};
 
 pub struct SessionStorage {
     storage: Option<StorageBlocking>,
@@ -27,10 +30,9 @@ impl SessionStorage {
     /// 加载所有会话
     pub fn load_sessions(&mut self) -> Result<Vec<ChatSession>> {
         let storage = self.ensure_storage()?;
-        
-        let storage_sessions = futures::block_on_async(async {
-            storage.list_sessions(1000).await
-        })?;
+
+        let storage_sessions =
+            futures::block_on_async(async { storage.list_sessions(1000).await })?;
 
         let mut chat_sessions = Vec::new();
         for storage_session in storage_sessions {
@@ -71,7 +73,7 @@ impl SessionStorage {
     /// 添加或更新单个会话
     pub fn save_session(&mut self, session: &ChatSession) -> Result<()> {
         let storage = self.ensure_storage()?;
-        
+
         // 创建或更新会话
         let storage_session = StorageSession {
             id: session.id.clone(),
@@ -82,42 +84,50 @@ impl SessionStorage {
         };
 
         // 先删除会话（这会删除所有消息）
-        let _ = futures::block_on_async(async {
-            storage.delete_session(&session.id).await
-        });
+        let _ = futures::block_on_async(async { storage.delete_session(&session.id).await });
 
         // 重新创建会话
-        futures::block_on_async(async {
-            storage.create_session(&storage_session).await
-        })?;
+        futures::block_on_async(async { storage.create_session(&storage_session).await })?;
 
         // 插入所有消息
         for msg in &session.messages {
             match &msg.content {
                 MessageContent::Markdown(text) => {
                     futures::block_on_async(async {
-                        storage.append_markdown(&session.id, chat_role_to_storage_role(msg.role), text).await
+                        storage
+                            .append_markdown(&session.id, chat_role_to_storage_role(msg.role), text)
+                            .await
                     })?;
                 }
-                MessageContent::Image { path, width, height } => {
+                MessageContent::Image {
+                    path,
+                    width,
+                    height,
+                } => {
                     futures::block_on_async(async {
-                        storage.append_image(
-                            &session.id,
-                            chat_role_to_storage_role(msg.role),
-                            &path.to_string_lossy(),
-                            *width as i64,
-                            *height as i64,
-                        ).await
+                        storage
+                            .append_image(
+                                &session.id,
+                                chat_role_to_storage_role(msg.role),
+                                &path.to_string_lossy(),
+                                *width as i64,
+                                *height as i64,
+                            )
+                            .await
                     })?;
                 }
-                MessageContent::Video { path, duration_ms, .. } => {
+                MessageContent::Video {
+                    path, duration_ms, ..
+                } => {
                     futures::block_on_async(async {
-                        storage.append_video(
-                            &session.id,
-                            chat_role_to_storage_role(msg.role),
-                            &path.to_string_lossy(),
-                            duration_ms.map(|d| d as i64),
-                        ).await
+                        storage
+                            .append_video(
+                                &session.id,
+                                chat_role_to_storage_role(msg.role),
+                                &path.to_string_lossy(),
+                                duration_ms.map(|d| d as i64),
+                            )
+                            .await
                     })?;
                 }
             }
@@ -129,9 +139,7 @@ impl SessionStorage {
     /// 删除会话
     pub fn delete_session(&mut self, session_id: &str) -> Result<()> {
         let storage = self.ensure_storage()?;
-        futures::block_on_async(async {
-            storage.delete_session(session_id).await
-        })?;
+        futures::block_on_async(async { storage.delete_session(session_id).await })?;
         Ok(())
     }
 
@@ -142,36 +150,46 @@ impl SessionStorage {
         match &message.content {
             MessageContent::Markdown(text) => {
                 futures::block_on_async(async {
-                    storage.append_markdown(session_id, chat_role_to_storage_role(message.role), text).await
+                    storage
+                        .append_markdown(session_id, chat_role_to_storage_role(message.role), text)
+                        .await
                 })?;
             }
-            MessageContent::Image { path, width, height } => {
+            MessageContent::Image {
+                path,
+                width,
+                height,
+            } => {
                 futures::block_on_async(async {
-                    storage.append_image(
-                        session_id,
-                        chat_role_to_storage_role(message.role),
-                        &path.to_string_lossy(),
-                        *width as i64,
-                        *height as i64,
-                    ).await
+                    storage
+                        .append_image(
+                            session_id,
+                            chat_role_to_storage_role(message.role),
+                            &path.to_string_lossy(),
+                            *width as i64,
+                            *height as i64,
+                        )
+                        .await
                 })?;
             }
-            MessageContent::Video { path, duration_ms, .. } => {
+            MessageContent::Video {
+                path, duration_ms, ..
+            } => {
                 futures::block_on_async(async {
-                    storage.append_video(
-                        session_id,
-                        chat_role_to_storage_role(message.role),
-                        &path.to_string_lossy(),
-                        duration_ms.map(|d| d as i64),
-                    ).await
+                    storage
+                        .append_video(
+                            session_id,
+                            chat_role_to_storage_role(message.role),
+                            &path.to_string_lossy(),
+                            duration_ms.map(|d| d as i64),
+                        )
+                        .await
                 })?;
             }
         }
 
         // 更新会话的 updated_at（通过更新标题来触发 updated_at 更新）
-        futures::block_on_async(async {
-            storage.update_session_title(session_id, "").await
-        })?;
+        futures::block_on_async(async { storage.update_session_title(session_id, "").await })?;
 
         Ok(())
     }
@@ -179,10 +197,9 @@ impl SessionStorage {
     /// 查询会话的历史消息（最近10条，按时间降序）
     pub fn query_messages_by_session(&mut self, session_id: &str) -> Result<Vec<Message>> {
         let storage = self.ensure_storage()?;
-        
-        let storage_messages = futures::block_on_async(async {
-            storage.query_messages_by_session(session_id).await
-        })?;
+
+        let storage_messages =
+            futures::block_on_async(async { storage.query_messages_by_session(session_id).await })?;
 
         let chat_messages: Vec<Message> = storage_messages
             .into_iter()
@@ -221,20 +238,16 @@ fn storage_message_to_chat_message(msg: StorageMessage) -> Message {
         StorageMessageKind::Markdown => {
             MessageContent::Markdown(msg.content_markdown.unwrap_or_default())
         }
-        StorageMessageKind::Image => {
-            MessageContent::Image {
-                path: msg.image_path.map(|p| p.into()).unwrap_or_default(),
-                width: msg.image_w.map(|w| w as u32).unwrap_or(0),
-                height: msg.image_h.map(|h| h as u32).unwrap_or(0),
-            }
-        }
-        StorageMessageKind::Video => {
-            MessageContent::Video {
-                path: msg.video_path.map(|p| p.into()).unwrap_or_default(),
-                duration_ms: msg.video_duration_ms.map(|d| d as u64),
-                thumbnail: None,
-            }
-        }
+        StorageMessageKind::Image => MessageContent::Image {
+            path: msg.image_path.map(|p| p.into()).unwrap_or_default(),
+            width: msg.image_w.map(|w| w as u32).unwrap_or(0),
+            height: msg.image_h.map(|h| h as u32).unwrap_or(0),
+        },
+        StorageMessageKind::Video => MessageContent::Video {
+            path: msg.video_path.map(|p| p.into()).unwrap_or_default(),
+            duration_ms: msg.video_duration_ms.map(|d| d as u64),
+            thumbnail: None,
+        },
     };
 
     Message {
@@ -297,4 +310,3 @@ mod tests {
         assert_eq!(sessions.len(), 0);
     }
 }
-

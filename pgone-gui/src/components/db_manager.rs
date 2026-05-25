@@ -1,7 +1,7 @@
+use crate::futures;
+use crate::notify;
 use pgone_storage::blocking::StorageBlocking;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use crate::notify;
-use crate::futures;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbEngine {
@@ -18,9 +18,13 @@ impl DbEngine {
             DbEngine::PgVector => "pgvector",
         }
     }
-    
+
     fn all() -> &'static [DbEngine] {
-        &[DbEngine::Postgresql, DbEngine::TimescaleDB, DbEngine::PgVector]
+        &[
+            DbEngine::Postgresql,
+            DbEngine::TimescaleDB,
+            DbEngine::PgVector,
+        ]
     }
 }
 
@@ -142,7 +146,7 @@ impl DbManager {
         } else {
             database.trim().to_string()
         };
-        
+
         let mut dsn = format!(
             "{}://{}:{}@{}:{}{}",
             engine,
@@ -156,45 +160,48 @@ impl DbManager {
                 format!("/{}", dbname)
             }
         );
-        
+
         // Add SSL parameters if enabled
         if ssl_enabled {
             let mut params = vec![format!("sslmode={}", urlencoding::encode(ssl_mode))];
-            
+
             // Get file paths from file IDs
             if let Some(storage) = storage {
                 if let Some(cert_id) = ssl_cert_file_id {
-                    if let Ok(Some(file)) = futures::block_on_async(async {
-                        storage.get_file(cert_id).await
-                    }) {
+                    if let Ok(Some(file)) =
+                        futures::block_on_async(async { storage.get_file(cert_id).await })
+                    {
                         let cert_path = format!("./data/{}", file.current_path);
                         params.push(format!("sslcert={}", urlencoding::encode(&cert_path)));
                     }
                 }
-                
+
                 if let Some(key_id) = ssl_key_file_id {
-                    if let Ok(Some(file)) = futures::block_on_async(async {
-                        storage.get_file(key_id).await
-                    }) {
+                    if let Ok(Some(file)) =
+                        futures::block_on_async(async { storage.get_file(key_id).await })
+                    {
                         let key_path = format!("./data/{}", file.current_path);
                         params.push(format!("sslkey={}", urlencoding::encode(&key_path)));
                     }
                 }
-                
+
                 if let Some(rootcert_id) = ssl_rootcert_file_id {
-                    if let Ok(Some(file)) = futures::block_on_async(async {
-                        storage.get_file(rootcert_id).await
-                    }) {
+                    if let Ok(Some(file)) =
+                        futures::block_on_async(async { storage.get_file(rootcert_id).await })
+                    {
                         let rootcert_path = format!("./data/{}", file.current_path);
-                        params.push(format!("sslrootcert={}", urlencoding::encode(&rootcert_path)));
+                        params.push(format!(
+                            "sslrootcert={}",
+                            urlencoding::encode(&rootcert_path)
+                        ));
                     }
                 }
             }
-            
+
             dsn.push('?');
             dsn.push_str(&params.join("&"));
         }
-        
+
         Ok(dsn)
     }
 
@@ -204,18 +211,17 @@ impl DbManager {
         let url = url::Url::parse(dsn).ok()?;
         let engine = url.scheme().to_string();
         let host = url.host_str()?.to_string();
-        let port = url.port()
+        let port = url
+            .port()
             .map(|p| p.to_string())
-            .unwrap_or_else(|| {
-                match engine.as_str() {
-                    "postgresql" | "postgres" => "5432".to_string(),
-                    "mysql" => "3306".to_string(),
-                    _ => "5432".to_string(),
-                }
+            .unwrap_or_else(|| match engine.as_str() {
+                "postgresql" | "postgres" => "5432".to_string(),
+                "mysql" => "3306".to_string(),
+                _ => "5432".to_string(),
             });
         let database = url.path().trim_start_matches('/').to_string();
         let user = url.username().to_string();
-        
+
         Some(ParsedDsn {
             engine,
             host,
@@ -230,9 +236,9 @@ impl DbManager {
         self.ensure_storage();
         if let Some(ref storage) = self.storage {
             // Use block_on_async for synchronous access from async context
-            if let Ok(Some(cfg)) = futures::block_on_async(async {
-                storage.get_db_config(id).await
-            }) {
+            if let Ok(Some(cfg)) =
+                futures::block_on_async(async { storage.get_db_config(id).await })
+            {
                 return Some(cfg.id);
             }
         }
@@ -266,9 +272,8 @@ impl DbManager {
         self.ensure_storage();
         let mut to_switch: Option<String> = None;
         if let Some(storage) = &self.storage {
-            let list = futures::block_on_async(async {
-                storage.list_db_configs(None).await
-            }).unwrap_or_default();
+            let list = futures::block_on_async(async { storage.list_db_configs(None).await })
+                .unwrap_or_default();
             for cfg in list {
                 let icon = egui_phosphor::regular::DATABASE;
                 let label = if Some(cfg.id.clone()) == self.active_db_config_id {
@@ -286,7 +291,7 @@ impl DbManager {
         }
         if let Some(target) = to_switch {
             let mut open = true;
-            let center = ui.ctx().screen_rect().center();
+            let center = ui.ctx().content_rect().center();
             egui::Window::new("Switch Database Config")
                 .open(&mut open)
                 .collapsible(false)
@@ -308,7 +313,7 @@ impl DbManager {
     pub fn ui_add_db_window(&mut self, ctx: &egui::Context) {
         if self.show_add_db {
             let mut open = true;
-            let center = ctx.screen_rect().center();
+            let center = ctx.content_rect().center();
             egui::Window::new("New Database")
                 .open(&mut open)
                 .default_pos(center)
@@ -317,7 +322,7 @@ impl DbManager {
                 .show(ctx, |ui| {
                     // 使用固定宽度的标签来对齐文本框
                     let label_width = 80.0;
-                    
+
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
@@ -376,10 +381,11 @@ impl DbManager {
                             ui.label("Password");
                         });
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.add_db_form.password).password(true),
+                            egui::TextEdit::singleline(&mut self.add_db_form.password)
+                                .password(true),
                         );
                     });
-                    
+
                     // SSL Configuration Section
                     ui.separator();
                     ui.horizontal(|ui| {
@@ -389,17 +395,27 @@ impl DbManager {
                         });
                         ui.checkbox(&mut self.add_db_form.ssl_enabled, "启用SSL");
                     });
-                    
+
                     if self.add_db_form.ssl_enabled {
                         ui.horizontal(|ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.set_width(label_width);
-                                ui.label("SSL Mode");
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(label_width);
+                                    ui.label("SSL Mode");
+                                },
+                            );
                             egui::ComboBox::from_id_salt("add_ssl_mode")
                                 .selected_text(&self.add_db_form.ssl_mode)
                                 .show_ui(ui, |ui| {
-                                    for mode in ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] {
+                                    for mode in [
+                                        "disable",
+                                        "allow",
+                                        "prefer",
+                                        "require",
+                                        "verify-ca",
+                                        "verify-full",
+                                    ] {
                                         ui.selectable_value(
                                             &mut self.add_db_form.ssl_mode,
                                             mode.to_string(),
@@ -408,13 +424,16 @@ impl DbManager {
                                     }
                                 });
                         });
-                        
+
                         // SSL Certificate files
                         ui.horizontal(|ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.set_width(label_width);
-                                ui.label("客户端证书");
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(label_width);
+                                    ui.label("客户端证书");
+                                },
+                            );
                             if ui.button("选择文件").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::AddSslCert);
                             }
@@ -424,12 +443,15 @@ impl DbManager {
                                 }
                             }
                         });
-                        
+
                         ui.horizontal(|ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.set_width(label_width);
-                                ui.label("客户端密钥");
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(label_width);
+                                    ui.label("客户端密钥");
+                                },
+                            );
                             if ui.button("选择文件").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::AddSslKey);
                             }
@@ -439,12 +461,15 @@ impl DbManager {
                                 }
                             }
                         });
-                        
+
                         ui.horizontal(|ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.set_width(label_width);
-                                ui.label("根证书");
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(label_width);
+                                    ui.label("根证书");
+                                },
+                            );
                             if ui.button("选择文件").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::AddSslRootcert);
                             }
@@ -455,23 +480,22 @@ impl DbManager {
                             }
                         });
                     }
-                    
+
                     if let Some(err) = &self.add_db_form.error {
                         ui.colored_label(egui::Color32::RED, err);
                     }
-                    
+
                     // 按钮布局：Test Connection 在左下角，Save 在右下角
                     ui.horizontal(|ui| {
                         // 左侧：测试连接按钮和状态标记
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             let test_button = egui::Button::new(
-                                egui::RichText::new("Test Connection")
-                                    .color(egui::Color32::RED)
+                                egui::RichText::new("Test Connection").color(egui::Color32::RED),
                             );
                             if ui.add(test_button).clicked() {
                                 self.test_connection();
                             }
-                            
+
                             // 显示测试结果标记
                             if let Some(success) = self.add_db_form.test_status {
                                 if success {
@@ -481,7 +505,7 @@ impl DbManager {
                                 }
                             }
                         });
-                        
+
                         // 右侧：Save 和 Cancel 按钮
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Save").clicked() {
@@ -514,7 +538,7 @@ impl DbManager {
     pub fn ui_edit_db_window(&mut self, ctx: &egui::Context) {
         if self.show_edit_db {
             let mut open = true;
-            let center = ctx.screen_rect().center();
+            let center = ctx.content_rect().center();
             egui::Window::new("Edit Database")
                 .open(&mut open)
                 .default_pos(center)
@@ -522,7 +546,7 @@ impl DbManager {
                 .collapsible(false)
                 .show(ctx, |ui| {
                     let label_width = 80.0;
-                    
+
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             ui.set_width(label_width);
@@ -586,7 +610,7 @@ impl DbManager {
                                 .hint_text("Leave empty to keep existing"),
                         );
                     });
-                    
+
                     // SSL Configuration Section
                     ui.separator();
                     ui.horizontal(|ui| {
@@ -596,17 +620,27 @@ impl DbManager {
                         });
                         ui.checkbox(&mut self.edit_db_form.ssl_enabled, "启用SSL");
                     });
-                    
+
                     if self.edit_db_form.ssl_enabled {
                         ui.horizontal(|ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.set_width(label_width);
-                                ui.label("SSL Mode");
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(label_width);
+                                    ui.label("SSL Mode");
+                                },
+                            );
                             egui::ComboBox::from_id_salt("edit_ssl_mode")
                                 .selected_text(&self.edit_db_form.ssl_mode)
                                 .show_ui(ui, |ui| {
-                                    for mode in ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] {
+                                    for mode in [
+                                        "disable",
+                                        "allow",
+                                        "prefer",
+                                        "require",
+                                        "verify-ca",
+                                        "verify-full",
+                                    ] {
                                         ui.selectable_value(
                                             &mut self.edit_db_form.ssl_mode,
                                             mode.to_string(),
@@ -615,13 +649,16 @@ impl DbManager {
                                     }
                                 });
                         });
-                        
+
                         // SSL Certificate files
                         ui.horizontal(|ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.set_width(label_width);
-                                ui.label("客户端证书");
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(label_width);
+                                    ui.label("客户端证书");
+                                },
+                            );
                             if ui.button("选择文件").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::EditSslCert);
                             }
@@ -631,12 +668,15 @@ impl DbManager {
                                 }
                             }
                         });
-                        
+
                         ui.horizontal(|ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.set_width(label_width);
-                                ui.label("客户端密钥");
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(label_width);
+                                    ui.label("客户端密钥");
+                                },
+                            );
                             if ui.button("选择文件").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::EditSslKey);
                             }
@@ -646,12 +686,15 @@ impl DbManager {
                                 }
                             }
                         });
-                        
+
                         ui.horizontal(|ui| {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.set_width(label_width);
-                                ui.label("根证书");
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.set_width(label_width);
+                                    ui.label("根证书");
+                                },
+                            );
                             if ui.button("选择文件").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::EditSslRootcert);
                             }
@@ -662,21 +705,20 @@ impl DbManager {
                             }
                         });
                     }
-                    
+
                     if let Some(err) = &self.edit_db_form.error {
                         ui.colored_label(egui::Color32::RED, err);
                     }
-                    
+
                     ui.horizontal(|ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             let test_button = egui::Button::new(
-                                egui::RichText::new("Test Connection")
-                                    .color(egui::Color32::RED)
+                                egui::RichText::new("Test Connection").color(egui::Color32::RED),
                             );
                             if ui.add(test_button).clicked() {
                                 self.test_edit_connection();
                             }
-                            
+
                             if let Some(success) = self.edit_db_form.test_status {
                                 if success {
                                     ui.colored_label(egui::Color32::GREEN, "✓");
@@ -685,7 +727,7 @@ impl DbManager {
                                 }
                             }
                         });
-                        
+
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Save").clicked() {
                                 if let Err(e) = self.update_db_config() {
@@ -717,7 +759,7 @@ impl DbManager {
     pub fn ui_manage_db_window(&mut self, ctx: &egui::Context) {
         if self.show_manage_db {
             let mut open = true;
-            let center = ctx.screen_rect().center();
+            let center = ctx.content_rect().center();
             egui::Window::new("Databases")
                 .open(&mut open)
                 .default_size(egui::vec2(600.0, 400.0))
@@ -727,10 +769,10 @@ impl DbManager {
                 .show(ctx, |ui| {
                     self.ensure_storage();
                     if let Some(storage) = &self.storage {
-                        let list = futures::block_on_async(async {
-                            storage.list_db_configs(None).await
-                        }).unwrap_or_default();
-                        
+                        let list =
+                            futures::block_on_async(async { storage.list_db_configs(None).await })
+                                .unwrap_or_default();
+
                         if list.is_empty() {
                             ui.label("No databases configured");
                         } else {
@@ -738,7 +780,7 @@ impl DbManager {
                             let mut to_edit: Option<String> = None;
                             let mut to_set_default: Option<String> = None;
                             let active_id = self.active_db_config_id.clone();
-                            
+
                             egui::ScrollArea::vertical()
                                 .auto_shrink([false; 2])
                                 .show(ui, |ui| {
@@ -746,56 +788,69 @@ impl DbManager {
                                         ui.group(|ui| {
                                             // Parse DSN to show details
                                             let parsed = Self::parse_dsn(&cfg.dsn);
-                                            
+
                                             // Database name and engine
                                             ui.horizontal(|ui| {
-                                                ui.heading(format!("{} {}", egui_phosphor::regular::DATABASE, cfg.id));
+                                                ui.heading(format!(
+                                                    "{} {}",
+                                                    egui_phosphor::regular::DATABASE,
+                                                    cfg.id
+                                                ));
                                                 ui.label(format!("[{}]", cfg.engine));
                                                 if Some(cfg.id.clone()) == active_id {
                                                     ui.colored_label(
                                                         egui::Color32::GREEN,
-                                                        "(Active)"
+                                                        "(Active)",
                                                     );
                                                 }
                                                 if cfg.default_config == Some(true) {
-                                                    ui.colored_label(
-                                                        egui::Color32::BLUE,
-                                                        "(默认)"
-                                                    );
+                                                    ui.colored_label(egui::Color32::BLUE, "(默认)");
                                                 }
                                             });
-                                            
+
                                             // Connection details
                                             if let Some(p) = parsed {
                                                 ui.columns(2, |columns| {
                                                     // 左列
                                                     columns[0].horizontal(|ui| {
-                                                        ui.label(format!("{} Host:", egui_phosphor::regular::GLOBE));
+                                                        ui.label(format!(
+                                                            "{} Host:",
+                                                            egui_phosphor::regular::GLOBE
+                                                        ));
                                                         ui.label(&p.host);
                                                     });
                                                     columns[0].horizontal(|ui| {
-                                                        ui.label(format!("{} Database:", egui_phosphor::regular::DATABASE));
+                                                        ui.label(format!(
+                                                            "{} Database:",
+                                                            egui_phosphor::regular::DATABASE
+                                                        ));
                                                         ui.label(if p.database.is_empty() {
                                                             "<default>"
                                                         } else {
                                                             &p.database
                                                         });
                                                     });
-                                                    
+
                                                     // 右列
                                                     columns[1].horizontal(|ui| {
-                                                        ui.label(format!("{} Port:", egui_phosphor::regular::PLUG));
+                                                        ui.label(format!(
+                                                            "{} Port:",
+                                                            egui_phosphor::regular::PLUG
+                                                        ));
                                                         ui.label(&p.port);
                                                     });
                                                     columns[1].horizontal(|ui| {
-                                                        ui.label(format!("{} User:", egui_phosphor::regular::USER));
+                                                        ui.label(format!(
+                                                            "{} User:",
+                                                            egui_phosphor::regular::USER
+                                                        ));
                                                         ui.label(&p.user);
                                                     });
                                                 });
                                             }
 
                                             ui.separator();
-                                            
+
                                             // Action buttons
                                             ui.horizontal(|ui| {
                                                 if ui.button("选择").clicked() {
@@ -809,16 +864,21 @@ impl DbManager {
                                                         to_set_default = Some(cfg.id.clone());
                                                     }
                                                 }
-                                                if ui.button(egui::RichText::new("删除").color(egui::Color32::RED)).clicked() {
+                                                if ui
+                                                    .button(
+                                                        egui::RichText::new("删除")
+                                                            .color(egui::Color32::RED),
+                                                    )
+                                                    .clicked()
+                                                {
                                                     self.delete_confirm_id = Some(cfg.id.clone());
                                                     self.show_delete_confirm = true;
                                                 }
                                             });
-                                            
                                         });
                                     }
                                 });
-                            
+
                             // Execute actions outside the closure
                             if let Some(id) = to_select {
                                 self.active_db_config_id = Some(id.clone());
@@ -847,13 +907,13 @@ impl DbManager {
                 self.show_manage_db = false;
             }
         }
-        
+
         // Show delete confirmation dialog
         if self.show_delete_confirm {
             let mut open = true;
             let id_to_delete = self.delete_confirm_id.clone();
-            let center = ctx.screen_rect().center();
-            
+            let center = ctx.content_rect().center();
+
             egui::Window::new("确认删除")
                 .open(&mut open)
                 .default_pos(center)
@@ -864,13 +924,16 @@ impl DbManager {
                         ui.label(format!("确定要删除数据库配置 '{}' 吗？", id));
                         ui.label("此操作不可撤销。");
                         ui.add_space(10.0);
-                        
+
                         ui.horizontal(|ui| {
                             if ui.button("取消").clicked() {
                                 self.show_delete_confirm = false;
                                 self.delete_confirm_id = None;
                             }
-                            if ui.button(egui::RichText::new("确认删除").color(egui::Color32::RED)).clicked() {
+                            if ui
+                                .button(egui::RichText::new("确认删除").color(egui::Color32::RED))
+                                .clicked()
+                            {
                                 if let Some(ref storage) = self.storage {
                                     let id_clone = id.clone();
                                     let _ = futures::block_on_async(async {
@@ -888,7 +951,7 @@ impl DbManager {
                         });
                     }
                 });
-            
+
             if !open {
                 self.show_delete_confirm = false;
                 self.delete_confirm_id = None;
@@ -910,7 +973,7 @@ impl DbManager {
             self.add_db_form.error = Some("Host is required".into());
             notify::db_connection_error(
                 &self.add_db_form.name.trim().to_string(),
-                "Host is required"
+                "Host is required",
             );
             return;
         }
@@ -919,11 +982,11 @@ impl DbManager {
             self.add_db_form.error = Some("User is required".into());
             notify::db_connection_error(
                 &self.add_db_form.name.trim().to_string(),
-                "User is required"
+                "User is required",
             );
             return;
         }
-        
+
         // 解析端口
         let port: u16 = match self.add_db_form.port.parse() {
             Ok(p) if p > 0 => p,
@@ -932,12 +995,12 @@ impl DbManager {
                 self.add_db_form.error = Some("Port must be a valid number > 0".into());
                 notify::db_connection_error(
                     &self.add_db_form.name.trim().to_string(),
-                    "Port must be a valid number > 0"
+                    "Port must be a valid number > 0",
                 );
                 return;
             }
         };
-        
+
         // 构建 DSN
         let dsn = match Self::build_dsn(
             self.add_db_form.engine.as_str(),
@@ -957,36 +1020,34 @@ impl DbManager {
             Err(e) => {
                 self.add_db_form.test_status = Some(false);
                 self.add_db_form.error = Some(e.clone());
-                notify::db_connection_error(
-                    &self.add_db_form.name.trim().to_string(),
-                    &e
-                );
+                notify::db_connection_error(&self.add_db_form.name.trim().to_string(), &e);
                 return;
             }
         };
-        
+
         // 获取数据库名称用于通知
         let db_name = if self.add_db_form.name.trim().is_empty() {
-            format!("{}@{}:{}", self.add_db_form.user.trim(), self.add_db_form.host.trim(), port)
+            format!(
+                "{}@{}:{}",
+                self.add_db_form.user.trim(),
+                self.add_db_form.host.trim(),
+                port
+            )
         } else {
             self.add_db_form.name.trim().to_string()
         };
-        
+
         // 测试连接
         self.add_db_form.error = None;
         let result = futures::block_on_async(async {
-            PgPoolOptions::new()
-                .max_connections(1)
-                .connect(&dsn)
-                .await
+            PgPoolOptions::new().max_connections(1).connect(&dsn).await
         });
-        
+
         match result {
             Ok(pool) => {
                 // 尝试执行一个简单查询来验证连接
-                let query_result = futures::block_on_async(async {
-                    sqlx::query("SELECT 1").execute(&pool).await
-                });
+                let query_result =
+                    futures::block_on_async(async { sqlx::query("SELECT 1").execute(&pool).await });
                 match query_result {
                     Ok(_) => {
                         self.add_db_form.test_status = Some(true);
@@ -1057,7 +1118,8 @@ impl DbManager {
             return Err("Host is required".into());
         }
         let port: u16 = self
-            .add_db_form.port
+            .add_db_form
+            .port
             .parse()
             .map_err(|_| "Port must be a number")?;
         if port == 0 {
@@ -1079,8 +1141,9 @@ impl DbManager {
             self.add_db_form.ssl_key_file_id.as_ref(),
             self.add_db_form.ssl_rootcert_file_id.as_ref(),
             self.storage.as_ref(),
-        ).map_err(|e| format!("Failed to build DSN: {}", e))?;
-        
+        )
+        .map_err(|e| format!("Failed to build DSN: {}", e))?;
+
         let now = Self::now_ts();
         let cfg = pgone_storage::models::DbConfig {
             id: self.add_db_form.name.trim().to_string(),
@@ -1092,9 +1155,7 @@ impl DbManager {
             created_at: now,
             updated_at: now,
         };
-        let res = futures::block_on_async(async {
-            storage.upsert_db_config(&cfg).await
-        });
+        let res = futures::block_on_async(async { storage.upsert_db_config(&cfg).await });
         match res {
             Ok(_) => Ok(()),
             Err(e) => Err(e.to_string()),
@@ -1107,13 +1168,12 @@ impl DbManager {
         let Some(storage) = self.storage.as_ref() else {
             return Err("storage not ready".into());
         };
-        let cfg = futures::block_on_async(async {
-            storage.get_db_config(id).await
-        }).map_err(|e| e.to_string())?;
+        let cfg = futures::block_on_async(async { storage.get_db_config(id).await })
+            .map_err(|e| e.to_string())?;
         let Some(cfg) = cfg else {
             return Err("Database config not found".into());
         };
-        
+
         // Parse DSN to fill form fields
         if let Some(parsed) = Self::parse_dsn(&cfg.dsn) {
             self.edit_db_id = Some(cfg.id.clone());
@@ -1130,19 +1190,19 @@ impl DbManager {
             self.edit_db_form.user = parsed.user;
             // Password is not stored, leave it empty
             self.edit_db_form.password = String::new();
-            
+
             // Parse SSL parameters from DSN
             if let Ok(url) = url::Url::parse(&cfg.dsn) {
                 let query_pairs: std::collections::HashMap<String, String> = url
                     .query_pairs()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect();
-                
+
                 // Check if SSL is enabled
                 if let Some(ssl_mode) = query_pairs.get("sslmode") {
                     self.edit_db_form.ssl_enabled = true;
                     self.edit_db_form.ssl_mode = ssl_mode.clone();
-                    
+
                     // Try to find file IDs from paths
                     self.ensure_storage();
                     if let Some(storage) = &self.storage {
@@ -1152,17 +1212,19 @@ impl DbManager {
                                 self.edit_db_form.ssl_cert_file_id = Some(file_id);
                             }
                         }
-                        
+
                         // Find SSL key file ID
                         if let Some(key_path) = query_pairs.get("sslkey") {
                             if let Some(file_id) = Self::find_file_id_by_path(storage, key_path) {
                                 self.edit_db_form.ssl_key_file_id = Some(file_id);
                             }
                         }
-                        
+
                         // Find SSL rootcert file ID
                         if let Some(rootcert_path) = query_pairs.get("sslrootcert") {
-                            if let Some(file_id) = Self::find_file_id_by_path(storage, rootcert_path) {
+                            if let Some(file_id) =
+                                Self::find_file_id_by_path(storage, rootcert_path)
+                            {
                                 self.edit_db_form.ssl_rootcert_file_id = Some(file_id);
                             }
                         }
@@ -1174,7 +1236,7 @@ impl DbManager {
         } else {
             return Err("Failed to parse DSN".into());
         }
-        
+
         Ok(())
     }
 
@@ -1187,15 +1249,14 @@ impl DbManager {
         let Some(ref id) = self.edit_db_id else {
             return Err("No database ID to update".into());
         };
-        
+
         // Load existing config to preserve created_at
-        let existing_cfg = futures::block_on_async(async {
-            storage.get_db_config(id).await
-        }).map_err(|e| e.to_string())?;
+        let existing_cfg = futures::block_on_async(async { storage.get_db_config(id).await })
+            .map_err(|e| e.to_string())?;
         let Some(existing_cfg) = existing_cfg else {
             return Err("Database config not found".into());
         };
-        
+
         if self.edit_db_form.name.trim().is_empty() {
             return Err("Name is required".into());
         }
@@ -1203,7 +1264,8 @@ impl DbManager {
             return Err("Host is required".into());
         }
         let port: u16 = self
-            .edit_db_form.port
+            .edit_db_form
+            .port
             .parse()
             .map_err(|_| "Port must be a number")?;
         if port == 0 {
@@ -1212,7 +1274,7 @@ impl DbManager {
         if self.edit_db_form.user.trim().is_empty() {
             return Err("User is required".into());
         }
-        
+
         // If password is empty, try to get it from existing DSN
         let password = if self.edit_db_form.password.trim().is_empty() {
             // Try to extract password from existing DSN
@@ -1224,7 +1286,7 @@ impl DbManager {
         } else {
             self.edit_db_form.password.trim().to_string()
         };
-        
+
         let dsn = Self::build_dsn(
             self.edit_db_form.engine.as_str(),
             &self.edit_db_form.user,
@@ -1238,8 +1300,9 @@ impl DbManager {
             self.edit_db_form.ssl_key_file_id.as_ref(),
             self.edit_db_form.ssl_rootcert_file_id.as_ref(),
             self.storage.as_ref(),
-        ).map_err(|e| format!("Failed to build DSN: {}", e))?;
-        
+        )
+        .map_err(|e| format!("Failed to build DSN: {}", e))?;
+
         let cfg = pgone_storage::models::DbConfig {
             id: self.edit_db_form.name.trim().to_string(),
             engine: self.edit_db_form.engine.as_str().to_string(),
@@ -1250,10 +1313,8 @@ impl DbManager {
             created_at: existing_cfg.created_at,
             updated_at: Self::now_ts(),
         };
-        
-        let res = futures::block_on_async(async {
-            storage.upsert_db_config(&cfg).await
-        });
+
+        let res = futures::block_on_async(async { storage.upsert_db_config(&cfg).await });
         match res {
             Ok(_) => {
                 // Update active_db_config_id if it was the edited one
@@ -1261,7 +1322,7 @@ impl DbManager {
                     self.active_db_config_id = Some(cfg.id.clone());
                 }
                 Ok(())
-            },
+            }
             Err(e) => Err(e.to_string()),
         }
     }
@@ -1269,10 +1330,13 @@ impl DbManager {
     /// Open file picker dialog and upload selected file
     pub fn select_and_upload_file(&mut self, target: FilePickerTarget) {
         self.ensure_storage();
-        
+
         // Open file dialog
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Certificate Files", &["crt", "cer", "pem", "key", "p12", "pfx"])
+            .add_filter(
+                "Certificate Files",
+                &["crt", "cer", "pem", "key", "p12", "pfx"],
+            )
             .add_filter("All Files", &["*"])
             .pick_file()
         {
@@ -1301,7 +1365,8 @@ impl DbManager {
                                 self.edit_db_form.ssl_key_file_id = Some(file_index.id.clone());
                             }
                             FilePickerTarget::EditSslRootcert => {
-                                self.edit_db_form.ssl_rootcert_file_id = Some(file_index.id.clone());
+                                self.edit_db_form.ssl_rootcert_file_id =
+                                    Some(file_index.id.clone());
                             }
                         }
                         notify::info(format!("文件已上传: {}", file_index.original_path));
@@ -1317,42 +1382,42 @@ impl DbManager {
     /// Get file name by ID
     fn get_file_name(&self, file_id: &str) -> Option<String> {
         if let Some(storage) = &self.storage {
-            if let Ok(Some(file)) = futures::block_on_async(async {
-                storage.get_file(file_id).await
-            }) {
+            if let Ok(Some(file)) =
+                futures::block_on_async(async { storage.get_file(file_id).await })
+            {
                 return Some(
                     std::path::Path::new(&file.original_path)
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or(&file.original_path)
-                        .to_string()
+                        .to_string(),
                 );
             }
         }
         None
     }
 
-
     /// Find file ID by path (supports both ./data/xxx and xxx formats)
     fn find_file_id_by_path(storage: &StorageBlocking, path: &str) -> Option<String> {
         // Remove ./data/ prefix if present
         let normalized_path = path.strip_prefix("./data/").unwrap_or(path);
-        
+
         // List all files and search by path
-        if let Ok(files) = futures::block_on_async(async {
-            storage.list_files().await
-        }) {
+        if let Ok(files) = futures::block_on_async(async { storage.list_files().await }) {
             // Try to find by current_path
             if let Some(file) = files.iter().find(|f| f.current_path == normalized_path) {
                 return Some(file.id.clone());
             }
-            
+
             // Try to find by original_path
-            if let Some(file) = files.iter().find(|f| f.original_path == path || f.original_path == normalized_path) {
+            if let Some(file) = files
+                .iter()
+                .find(|f| f.original_path == path || f.original_path == normalized_path)
+            {
                 return Some(file.id.clone());
             }
         }
-        
+
         None
     }
 
@@ -1369,7 +1434,7 @@ impl DbManager {
             self.edit_db_form.error = Some("User is required".into());
             return;
         }
-        
+
         let port: u16 = match self.edit_db_form.port.parse() {
             Ok(p) if p > 0 => p,
             _ => {
@@ -1378,14 +1443,14 @@ impl DbManager {
                 return;
             }
         };
-        
+
         // Get password from existing config if empty
         let password = if self.edit_db_form.password.trim().is_empty() {
             if let Some(ref id) = self.edit_db_id {
                 if let Some(storage) = &self.storage {
-                    if let Ok(Some(cfg)) = futures::block_on_async(async {
-                        storage.get_db_config(id).await
-                    }) {
+                    if let Ok(Some(cfg)) =
+                        futures::block_on_async(async { storage.get_db_config(id).await })
+                    {
                         if let Some(url) = url::Url::parse(&cfg.dsn).ok() {
                             url.password().unwrap_or("").to_string()
                         } else {
@@ -1403,7 +1468,7 @@ impl DbManager {
         } else {
             self.edit_db_form.password.trim().to_string()
         };
-        
+
         let dsn = match Self::build_dsn(
             self.edit_db_form.engine.as_str(),
             &self.edit_db_form.user,
@@ -1422,33 +1487,31 @@ impl DbManager {
             Err(e) => {
                 self.edit_db_form.test_status = Some(false);
                 self.edit_db_form.error = Some(e.clone());
-                notify::db_connection_error(
-                    &self.edit_db_form.name.trim().to_string(),
-                    &e
-                );
+                notify::db_connection_error(&self.edit_db_form.name.trim().to_string(), &e);
                 return;
             }
         };
-        
+
         let db_name = if self.edit_db_form.name.trim().is_empty() {
-            format!("{}@{}:{}", self.edit_db_form.user.trim(), self.edit_db_form.host.trim(), port)
+            format!(
+                "{}@{}:{}",
+                self.edit_db_form.user.trim(),
+                self.edit_db_form.host.trim(),
+                port
+            )
         } else {
             self.edit_db_form.name.trim().to_string()
         };
-        
+
         self.edit_db_form.error = None;
         let result = futures::block_on_async(async {
-            PgPoolOptions::new()
-                .max_connections(1)
-                .connect(&dsn)
-                .await
+            PgPoolOptions::new().max_connections(1).connect(&dsn).await
         });
-        
+
         match result {
             Ok(pool) => {
-                let query_result = futures::block_on_async(async {
-                    sqlx::query("SELECT 1").execute(&pool).await
-                });
+                let query_result =
+                    futures::block_on_async(async { sqlx::query("SELECT 1").execute(&pool).await });
                 match query_result {
                     Ok(_) => {
                         self.edit_db_form.test_status = Some(true);
@@ -1482,9 +1545,8 @@ impl DbManager {
         };
 
         // Get all configs
-        let all_configs = futures::block_on_async(async {
-            storage.list_db_configs(None).await
-        }).map_err(|e| format!("Failed to list configs: {}", e))?;
+        let all_configs = futures::block_on_async(async { storage.list_db_configs(None).await })
+            .map_err(|e| format!("Failed to list configs: {}", e))?;
 
         let now = Self::now_ts();
 
@@ -1493,18 +1555,15 @@ impl DbManager {
             let mut updated_cfg = cfg.clone();
             updated_cfg.default_config = Some(false);
             updated_cfg.updated_at = now;
-            let _ = futures::block_on_async(async {
-                storage.upsert_db_config(&updated_cfg).await
-            });
+            let _ = futures::block_on_async(async { storage.upsert_db_config(&updated_cfg).await });
         }
 
         // Then, set the specified config's default_config to true
         if let Some(mut target_cfg) = all_configs.iter().find(|c| c.id == id).cloned() {
             target_cfg.default_config = Some(true);
             target_cfg.updated_at = now;
-            let res = futures::block_on_async(async {
-                storage.upsert_db_config(&target_cfg).await
-            });
+            let res =
+                futures::block_on_async(async { storage.upsert_db_config(&target_cfg).await });
             match res {
                 Ok(_) => Ok(()),
                 Err(e) => Err(format!("Failed to set default config: {}", e)),

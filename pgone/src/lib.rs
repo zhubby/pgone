@@ -16,7 +16,6 @@ mod tests {
     fn test_hello_pgone() {
         assert_eq!("Hello, pgone", crate::hello_pgone());
     }
-
 }
 
 /// This module is required by `cargo pgrx test` invocations.

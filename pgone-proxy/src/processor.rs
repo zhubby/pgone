@@ -2,12 +2,12 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{stream, Sink, StreamExt};
+use futures::{Sink, StreamExt, stream};
 
+use pgwire::api::ClientInfo;
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::ClientInfo;
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use tokio_postgres::NoTls;
@@ -60,10 +60,7 @@ impl SimpleQueryHandler for PostgresProxyProcessor {
         // 提取DSN和实际SQL
         let (dsn, actual_sql) = match extract_dsn_from_sql(query) {
             Some((dsn, sql)) => {
-                info!(
-                    dsn = dsn,
-                    "Extracted DSN from SQL comment"
-                );
+                info!(dsn = dsn, "Extracted DSN from SQL comment");
                 (dsn, sql)
             }
             None => {
@@ -79,7 +76,8 @@ impl SimpleQueryHandler for PostgresProxyProcessor {
             return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "08000".to_owned(),
-                "No DSN specified in SQL comment. Please use format: -- DSN: postgres://...".to_string(),
+                "No DSN specified in SQL comment. Please use format: -- DSN: postgres://..."
+                    .to_string(),
             ))));
         }
 
@@ -89,10 +87,7 @@ impl SimpleQueryHandler for PostgresProxyProcessor {
         // 连接到后端数据库
         let backend_client = match tokio_postgres::connect(&dsn, NoTls).await {
             Ok((client, conn)) => {
-                info!(
-                    dsn = dsn,
-                    "Connected to backend database"
-                );
+                info!(dsn = dsn, "Connected to backend database");
                 // 在后台运行连接任务
                 tokio::spawn(async move {
                     if let Err(e) = conn.await {
@@ -131,10 +126,7 @@ impl SimpleQueryHandler for PostgresProxyProcessor {
             // SELECT类查询，返回结果集
             match backend_client.query(&actual_sql, &[]).await {
                 Ok(rows) => {
-                    info!(
-                        row_count = rows.len(),
-                        "Query executed successfully"
-                    );
+                    info!(row_count = rows.len(), "Query executed successfully");
 
                     if rows.is_empty() {
                         // SELECT查询但没有结果，返回空结果集
@@ -175,7 +167,10 @@ impl SimpleQueryHandler for PostgresProxyProcessor {
                         }
                     });
 
-                    Ok(vec![Response::Query(QueryResponse::new(schema, data_row_stream))])
+                    Ok(vec![Response::Query(QueryResponse::new(
+                        schema,
+                        data_row_stream,
+                    ))])
                 }
                 Err(e) => {
                     error!(
@@ -198,7 +193,9 @@ impl SimpleQueryHandler for PostgresProxyProcessor {
                         rows_affected = rows_affected,
                         "Command executed successfully"
                     );
-                    Ok(vec![Response::Execution(Tag::new("OK").with_rows(rows_affected as usize))])
+                    Ok(vec![Response::Execution(
+                        Tag::new("OK").with_rows(rows_affected as usize),
+                    )])
                 }
                 Err(e) => {
                     error!(
@@ -235,4 +232,3 @@ impl PostgresProxyProcessorFactory {
         }
     }
 }
-

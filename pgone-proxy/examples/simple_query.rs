@@ -1,14 +1,13 @@
 /// 简单的 PostgreSQL 代理客户端示例
-/// 
+///
 /// 此示例展示如何连接到 pgone-proxy 代理服务器并发送 SQL 查询。
 /// SQL 查询必须包含多行注释 YAML 配置，指定后端数据库连接信息。
-/// 
+///
 /// 运行方式：
 ///   1. 启动代理服务器: cargo run -p pgone-proxy
 ///   2. 运行此示例: cargo run --example simple_query -p pgone-proxy
-/// 
+///
 /// 注意：请根据实际情况修改示例中的后端数据库 DSN 连接字符串。
-
 use tokio_postgres::NoTls;
 
 #[tokio::main]
@@ -16,11 +15,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("==========================================");
     println!("  pgone-proxy 客户端示例");
     println!("==========================================\n");
-    
+
     // 连接到代理服务器（默认监听在 127.0.0.1:5432）
     // 注意：这里的连接信息是连接到代理服务器本身，不是后端数据库
     let proxy_dsn = "postgres://127.0.0.1:5432/postgres";
-    
+
     println!("正在连接到代理服务器: {}", proxy_dsn);
     let (client, connection) = tokio_postgres::connect(proxy_dsn, NoTls).await?;
 
@@ -107,4 +106,3 @@ SELECT 1 as test_value;"#;
     println!("==========================================");
     Ok(())
 }
-

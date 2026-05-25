@@ -7,10 +7,11 @@ impl Session {
     /// List all schemas in the current database
     pub async fn list_schemas(&self) -> Result<Vec<SchemaInfo>> {
         info!("Listing all schemas");
-        
+
         let conn = self.get_connection().await?;
-        let rows = conn.query(
-            r#"
+        let rows = conn
+            .query(
+                r#"
             SELECT 
                 n.nspname AS name,
                 pg_catalog.pg_get_userbyid(n.nspowner) AS owner,
@@ -21,10 +22,10 @@ impl Session {
                 AND n.nspname NOT LIKE 'pg_toast_temp_%'
             ORDER BY n.nspname
             "#,
-            &[],
-        )
-        .await
-        .map_err(SqlError::Connection)?;
+                &[],
+            )
+            .await
+            .map_err(SqlError::Connection)?;
 
         let mut schemas = Vec::new();
         for row in rows {
@@ -41,10 +42,11 @@ impl Session {
     /// Get detailed information about a specific schema
     pub async fn get_schema_info(&self, schema_name: &str) -> Result<SchemaInfo> {
         info!(schema_name = schema_name, "Getting schema info");
-        
+
         let conn = self.get_connection().await?;
-        let row = conn.query_opt(
-            r#"
+        let row = conn
+            .query_opt(
+                r#"
             SELECT 
                 n.nspname AS name,
                 pg_catalog.pg_get_userbyid(n.nspowner) AS owner,
@@ -52,11 +54,11 @@ impl Session {
             FROM pg_catalog.pg_namespace n
             WHERE n.nspname = $1
             "#,
-            &[&schema_name],
-        )
-        .await
-        .map_err(SqlError::Connection)?
-        .ok_or_else(|| SqlError::NotFound(format!("Schema '{}' not found", schema_name)))?;
+                &[&schema_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?
+            .ok_or_else(|| SqlError::NotFound(format!("Schema '{}' not found", schema_name)))?;
 
         Ok(SchemaInfo {
             name: row.get("name"),
@@ -66,16 +68,8 @@ impl Session {
     }
 
     /// Create a new schema
-    pub async fn create_schema(
-        &self,
-        schema_name: &str,
-        owner: Option<&str>,
-    ) -> Result<()> {
-        info!(
-            schema_name = schema_name,
-            owner = owner,
-            "Creating schema"
-        );
+    pub async fn create_schema(&self, schema_name: &str, owner: Option<&str>) -> Result<()> {
+        info!(schema_name = schema_name, owner = owner, "Creating schema");
 
         let mut sql = format!("CREATE SCHEMA {}", quote_ident(schema_name));
 
@@ -84,18 +78,19 @@ impl Session {
         }
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("permission denied") {
-                    SqlError::PermissionDenied(format!("Creating schema requires appropriate privileges: {}", e))
-                } else if err_str.contains("already exists") {
-                    SqlError::InvalidInput(format!("Schema '{}' already exists", schema_name))
-                } else {
-                    SqlError::Execution(format!("Failed to create schema: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("permission denied") {
+                SqlError::PermissionDenied(format!(
+                    "Creating schema requires appropriate privileges: {}",
+                    e
+                ))
+            } else if err_str.contains("already exists") {
+                SqlError::InvalidInput(format!("Schema '{}' already exists", schema_name))
+            } else {
+                SqlError::Execution(format!("Failed to create schema: {}", e))
+            }
+        })?;
 
         Ok(())
     }
@@ -135,16 +130,17 @@ impl Session {
                 quote_ident(schema_name),
                 quote_ident(new_owner)
             );
-            conn.execute(&sql, &[])
-                .await
-                .map_err(|e| {
-                    let err_str = e.to_string();
-                    if err_str.contains("permission denied") {
-                        SqlError::PermissionDenied(format!("Changing schema owner requires appropriate privileges: {}", e))
-                    } else {
-                        SqlError::Execution(format!("Failed to change schema owner: {}", e))
-                    }
-                })?;
+            conn.execute(&sql, &[]).await.map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("permission denied") {
+                    SqlError::PermissionDenied(format!(
+                        "Changing schema owner requires appropriate privileges: {}",
+                        e
+                    ))
+                } else {
+                    SqlError::Execution(format!("Failed to change schema owner: {}", e))
+                }
+            })?;
         }
 
         Ok(())
@@ -175,18 +171,19 @@ impl Session {
         }
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("permission denied") {
-                    SqlError::PermissionDenied(format!("Dropping schema requires appropriate privileges: {}", e))
-                } else if err_str.contains("does not exist") {
-                    SqlError::NotFound(format!("Schema '{}' does not exist", schema_name))
-                } else {
-                    SqlError::Execution(format!("Failed to drop schema: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("permission denied") {
+                SqlError::PermissionDenied(format!(
+                    "Dropping schema requires appropriate privileges: {}",
+                    e
+                ))
+            } else if err_str.contains("does not exist") {
+                SqlError::NotFound(format!("Schema '{}' does not exist", schema_name))
+            } else {
+                SqlError::Execution(format!("Failed to drop schema: {}", e))
+            }
+        })?;
 
         Ok(())
     }
@@ -209,4 +206,3 @@ mod tests {
         assert_eq!(quote_ident("my-schema"), "\"my-schema\"");
     }
 }
-

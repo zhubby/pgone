@@ -1,7 +1,9 @@
-use crate::components::{ChatCtx, ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SqlCtx};
+use crate::components::{
+    ChatCtx, ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SqlCtx,
+};
 use crate::models::PersistedState;
 use crate::storage::SessionStorage;
-use eframe::egui::{CentralPanel, Context, Frame, SidePanel};
+use eframe::egui::{CentralPanel, Context, Frame, Panel};
 
 pub fn show_left_panel(
     ctx: &Context,
@@ -11,7 +13,7 @@ pub fn show_left_panel(
     db: &mut DbManager,
     results_table: &mut ResultsTable,
 ) {
-    SidePanel::left("left_panel")
+    Panel::left("left_panel")
         .resizable(true)
         .default_width(width)
         .min_width(100.0)
@@ -31,7 +33,7 @@ pub fn show_right_panel(
     storage: &mut SessionStorage,
     db: &DbManager,
 ) {
-    SidePanel::right("right_panel")
+    Panel::right("right_panel")
         .resizable(true)
         .default_width(width)
         .min_width(100.0)
@@ -81,4 +83,3 @@ pub fn show_center_panel(
             db.pools = sql_ctx.db.pools;
         });
 }
-

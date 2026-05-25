@@ -7,7 +7,7 @@ impl Session {
     /// List all functions/routines in the current database
     pub async fn list_functions(&self, schema: Option<&str>) -> Result<Vec<FunctionInfo>> {
         info!(schema = schema, "Listing functions");
-        
+
         let conn = self.get_connection().await?;
         let rows = if let Some(s) = schema {
             conn.query(
@@ -81,10 +81,11 @@ impl Session {
             function_name = function_name,
             "Getting function info"
         );
-        
+
         let conn = self.get_connection().await?;
-        let rows = conn.query(
-            r#"
+        let rows = conn
+            .query(
+                r#"
             SELECT 
                 n.nspname AS schema,
                 p.proname AS name,
@@ -99,10 +100,10 @@ impl Session {
             WHERE n.nspname = $1 AND p.proname = $2
             ORDER BY p.oid
             "#,
-            &[&schema, &function_name],
-        )
-        .await
-        .map_err(SqlError::Connection)?;
+                &[&schema, &function_name],
+            )
+            .await
+            .map_err(SqlError::Connection)?;
 
         if rows.is_empty() {
             return Err(SqlError::NotFound(format!(
@@ -130,7 +131,7 @@ impl Session {
     /// Create a function using DDL SQL
     pub async fn create_function(&self, ddl: &str) -> Result<()> {
         info!("Creating function with DDL");
-        
+
         let conn = self.get_connection().await?;
         conn.execute(ddl, &[])
             .await
@@ -221,19 +222,17 @@ impl Session {
         }
 
         let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
-            .await
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("does not exist") {
-                    SqlError::NotFound(format!(
-                        "Function '{}.{}' does not exist",
-                        schema, function_name
-                    ))
-                } else {
-                    SqlError::Execution(format!("Failed to drop function: {}", e))
-                }
-            })?;
+        conn.execute(&sql, &[]).await.map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("does not exist") {
+                SqlError::NotFound(format!(
+                    "Function '{}.{}' does not exist",
+                    schema, function_name
+                ))
+            } else {
+                SqlError::Execution(format!("Failed to drop function: {}", e))
+            }
+        })?;
 
         Ok(())
     }

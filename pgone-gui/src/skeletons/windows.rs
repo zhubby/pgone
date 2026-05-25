@@ -24,7 +24,7 @@ pub fn show_settings_window(
             if !settings_panel.has_original_settings() {
                 settings_panel.init_original_settings(&state.settings);
             }
-            
+
             // Render UI and check if save button was clicked
             if settings_panel.ui(ui, &mut state.settings, ctx) {
                 should_save = true;
@@ -106,22 +106,14 @@ pub fn show_graph_window(
     // Get DSN before opening window to avoid borrow checker issues
     let dsn = schema_info.as_ref().and_then(|(_database, _schema)| {
         db_manager.ensure_storage();
-        db_manager
-            .active_db_config_id
-            .as_ref()
-            .and_then(|id| {
-                db_manager
-                    .storage
-                    .as_ref()
-                    .and_then(|storage| {
-                        crate::futures::block_on_async(async {
-                            storage.get_db_config(id).await
-                        })
-                        .ok()
-                        .flatten()
-                        .map(|cfg| cfg.dsn)
-                    })
+        db_manager.active_db_config_id.as_ref().and_then(|id| {
+            db_manager.storage.as_ref().and_then(|storage| {
+                crate::futures::block_on_async(async { storage.get_db_config(id).await })
+                    .ok()
+                    .flatten()
+                    .map(|cfg| cfg.dsn)
             })
+        })
     });
 
     Window::new(title)
@@ -143,6 +135,5 @@ pub fn show_graph_window(
 }
 
 fn screen_center(ctx: &Context) -> eframe::egui::Pos2 {
-    ctx.screen_rect().center()
+    ctx.content_rect().center()
 }
-
