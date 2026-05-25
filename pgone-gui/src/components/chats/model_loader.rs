@@ -1,5 +1,6 @@
 use crate::components::ChatCtx;
 use crate::futures;
+use pgone_agent::{LlmConfig, list_models};
 use tokio::sync::mpsc;
 
 pub struct ModelLoader {
@@ -67,7 +68,7 @@ impl ModelLoader {
         self.models_receiver = Some(receiver);
 
         futures::spawn(async move {
-            let mut config = pgone_llm::Config::new(api_key);
+            let mut config = LlmConfig::new(api_key);
             if let Some(url) = base_url {
                 config = config.with_base_url(url);
             }
@@ -77,14 +78,11 @@ impl ModelLoader {
                 }
             }
 
-            let result = match pgone_llm::Client::new(config, provider) {
-                Ok(client) => match client.models_list().await {
-                    Ok(models) => {
-                        let model_ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
-                        Ok(model_ids)
-                    }
-                    Err(e) => Err(e.to_string()),
-                },
+            let result = match list_models(&config, provider).await {
+                Ok(models) => {
+                    let model_ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
+                    Ok(model_ids)
+                }
                 Err(e) => Err(e.to_string()),
             };
 

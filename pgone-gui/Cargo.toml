@@ -54,7 +54,6 @@ futures-util = { workspace = true }
 futures-core = { workspace = true }
 hex = { workspace = true }
 csv = { workspace = true }
-async-openai = { workspace = true }
 urlencoding = { workspace = true }
 url = { workspace = true }
 icns = { workspace = true }
@@ -73,7 +72,6 @@ regex = { workspace = true }
 
 pgone-sql = { workspace = true }
 pgone-util = { workspace = true }
-pgone-llm = { workspace = true }
 pgone-agent = { workspace = true }
 pgone-storage = { workspace = true }
 pgone-mcp = { workspace = true }

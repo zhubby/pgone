@@ -3,7 +3,7 @@ use crate::models::{SendShortcut, Settings};
 use crate::styles::toggle::toggle;
 use egui::{ComboBox, Ui};
 use egui_dock::{DockArea, DockState, Style, TabViewer};
-use pgone_llm::LLMProvider;
+use pgone_agent::{LlmConfig, LlmProviderKind, list_models};
 use tokio::sync::mpsc;
 
 const SETTINGS_DOCK_HEIGHT: f32 = 360.0;
@@ -41,28 +41,28 @@ impl SettingsPanel {
     }
 
     /// Get all available LLM providers
-    pub fn all_llm_providers() -> &'static [LLMProvider] {
+    pub fn all_llm_providers() -> &'static [LlmProviderKind] {
         &[
-            LLMProvider::OpenAI,
-            LLMProvider::Gemini,
-            LLMProvider::Moonshot,
-            LLMProvider::DeepSeek,
-            LLMProvider::Ollama,
-            LLMProvider::BigModel,
-            LLMProvider::OpenRouter,
+            LlmProviderKind::OpenAI,
+            LlmProviderKind::Gemini,
+            LlmProviderKind::Moonshot,
+            LlmProviderKind::DeepSeek,
+            LlmProviderKind::Ollama,
+            LlmProviderKind::BigModel,
+            LlmProviderKind::OpenRouter,
         ]
     }
 
     /// Get display name for LLM provider
-    pub fn llm_provider_display_name(provider: &LLMProvider) -> &'static str {
+    pub fn llm_provider_display_name(provider: &LlmProviderKind) -> &'static str {
         match provider {
-            LLMProvider::OpenAI => "OpenAI",
-            LLMProvider::Gemini => "Google Gemini",
-            LLMProvider::Moonshot => "Moonshot",
-            LLMProvider::DeepSeek => "DeepSeek",
-            LLMProvider::Ollama => "Ollama",
-            LLMProvider::BigModel => "BigModel",
-            LLMProvider::OpenRouter => "OpenRouter",
+            LlmProviderKind::OpenAI => "OpenAI",
+            LlmProviderKind::Gemini => "Google Gemini",
+            LlmProviderKind::Moonshot => "Moonshot",
+            LlmProviderKind::DeepSeek => "DeepSeek",
+            LlmProviderKind::Ollama => "Ollama",
+            LlmProviderKind::BigModel => "BigModel",
+            LlmProviderKind::OpenRouter => "OpenRouter",
         }
     }
 
@@ -217,7 +217,7 @@ impl SettingsPanel {
         self.models_receiver = Some(receiver);
 
         futures::spawn(async move {
-            let mut config = pgone_llm::Config::new(api_key);
+            let mut config = LlmConfig::new(api_key);
             if let Some(url) = base_url {
                 config = config.with_base_url(url);
             }
@@ -225,11 +225,8 @@ impl SettingsPanel {
                 config = config.with_proxy(host, port);
             }
 
-            let result = match pgone_llm::Client::new(config, provider) {
-                Ok(client) => match client.models_list().await {
-                    Ok(models) => Ok(models.into_iter().map(|m| m.id).collect()),
-                    Err(e) => Err(e.to_string()),
-                },
+            let result = match list_models(&config, provider).await {
+                Ok(models) => Ok(models.into_iter().map(|m| m.id).collect()),
                 Err(e) => Err(e.to_string()),
             };
 

@@ -1,14 +1,120 @@
 use std::pin::Pin;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use pgone_llm::Config as LlmConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{AgentError, Result};
 
 pub type ProviderChatStream = Pin<Box<dyn Stream<Item = Result<ProviderChatStreamEvent>> + Send>>;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LlmProviderKind {
+    #[default]
+    OpenAI,
+    Gemini,
+    Moonshot,
+    DeepSeek,
+    Ollama,
+    BigModel,
+    OpenRouter,
+}
+
+#[derive(Clone, Debug)]
+pub struct LlmConfig {
+    pub api_key: String,
+    pub base_url: Option<String>,
+    pub proxy_enabled: bool,
+    pub proxy_host: Option<String>,
+    pub proxy_port: Option<u16>,
+}
+
+impl LlmConfig {
+    #[must_use]
+    pub fn new(api_key: String) -> Self {
+        Self {
+            api_key,
+            base_url: None,
+            proxy_enabled: false,
+            proxy_host: None,
+            proxy_port: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_base_url(mut self, base_url: String) -> Self {
+        self.base_url = Some(base_url);
+        self
+    }
+
+    #[must_use]
+    pub fn with_proxy(mut self, host: String, port: u16) -> Self {
+        self.proxy_enabled = true;
+        self.proxy_host = Some(host);
+        self.proxy_port = Some(port);
+        self
+    }
+
+    #[must_use]
+    pub fn proxy_url(&self) -> Option<String> {
+        if self.proxy_enabled {
+            match (&self.proxy_host, self.proxy_port) {
+                (Some(host), Some(port)) => Some(format!("http://{host}:{port}")),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self::new(String::new())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelInfo {
+    pub id: String,
+    pub object: String,
+    pub created: u64,
+    pub owned_by: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelListResponse {
+    data: Vec<ApiModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiModel {
+    id: String,
+    object: Option<String>,
+    created: Option<u64>,
+    owned_by: Option<String>,
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaTagsResponse {
+    models: Vec<OllamaModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaModel {
+    name: String,
+}
+
+pub async fn list_models(config: &LlmConfig, provider: LlmProviderKind) -> Result<Vec<ModelInfo>> {
+    match provider {
+        LlmProviderKind::Ollama => list_ollama_models(config).await,
+        LlmProviderKind::OpenRouter => list_openrouter_models(config).await,
+        _ => list_openai_compatible_models(config).await,
+    }
+}
 
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
@@ -129,6 +235,146 @@ fn required_setting(value: String, field: &str) -> Result<String> {
         )));
     }
     Ok(value)
+}
+
+fn model_client(config: &LlmConfig) -> Result<reqwest::Client> {
+    let builder = reqwest::Client::builder().timeout(Duration::from_secs(60));
+    let builder = if let Some(proxy_url) = config.proxy_url() {
+        builder.proxy(
+            reqwest::Proxy::http(proxy_url).map_err(|error| AgentError::Config(error.to_string()))?,
+        )
+    } else {
+        builder.no_proxy()
+    };
+    builder
+        .build()
+        .map_err(|error| AgentError::Config(error.to_string()))
+}
+
+fn now_epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
+async fn list_openai_compatible_models(config: &LlmConfig) -> Result<Vec<ModelInfo>> {
+    let base_url = required_setting(
+        config.base_url.clone().unwrap_or_default(),
+        "llm.base_url",
+    )?;
+    let api_key = required_setting(config.api_key.clone(), "llm.api_key")?;
+    let url = models_endpoint(&base_url);
+    let response = model_client(config)?
+        .get(url)
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|error| AgentError::Provider(error.to_string()))?
+        .error_for_status()
+        .map_err(|error| AgentError::Provider(error.to_string()))?
+        .json::<ModelListResponse>()
+        .await
+        .map_err(|error| AgentError::Provider(error.to_string()))?;
+
+    Ok(response
+        .data
+        .into_iter()
+        .map(|model| ModelInfo {
+            id: model.id,
+            object: model.object.unwrap_or_else(|| "model".to_owned()),
+            created: model.created.unwrap_or_default(),
+            owned_by: model.owned_by.or(model.name).unwrap_or_default(),
+        })
+        .collect())
+}
+
+async fn list_ollama_models(config: &LlmConfig) -> Result<Vec<ModelInfo>> {
+    let base_url = config
+        .base_url
+        .as_deref()
+        .unwrap_or("http://localhost:11434")
+        .trim_end_matches('/');
+    let url = format!("{base_url}/api/tags");
+    let response = model_client(config)?
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| AgentError::Provider(error.to_string()))?
+        .error_for_status()
+        .map_err(|error| AgentError::Provider(error.to_string()))?
+        .json::<OllamaTagsResponse>()
+        .await
+        .map_err(|error| AgentError::Provider(error.to_string()))?;
+    let created = now_epoch_seconds();
+
+    Ok(response
+        .models
+        .into_iter()
+        .map(|model| ModelInfo {
+            id: model.name,
+            object: "model".to_owned(),
+            created,
+            owned_by: "ollama".to_owned(),
+        })
+        .collect())
+}
+
+async fn list_openrouter_models(config: &LlmConfig) -> Result<Vec<ModelInfo>> {
+    let api_key = required_setting(config.api_key.clone(), "llm.api_key")?;
+    let url = openrouter_models_endpoint(config.base_url.as_deref());
+    let response = model_client(config)?
+        .get(url)
+        .bearer_auth(api_key)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("HTTP-Referer", "https://github.com/pgone")
+        .header("X-Title", "PGone")
+        .send()
+        .await
+        .map_err(|error| AgentError::Provider(error.to_string()))?
+        .error_for_status()
+        .map_err(|error| AgentError::Provider(error.to_string()))?
+        .json::<ModelListResponse>()
+        .await
+        .map_err(|error| AgentError::Provider(error.to_string()))?;
+
+    Ok(response
+        .data
+        .into_iter()
+        .map(|model| ModelInfo {
+            id: model.id,
+            object: model.object.unwrap_or_else(|| "model".to_owned()),
+            created: model.created.unwrap_or_default(),
+            owned_by: model.name.or(model.owned_by).unwrap_or_default(),
+        })
+        .collect())
+}
+
+fn models_endpoint(base_url: &str) -> String {
+    let base_url = base_url.trim_end_matches('/');
+    if base_url.ends_with("/models") {
+        base_url.to_owned()
+    } else if let Some(prefix) = base_url.strip_suffix("/chat/completions") {
+        format!("{prefix}/models")
+    } else {
+        format!("{base_url}/models")
+    }
+}
+
+fn openrouter_models_endpoint(base_url: Option<&str>) -> String {
+    if let Some(base_url) = base_url {
+        let base_url = base_url.trim_end_matches('/');
+        if base_url.ends_with("/models") {
+            base_url.to_owned()
+        } else if base_url.contains("/api/v1") {
+            format!("{base_url}/models")
+        } else {
+            format!("{base_url}/api/v1/models")
+        }
+    } else {
+        "https://openrouter.ai/api/v1/models".to_owned()
+    }
 }
 
 #[async_trait]

@@ -9,7 +9,6 @@ This repository is a Rust workspace for PostgreSQL tooling. Crates are split by 
 - `pgone-gui`: desktop GUI built with `egui`/`eframe`.
 - `pgone-storage`: embedded local storage backed by SQLite/libsql/Turso.
 - `pgone-sql`: SQL parsing, database metadata models, and PostgreSQL session helpers.
-- `pgone-llm`: LLM provider integrations and related model/tool APIs.
 - `pgone-agent`, `pgone-util`: agent scaffolding and shared utilities.
 
 Keep new code in the crate that owns the domain concern. Avoid leaking GUI-specific state into protocol/storage crates, and avoid putting database adapter behavior into CLI or UI layers.

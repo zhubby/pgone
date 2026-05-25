@@ -17,11 +17,11 @@ use pgone_storage::service::StorageService;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub use pgone_llm::Config as LlmConfig;
 pub use provider::{
-    ChatMessage, ChatMessageDelta, LlmProvider, OpenAiCompatibleProvider, ProviderChatRequest,
-    ProviderChatResponse, ProviderChatStream, ProviderChatStreamEvent, ProviderConfig,
-    ToolCallDelta, ToolCallFunctionDelta, ToolDefinition,
+    ChatMessage, ChatMessageDelta, LlmConfig, LlmProvider, LlmProviderKind, ModelInfo,
+    OpenAiCompatibleProvider, ProviderChatRequest, ProviderChatResponse, ProviderChatStream,
+    ProviderChatStreamEvent, ProviderConfig, ToolCallDelta, ToolCallFunctionDelta, ToolDefinition,
+    list_models,
 };
 pub use runtime::{AgentRuntime, RunLimits};
 pub use tools::ToolRegistry;

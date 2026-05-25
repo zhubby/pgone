@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use pgone_llm::LLMProvider;
+use pgone_agent::LlmProviderKind;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -134,7 +134,7 @@ pub struct Settings {
     pub font_family: String,
     pub font_size: f32,
     #[serde(default = "default_llm_provider")]
-    pub llm_provider: LLMProvider,
+    pub llm_provider: LlmProviderKind,
     #[serde(default = "default_enable_monitor")]
     pub enable_monitor: bool,
     #[serde(default = "default_proxy_enabled")]
@@ -145,8 +145,8 @@ pub struct Settings {
     pub enable_stream_api: bool,
 }
 
-fn default_llm_provider() -> LLMProvider {
-    LLMProvider::OpenAI
+fn default_llm_provider() -> LlmProviderKind {
+    LlmProviderKind::OpenAI
 }
 
 fn default_enable_monitor() -> bool {
@@ -170,7 +170,7 @@ impl Default for Settings {
             openai_model: "gpt-4o-mini".to_string(),
             font_family: "LXGWWenKai-Regular".to_string(),
             font_size: 12.0,
-            llm_provider: LLMProvider::OpenAI,
+            llm_provider: LlmProviderKind::OpenAI,
             enable_monitor: false,
             proxy_enabled: false,
             proxy_host: None,

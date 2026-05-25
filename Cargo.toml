@@ -31,7 +31,6 @@ members = [
     "pgone-util",
     "pgone-sql",
     "pgone-agent",
-    "pgone-llm",
     "pgone-cli",
 ]
 
@@ -73,8 +72,6 @@ once_cell = "1.20.3"
 rand = "0.8"
 axum = { version = "0.8.1" }
 async-trait = "0.1"
-async-openai = "0.30.1"
-async-stream = "0.3"
 moka = { version = "0.12", features = ["future"] }
 sqlx = { version = "0.8.6", default-features = false, features = [
     "runtime-tokio-rustls",
@@ -88,8 +85,6 @@ opentelemetry = "0.31"
 opentelemetry_sdk = "0.31"
 tracing-opentelemetry = "0.32"
 rmcp = { version = "0.10.0" }
-rig-core = "0.25.0"
-gemini-rust = "1.5.1"
 egui_dock = { version = "0.19", features = ["serde"] }
 egui = { version = "0.34.2", default-features = false }
 eframe = { version = "0.34.2", features = ["persistence"] }
@@ -130,5 +125,4 @@ pgone-storage = { path = "pgone-storage" }
 pgone-cli = { path = "pgone-cli" }
 pgone-util = { path = "pgone-util" }
 pgone-sql = { path = "pgone-sql" }
-pgone-llm = { path = "pgone-llm" }
 pgone-agent = { path = "pgone-agent" }
