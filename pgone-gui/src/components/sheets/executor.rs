@@ -1,5 +1,5 @@
-use super::{QueryResult, ResultsTable};
 use super::utils;
+use super::{QueryResult, ResultsTable};
 use crate::components::SqlCtx;
 use crate::futures;
 use poll_promise::Promise;

@@ -1,8 +1,5 @@
-use egui_snarl::ui::{SnarlStyle, SnarlViewer};
-use egui_snarl::{InPinId, NodeId, OutPinId, Snarl};
 use pgone_sql::{Session, TableDetail};
 use poll_promise::Promise;
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -13,7 +10,7 @@ pub struct TableNode {
 }
 
 impl TableNode {
-    fn new(table_name: String) -> Self {
+    fn new(table_name: &str) -> Self {
         let mut hasher = DefaultHasher::new();
         table_name.hash(&mut hasher);
         let hash = hasher.finish();
@@ -28,221 +25,14 @@ impl TableNode {
         let b = b.max(100);
         let color = egui::Color32::from_rgb(r, g, b);
 
-        Self { table_name, color }
-    }
-}
-
-pub struct SchemaGraphViewer {
-    tables: Vec<TableDetail>,
-    table_map: HashMap<String, usize>, // table_name -> index
-}
-
-impl SnarlViewer<TableNode> for SchemaGraphViewer {
-    fn title(&mut self, node: &TableNode) -> String {
-        node.table_name.clone()
-    }
-
-    fn inputs(&mut self, node: &TableNode) -> usize {
-        let table_idx = match self.table_map.get(&node.table_name) {
-            Some(idx) => *idx,
-            None => return 0,
-        };
-        let table = &self.tables[table_idx];
-
-        // Count foreign key columns as inputs
-        table.foreign_keys.iter().map(|fk| fk.columns.len()).sum()
-    }
-
-    fn outputs(&mut self, node: &TableNode) -> usize {
-        let table_idx = match self.table_map.get(&node.table_name) {
-            Some(idx) => *idx,
-            None => return 0,
-        };
-        let table = &self.tables[table_idx];
-
-        // Count primary key columns as outputs
-        table
-            .primary_key
-            .as_ref()
-            .map(|pk| pk.columns.len())
-            .unwrap_or(0)
-    }
-
-    fn show_input(
-        &mut self,
-        pin: &egui_snarl::InPin,
-        ui: &mut egui::Ui,
-        snarl: &mut Snarl<TableNode>,
-    ) -> impl egui_snarl::ui::SnarlPin + 'static {
-        // Find the column for this pin
-        let node_data = snarl.get_node(pin.id.node).map(|n| n.clone());
-        if let Some(node) = node_data {
-            let table_idx = match self.table_map.get(&node.table_name) {
-                Some(idx) => *idx,
-                None => return egui_snarl::ui::PinInfo::default(),
-            };
-            let table = &self.tables[table_idx];
-
-            // Find which foreign key column this pin represents
-            let mut pin_idx = 0;
-            for fk in &table.foreign_keys {
-                if pin_idx + fk.columns.len() > pin.id.input {
-                    let col_idx = pin.id.input - pin_idx;
-                    if let Some(col_name) = fk.columns.get(col_idx) {
-                        if let Some(col) = table.columns.iter().find(|c| c.name == *col_name) {
-                            let mut text = col.name.clone();
-                            text.push_str(": ");
-                            text.push_str(&col.data_type);
-                            if !col.nullable {
-                                text.push_str(" NOT NULL");
-                            }
-                            text.push_str(" [FK]");
-
-                            ui.label(text);
-                            if let Some(comment) = &col.comment {
-                                ui.small(comment);
-                            }
-                        }
-                    }
-                    break;
-                }
-                pin_idx += fk.columns.len();
-            }
-        }
-        egui_snarl::ui::PinInfo::default()
-    }
-
-    fn show_output(
-        &mut self,
-        pin: &egui_snarl::OutPin,
-        ui: &mut egui::Ui,
-        snarl: &mut Snarl<TableNode>,
-    ) -> impl egui_snarl::ui::SnarlPin + 'static {
-        // Find the column for this pin
-        let node_data = snarl.get_node(pin.id.node).map(|n| n.clone());
-        if let Some(node) = node_data {
-            let table_idx = match self.table_map.get(&node.table_name) {
-                Some(idx) => *idx,
-                None => return egui_snarl::ui::PinInfo::default(),
-            };
-            let table = &self.tables[table_idx];
-
-            // Find which primary key column this pin represents
-            if let Some(pk) = &table.primary_key {
-                if let Some(col_name) = pk.columns.get(pin.id.output) {
-                    if let Some(col) = table.columns.iter().find(|c| c.name == *col_name) {
-                        let mut text = col.name.clone();
-                        text.push_str(": ");
-                        text.push_str(&col.data_type);
-                        if !col.nullable {
-                            text.push_str(" NOT NULL");
-                        }
-                        text.push_str(" [PK]");
-
-                        ui.label(text);
-                        if let Some(comment) = &col.comment {
-                            ui.small(comment);
-                        }
-                    }
-                }
-            }
-        }
-        egui_snarl::ui::PinInfo::default()
-    }
-
-    fn has_body(&mut self, _node: &TableNode) -> bool {
-        true
-    }
-
-    fn show_body(
-        &mut self,
-        node_id: NodeId,
-        _inputs: &[egui_snarl::InPin],
-        _outputs: &[egui_snarl::OutPin],
-        ui: &mut egui::Ui,
-        snarl: &mut Snarl<TableNode>,
-    ) {
-        let node_data = snarl.get_node(node_id).map(|n| n.clone());
-        if let Some(node) = node_data {
-            let table_idx = match self.table_map.get(&node.table_name) {
-                Some(idx) => *idx,
-                None => return,
-            };
-            let table = &self.tables[table_idx];
-
-            ui.vertical(|ui| {
-                // Show table comment if available
-                if let Some(comment) = &table.comment {
-                    ui.label(egui::RichText::new(comment).italics());
-                    ui.separator();
-                }
-
-                // Show all columns
-                for col in &table.columns {
-                    let mut text = col.name.clone();
-                    text.push_str(": ");
-                    text.push_str(&col.data_type);
-
-                    if !col.nullable {
-                        text.push_str(" NOT NULL");
-                    }
-
-                    // Add primary key indicator
-                    if let Some(pk) = &table.primary_key {
-                        if pk.columns.contains(&col.name) {
-                            text.push_str(" [PK]");
-                        }
-                    }
-
-                    // Add foreign key indicator
-                    for fk in &table.foreign_keys {
-                        if fk.columns.contains(&col.name) {
-                            text.push_str(" [FK→");
-                            text.push_str(&fk.ref_table);
-                            text.push(']');
-                            break;
-                        }
-                    }
-
-                    ui.horizontal(|ui| {
-                        ui.label(text);
-                        if let Some(comment) = &col.comment {
-                            ui.label(egui::RichText::new(format!("({})", comment)).small().weak());
-                        }
-                    });
-                }
-            });
-        }
-    }
-
-    fn has_node_style(
-        &mut self,
-        _node_id: NodeId,
-        _inputs: &[egui_snarl::InPin],
-        _outputs: &[egui_snarl::OutPin],
-        _snarl: &Snarl<TableNode>,
-    ) -> bool {
-        true
-    }
-
-    fn apply_node_style(
-        &mut self,
-        style: &mut egui::Style,
-        node_id: NodeId,
-        _inputs: &[egui_snarl::InPin],
-        _outputs: &[egui_snarl::OutPin],
-        snarl: &Snarl<TableNode>,
-    ) {
-        if let Some(node) = snarl.get_node(node_id) {
-            // Apply node color - note: this might not work as expected,
-            // we may need to use a different approach for coloring nodes
-            style.visuals.widgets.noninteractive.bg_fill = node.color;
+        Self {
+            table_name: table_name.to_string(),
+            color,
         }
     }
 }
 
 pub struct SchemaGraph {
-    snarl: Snarl<TableNode>,
     tables: Vec<TableDetail>,
     schema_name: String,
     database_name: String,
@@ -255,7 +45,6 @@ pub struct SchemaGraph {
 impl Default for SchemaGraph {
     fn default() -> Self {
         Self {
-            snarl: Snarl::default(),
             tables: Vec::new(),
             schema_name: String::new(),
             database_name: String::new(),
@@ -270,7 +59,6 @@ impl Default for SchemaGraph {
 impl SchemaGraph {
     pub fn new(database_name: String, schema_name: String) -> Self {
         Self {
-            snarl: Snarl::default(),
             tables: Vec::new(),
             schema_name,
             database_name,
@@ -316,7 +104,7 @@ impl SchemaGraph {
                 match result {
                     Ok(tables) => {
                         self.tables = tables.clone();
-                        self.initialize_graph();
+                        self.initialized = true;
                     }
                     Err(e) => {
                         self.error = Some(e.clone());
@@ -355,106 +143,125 @@ impl SchemaGraph {
             return;
         }
 
-        // Render the graph
-        let mut viewer = SchemaGraphViewer {
-            tables: self.tables.clone(),
-            table_map: self
-                .tables
-                .iter()
-                .enumerate()
-                .map(|(i, t)| (t.name.clone(), i))
-                .collect(),
-        };
-
-        let style = SnarlStyle::default();
-        self.snarl.show(&mut viewer, &style, "schema_graph", ui);
+        self.show_schema_overview(ui);
     }
 
-    fn initialize_graph(&mut self) {
-        if self.initialized {
-            return;
-        }
+    fn show_schema_overview(&self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.heading(format!("{}.{}", self.database_name, self.schema_name));
+            ui.label(
+                egui::RichText::new(format!("{} tables", self.tables.len()))
+                    .small()
+                    .weak(),
+            );
+        });
+        ui.separator();
 
-        // Create nodes for each table
-        for table in &self.tables {
-            let node = TableNode::new(table.name.clone());
-
-            // Set initial position in a grid layout
-            let table_idx = self
-                .tables
-                .iter()
-                .position(|t| t.name == table.name)
-                .unwrap();
-            let cols = (self.tables.len() as f32).sqrt().ceil() as usize;
-            let row = table_idx / cols;
-            let col = table_idx % cols;
-
-            let x = (col as f32) * 300.0 + 100.0;
-            let y = (row as f32) * 200.0 + 100.0;
-
-            let _node_id = self.snarl.insert_node(egui::Pos2::new(x, y), node);
-        }
-
-        // Create wires for foreign keys
-        for table in &self.tables {
-            // Find the table node
-            let table_node_id = self
-                .snarl
-                .nodes_ids_data()
-                .find(|(_, node)| node.value.table_name == table.name)
-                .map(|(id, _)| id);
-
-            if let Some(from_node_id) = table_node_id {
-                for fk in &table.foreign_keys {
-                    // Find the referenced table node
-                    let ref_table_node_id = self
-                        .snarl
-                        .nodes_ids_data()
-                        .find(|(_, node)| node.value.table_name == fk.ref_table)
-                        .map(|(id, _)| id);
-
-                    if let Some(to_node_id) = ref_table_node_id {
-                        // Connect each foreign key column to the corresponding primary key column
-                        for (i, fk_col) in fk.columns.iter().enumerate() {
-                            if let Some(ref_col) = fk.ref_columns.get(i) {
-                                // Find input pin index (foreign key column)
-                                let mut input_pin_idx = 0;
-                                for fk2 in &table.foreign_keys {
-                                    if fk2.columns.contains(fk_col) {
-                                        if let Some(pos) =
-                                            fk2.columns.iter().position(|c| c == fk_col)
-                                        {
-                                            input_pin_idx += pos;
-                                            break;
-                                        }
-                                    }
-                                    input_pin_idx += fk2.columns.len();
-                                }
-
-                                // Find output pin index (primary key column in referenced table)
-                                let ref_table = self.tables.iter().find(|t| t.name == fk.ref_table);
-                                let output_pin_idx = ref_table
-                                    .and_then(|t| t.primary_key.as_ref())
-                                    .and_then(|pk| pk.columns.iter().position(|c| c == ref_col));
-
-                                if let Some(output_idx) = output_pin_idx {
-                                    let input_pin = InPinId {
-                                        node: from_node_id,
-                                        input: input_pin_idx,
-                                    };
-                                    let output_pin = OutPinId {
-                                        node: to_node_id,
-                                        output: output_idx,
-                                    };
-                                    let _ = self.snarl.connect(output_pin, input_pin);
-                                }
-                            }
-                        }
+        egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                self.show_relationships(ui);
+                ui.add_space(8.0);
+                ui.columns(2, |columns| {
+                    for (index, table) in self.tables.iter().enumerate() {
+                        columns[index % 2].group(|ui| {
+                            self.show_table_card(ui, table);
+                        });
                     }
+                });
+            });
+    }
+
+    fn show_relationships(&self, ui: &mut egui::Ui) {
+        let relationship_count: usize = self
+            .tables
+            .iter()
+            .map(|table| table.foreign_keys.len())
+            .sum();
+
+        ui.collapsing(format!("Relationships ({})", relationship_count), |ui| {
+            if relationship_count == 0 {
+                ui.label(egui::RichText::new("No foreign key relationships").weak());
+                return;
+            }
+
+            for table in &self.tables {
+                for fk in &table.foreign_keys {
+                    let source = fk.columns.join(", ");
+                    let target = fk.ref_columns.join(", ");
+                    ui.horizontal_wrapped(|ui| {
+                        ui.monospace(format!("{}.{}", table.name, source));
+                        ui.label(egui_phosphor::regular::ARROW_RIGHT);
+                        ui.monospace(format!("{}.{}", fk.ref_table, target));
+                        if let Some(on_delete) = &fk.on_delete {
+                            ui.label(
+                                egui::RichText::new(format!("ON DELETE {}", on_delete)).weak(),
+                            );
+                        }
+                        if let Some(on_update) = &fk.on_update {
+                            ui.label(
+                                egui::RichText::new(format!("ON UPDATE {}", on_update)).weak(),
+                            );
+                        }
+                    });
                 }
             }
+        });
+    }
+
+    fn show_table_card(&self, ui: &mut egui::Ui, table: &TableDetail) {
+        let node = TableNode::new(&table.name);
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(node.color, egui_phosphor::regular::TABLE);
+            ui.strong(&node.table_name);
+            if let Some(pk) = &table.primary_key {
+                ui.label(
+                    egui::RichText::new(format!("PK {}", pk.columns.join(", ")))
+                        .small()
+                        .weak(),
+                );
+            }
+        });
+
+        if let Some(comment) = &table.comment {
+            ui.label(egui::RichText::new(comment).italics().weak());
         }
 
-        self.initialized = true;
+        ui.separator();
+        egui::Grid::new(("schema_graph_table", &table.name))
+            .num_columns(3)
+            .striped(true)
+            .min_col_width(72.0)
+            .show(ui, |ui| {
+                for column in &table.columns {
+                    ui.horizontal(|ui| {
+                        if table
+                            .primary_key
+                            .as_ref()
+                            .is_some_and(|pk| pk.columns.contains(&column.name))
+                        {
+                            ui.label(egui_phosphor::regular::KEY);
+                        }
+                        if table
+                            .foreign_keys
+                            .iter()
+                            .any(|fk| fk.columns.contains(&column.name))
+                        {
+                            ui.label(egui_phosphor::regular::LINK);
+                        }
+                        ui.monospace(&column.name);
+                    });
+                    ui.label(&column.data_type);
+                    ui.horizontal_wrapped(|ui| {
+                        if !column.nullable {
+                            ui.label(egui::RichText::new("NOT NULL").small().weak());
+                        }
+                        if let Some(comment) = &column.comment {
+                            ui.label(egui::RichText::new(comment).small().weak());
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
     }
 }

@@ -196,7 +196,10 @@ fn get_db_version(ctx: &Context, dsn: &str, db_id: &str) -> Option<String> {
         let ctx = ctx.clone();
         crate::futures::spawn(async move {
             let version_result = async {
-                let pool = PgPoolOptions::new().max_connections(1).connect(&dsn).await?;
+                let pool = PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(&dsn)
+                    .await?;
                 let row = sqlx::query("SELECT version() as version")
                     .fetch_one(&pool)
                     .await?;

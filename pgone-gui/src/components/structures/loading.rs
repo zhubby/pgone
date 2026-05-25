@@ -829,20 +829,20 @@ pub(super) fn query_foreign_key_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-        let session = Session::new(&dsn_clone)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
 
-        // Query foreign key constraint name from information_schema using columns and ref_table
-        let conn = session
-            .get_connection()
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
+            // Query foreign key constraint name from information_schema using columns and ref_table
+            let conn = session
+                .get_connection()
+                .await
+                .map_err(|e| format!("Failed to get connection: {}", e))?;
 
-        // First, find the constraint name by matching columns and ref_table
-        let fk_rows = conn
-            .query(
-                r#"
+            // First, find the constraint name by matching columns and ref_table
+            let fk_rows = conn
+                .query(
+                    r#"
             SELECT DISTINCT tc.constraint_name
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
@@ -858,53 +858,53 @@ pub(super) fn query_foreign_key_detail(
               AND ccu.table_schema = $3
               AND ccu.table_name = $4
             "#,
-                &[
-                    &schema_clone,
-                    &table_clone,
-                    &ref_schema_clone,
-                    &ref_table_name_clone,
-                ],
-            )
-            .await
-            .map_err(|e| format!("Failed to query foreign key constraints: {}", e))?;
+                    &[
+                        &schema_clone,
+                        &table_clone,
+                        &ref_schema_clone,
+                        &ref_table_name_clone,
+                    ],
+                )
+                .await
+                .map_err(|e| format!("Failed to query foreign key constraints: {}", e))?;
 
-        // Find the constraint that matches all columns
-        let mut matching_constraint: Option<String> = None;
-        for row in fk_rows {
-            let constraint_name: String = row.get(0);
-            // Get columns for this constraint
-            let col_rows = conn
-                .query(
-                    r#"
+            // Find the constraint that matches all columns
+            let mut matching_constraint: Option<String> = None;
+            for row in fk_rows {
+                let constraint_name: String = row.get(0);
+                // Get columns for this constraint
+                let col_rows = conn
+                    .query(
+                        r#"
                 SELECT kcu.column_name
                 FROM information_schema.key_column_usage kcu
                 WHERE kcu.constraint_name = $1 AND kcu.table_schema = $2 AND kcu.table_name = $3
                 ORDER BY kcu.ordinal_position
                 "#,
-                    &[&constraint_name, &schema_clone, &table_clone],
-                )
-                .await
-                .map_err(|e| format!("Failed to query constraint columns: {}", e))?;
+                        &[&constraint_name, &schema_clone, &table_clone],
+                    )
+                    .await
+                    .map_err(|e| format!("Failed to query constraint columns: {}", e))?;
 
-            let constraint_cols: Vec<String> = col_rows.iter().map(|r| r.get(0)).collect();
-            if constraint_cols.len() == fk_columns.len()
-                && constraint_cols
-                    .iter()
-                    .zip(fk_columns.iter())
-                    .all(|(a, b)| a == b)
-            {
-                matching_constraint = Some(constraint_name);
-                break;
+                let constraint_cols: Vec<String> = col_rows.iter().map(|r| r.get(0)).collect();
+                if constraint_cols.len() == fk_columns.len()
+                    && constraint_cols
+                        .iter()
+                        .zip(fk_columns.iter())
+                        .all(|(a, b)| a == b)
+                {
+                    matching_constraint = Some(constraint_name);
+                    break;
+                }
             }
-        }
 
-        let constraint_name =
-            matching_constraint.ok_or_else(|| format!("Foreign key not found"))?;
+            let constraint_name =
+                matching_constraint.ok_or_else(|| format!("Foreign key not found"))?;
 
-        // Now get the full foreign key details
-        let fk_row = conn
-            .query_opt(
-                r#"
+            // Now get the full foreign key details
+            let fk_row = conn
+                .query_opt(
+                    r#"
             SELECT 
                 tc.constraint_name,
                 kcu.column_name,
@@ -928,37 +928,37 @@ pub(super) fn query_foreign_key_detail(
             ORDER BY kcu.ordinal_position
             LIMIT 1
             "#,
-                &[&schema_clone, &table_clone, &constraint_name],
-            )
-            .await
-            .map_err(|e| format!("Failed to query foreign key: {}", e))?
-            .ok_or_else(|| format!("Foreign key not found"))?;
+                    &[&schema_clone, &table_clone, &constraint_name],
+                )
+                .await
+                .map_err(|e| format!("Failed to query foreign key: {}", e))?
+                .ok_or_else(|| format!("Foreign key not found"))?;
 
-        // Build result table
-        let columns = vec!["Property".to_string(), "Value".to_string()];
-        let mut rows = Vec::new();
+            // Build result table
+            let columns = vec!["Property".to_string(), "Value".to_string()];
+            let mut rows = Vec::new();
 
-        let ref_schema: String = fk_row.get("ref_schema");
-        let ref_table: String = fk_row.get("ref_table");
-        let on_update: Option<String> = fk_row.try_get("update_rule").ok();
-        let on_delete: Option<String> = fk_row.try_get("delete_rule").ok();
+            let ref_schema: String = fk_row.get("ref_schema");
+            let ref_table: String = fk_row.get("ref_table");
+            let on_update: Option<String> = fk_row.try_get("update_rule").ok();
+            let on_delete: Option<String> = fk_row.try_get("delete_rule").ok();
 
-        rows.push(vec!["Constraint Name".to_string(), constraint_name.clone()]);
-        rows.push(vec![
-            "Referenced Table".to_string(),
-            format!("{}.{}", ref_schema, ref_table),
-        ]);
-        if let Some(update) = on_update {
-            rows.push(vec!["On Update".to_string(), update]);
-        }
-        if let Some(delete) = on_delete {
-            rows.push(vec!["On Delete".to_string(), delete]);
-        }
+            rows.push(vec!["Constraint Name".to_string(), constraint_name.clone()]);
+            rows.push(vec![
+                "Referenced Table".to_string(),
+                format!("{}.{}", ref_schema, ref_table),
+            ]);
+            if let Some(update) = on_update {
+                rows.push(vec!["On Update".to_string(), update]);
+            }
+            if let Some(delete) = on_delete {
+                rows.push(vec!["On Delete".to_string(), delete]);
+            }
 
-        // Get all columns
-        let fk_rows = conn
-            .query(
-                r#"
+            // Get all columns
+            let fk_rows = conn
+                .query(
+                    r#"
             SELECT kcu.column_name, ccu.column_name AS ref_column
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
@@ -974,23 +974,23 @@ pub(super) fn query_foreign_key_detail(
               AND tc.constraint_name = $3
             ORDER BY kcu.ordinal_position
             "#,
-                &[&schema_clone, &table_clone, &constraint_name],
-            )
-            .await
-            .map_err(|e| format!("Failed to query foreign key columns: {}", e))?;
+                    &[&schema_clone, &table_clone, &constraint_name],
+                )
+                .await
+                .map_err(|e| format!("Failed to query foreign key columns: {}", e))?;
 
-        let mut local_cols = Vec::new();
-        let mut ref_cols = Vec::new();
-        for row in fk_rows {
-            local_cols.push(row.get::<_, String>("column_name"));
-            ref_cols.push(row.get::<_, String>("ref_column"));
+            let mut local_cols = Vec::new();
+            let mut ref_cols = Vec::new();
+            for row in fk_rows {
+                local_cols.push(row.get::<_, String>("column_name"));
+                ref_cols.push(row.get::<_, String>("ref_column"));
+            }
+
+            rows.push(vec!["Local Columns".to_string(), local_cols.join(", ")]);
+            rows.push(vec!["Referenced Columns".to_string(), ref_cols.join(", ")]);
+
+            Ok((columns, rows))
         }
-
-        rows.push(vec!["Local Columns".to_string(), local_cols.join(", ")]);
-        rows.push(vec!["Referenced Columns".to_string(), ref_cols.join(", ")]);
-
-        Ok((columns, rows))
-    }
         .await;
         sender.send(result);
     });
@@ -1019,44 +1019,44 @@ pub(super) fn query_trigger_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-        let session = Session::new(&dsn_clone)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
 
-        let triggers = session
-            .get_trigger_info(&schema_clone, &trigger_clone)
-            .await
-            .map_err(|e| format!("Failed to get trigger info: {}", e))?;
+            let triggers = session
+                .get_trigger_info(&schema_clone, &trigger_clone)
+                .await
+                .map_err(|e| format!("Failed to get trigger info: {}", e))?;
 
-        let trigger_info = triggers
-            .into_iter()
-            .find(|t| t.name == trigger_clone && t.table_name == table_clone)
-            .ok_or_else(|| format!("Trigger '{}' not found", trigger_clone))?;
+            let trigger_info = triggers
+                .into_iter()
+                .find(|t| t.name == trigger_clone && t.table_name == table_clone)
+                .ok_or_else(|| format!("Trigger '{}' not found", trigger_clone))?;
 
-        // Convert to table format
-        let columns = vec!["Property".to_string(), "Value".to_string()];
-        let mut rows = Vec::new();
+            // Convert to table format
+            let columns = vec!["Property".to_string(), "Value".to_string()];
+            let mut rows = Vec::new();
 
-        rows.push(vec!["Name".to_string(), trigger_info.name.clone()]);
-        rows.push(vec![
-            "Table".to_string(),
-            format!("{}.{}", trigger_info.table_schema, trigger_info.table_name),
-        ]);
-        rows.push(vec!["Timing".to_string(), trigger_info.timing.clone()]);
-        rows.push(vec!["Events".to_string(), trigger_info.events.join(", ")]);
-        rows.push(vec![
-            "Enabled".to_string(),
-            trigger_info.enabled.to_string(),
-        ]);
-        if let Some(ref func) = trigger_info.function_name {
-            rows.push(vec!["Function".to_string(), func.clone()]);
+            rows.push(vec!["Name".to_string(), trigger_info.name.clone()]);
+            rows.push(vec![
+                "Table".to_string(),
+                format!("{}.{}", trigger_info.table_schema, trigger_info.table_name),
+            ]);
+            rows.push(vec!["Timing".to_string(), trigger_info.timing.clone()]);
+            rows.push(vec!["Events".to_string(), trigger_info.events.join(", ")]);
+            rows.push(vec![
+                "Enabled".to_string(),
+                trigger_info.enabled.to_string(),
+            ]);
+            if let Some(ref func) = trigger_info.function_name {
+                rows.push(vec!["Function".to_string(), func.clone()]);
+            }
+            if let Some(ref desc) = trigger_info.description {
+                rows.push(vec!["Description".to_string(), desc.clone()]);
+            }
+
+            Ok((columns, rows))
         }
-        if let Some(ref desc) = trigger_info.description {
-            rows.push(vec!["Description".to_string(), desc.clone()]);
-        }
-
-        Ok((columns, rows))
-    }
         .await;
         sender.send(result);
     });
@@ -1083,31 +1083,31 @@ pub(super) fn query_view_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-        let session = Session::new(&dsn_clone)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
 
-        let view_info = session
-            .get_view_info(&schema_clone, &view_clone)
-            .await
-            .map_err(|e| format!("Failed to get view info: {}", e))?;
+            let view_info = session
+                .get_view_info(&schema_clone, &view_clone)
+                .await
+                .map_err(|e| format!("Failed to get view info: {}", e))?;
 
-        // Convert to table format
-        let columns = vec!["Property".to_string(), "Value".to_string()];
-        let mut rows = Vec::new();
+            // Convert to table format
+            let columns = vec!["Property".to_string(), "Value".to_string()];
+            let mut rows = Vec::new();
 
-        rows.push(vec!["Schema".to_string(), view_info.schema.clone()]);
-        rows.push(vec!["Name".to_string(), view_info.name.clone()]);
-        rows.push(vec!["Owner".to_string(), view_info.owner.clone()]);
-        if let Some(ref def) = view_info.definition {
-            rows.push(vec!["Definition".to_string(), def.clone()]);
+            rows.push(vec!["Schema".to_string(), view_info.schema.clone()]);
+            rows.push(vec!["Name".to_string(), view_info.name.clone()]);
+            rows.push(vec!["Owner".to_string(), view_info.owner.clone()]);
+            if let Some(ref def) = view_info.definition {
+                rows.push(vec!["Definition".to_string(), def.clone()]);
+            }
+            if let Some(ref desc) = view_info.description {
+                rows.push(vec!["Description".to_string(), desc.clone()]);
+            }
+
+            Ok((columns, rows))
         }
-        if let Some(ref desc) = view_info.description {
-            rows.push(vec!["Description".to_string(), desc.clone()]);
-        }
-
-        Ok((columns, rows))
-    }
         .await;
         sender.send(result);
     });
@@ -1134,31 +1134,31 @@ pub(super) fn query_materialized_view_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-        let session = Session::new(&dsn_clone)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
 
-        let matview_info = session
-            .get_materialized_view_info(&schema_clone, &matview_clone)
-            .await
-            .map_err(|e| format!("Failed to get materialized view info: {}", e))?;
+            let matview_info = session
+                .get_materialized_view_info(&schema_clone, &matview_clone)
+                .await
+                .map_err(|e| format!("Failed to get materialized view info: {}", e))?;
 
-        // Convert to table format
-        let columns = vec!["Property".to_string(), "Value".to_string()];
-        let mut rows = Vec::new();
+            // Convert to table format
+            let columns = vec!["Property".to_string(), "Value".to_string()];
+            let mut rows = Vec::new();
 
-        rows.push(vec!["Schema".to_string(), matview_info.schema.clone()]);
-        rows.push(vec!["Name".to_string(), matview_info.name.clone()]);
-        rows.push(vec!["Owner".to_string(), matview_info.owner.clone()]);
-        if let Some(ref def) = matview_info.definition {
-            rows.push(vec!["Definition".to_string(), def.clone()]);
+            rows.push(vec!["Schema".to_string(), matview_info.schema.clone()]);
+            rows.push(vec!["Name".to_string(), matview_info.name.clone()]);
+            rows.push(vec!["Owner".to_string(), matview_info.owner.clone()]);
+            if let Some(ref def) = matview_info.definition {
+                rows.push(vec!["Definition".to_string(), def.clone()]);
+            }
+            if let Some(ref desc) = matview_info.description {
+                rows.push(vec!["Description".to_string(), desc.clone()]);
+            }
+
+            Ok((columns, rows))
         }
-        if let Some(ref desc) = matview_info.description {
-            rows.push(vec!["Description".to_string(), desc.clone()]);
-        }
-
-        Ok((columns, rows))
-    }
         .await;
         sender.send(result);
     });
@@ -1185,48 +1185,48 @@ pub(super) fn query_function_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-        let session = Session::new(&dsn_clone)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
 
-        let functions = session
-            .get_function_info(&schema_clone, &function_clone)
-            .await
-            .map_err(|e| format!("Failed to get function info: {}", e))?;
+            let functions = session
+                .get_function_info(&schema_clone, &function_clone)
+                .await
+                .map_err(|e| format!("Failed to get function info: {}", e))?;
 
-        // Use the first function if multiple overloads exist
-        let function_info = functions
-            .first()
-            .ok_or_else(|| format!("Function '{}' not found", function_clone))?;
+            // Use the first function if multiple overloads exist
+            let function_info = functions
+                .first()
+                .ok_or_else(|| format!("Function '{}' not found", function_clone))?;
 
-        // Convert to table format
-        let columns = vec!["Property".to_string(), "Value".to_string()];
-        let mut rows = Vec::new();
+            // Convert to table format
+            let columns = vec!["Property".to_string(), "Value".to_string()];
+            let mut rows = Vec::new();
 
-        rows.push(vec!["Schema".to_string(), function_info.schema.clone()]);
-        rows.push(vec!["Name".to_string(), function_info.name.clone()]);
-        rows.push(vec!["Owner".to_string(), function_info.owner.clone()]);
-        if let Some(ref lang) = function_info.language {
-            rows.push(vec!["Language".to_string(), lang.clone()]);
-        }
-        if let Some(ref ret_type) = function_info.return_type {
-            rows.push(vec!["Return Type".to_string(), ret_type.clone()]);
-        }
-        if let Some(ref def) = function_info.definition {
-            rows.push(vec!["Definition".to_string(), def.clone()]);
-        }
-        if let Some(ref desc) = function_info.description {
-            rows.push(vec!["Description".to_string(), desc.clone()]);
-        }
-        if functions.len() > 1 {
-            rows.push(vec![
-                "Overloads".to_string(),
-                format!("{} overloads", functions.len()),
-            ]);
-        }
+            rows.push(vec!["Schema".to_string(), function_info.schema.clone()]);
+            rows.push(vec!["Name".to_string(), function_info.name.clone()]);
+            rows.push(vec!["Owner".to_string(), function_info.owner.clone()]);
+            if let Some(ref lang) = function_info.language {
+                rows.push(vec!["Language".to_string(), lang.clone()]);
+            }
+            if let Some(ref ret_type) = function_info.return_type {
+                rows.push(vec!["Return Type".to_string(), ret_type.clone()]);
+            }
+            if let Some(ref def) = function_info.definition {
+                rows.push(vec!["Definition".to_string(), def.clone()]);
+            }
+            if let Some(ref desc) = function_info.description {
+                rows.push(vec!["Description".to_string(), desc.clone()]);
+            }
+            if functions.len() > 1 {
+                rows.push(vec![
+                    "Overloads".to_string(),
+                    format!("{} overloads", functions.len()),
+                ]);
+            }
 
-        Ok((columns, rows))
-    }
+            Ok((columns, rows))
+        }
         .await;
         sender.send(result);
     });

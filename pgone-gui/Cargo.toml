@@ -28,11 +28,6 @@ egui_commonmark = { workspace = true, features = [
     "better_syntax_highlighting",
     "embedded_image",
 ] }
-egui-snarl = { workspace = true }
-catppuccin-egui = { workspace = true, features = [
-    "egui34",
-] }
-egui-data-table = { workspace = true }
 epaint_default_fonts = { workspace = true }
 egui_table = { workspace = true }
 egui-phosphor = { workspace = true }

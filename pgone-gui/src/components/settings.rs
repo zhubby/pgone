@@ -490,16 +490,16 @@ impl SettingsPanel {
                 ctx.set_visuals(egui::Visuals::dark());
             }
             Theme::Latte => {
-                catppuccin_egui::set_theme(ctx, catppuccin_egui::LATTE);
+                apply_catppuccin_visuals(ctx, CatppuccinPalette::latte());
             }
             Theme::Frappe => {
-                catppuccin_egui::set_theme(ctx, catppuccin_egui::FRAPPE);
+                apply_catppuccin_visuals(ctx, CatppuccinPalette::frappe());
             }
             Theme::Macchiato => {
-                catppuccin_egui::set_theme(ctx, catppuccin_egui::MACCHIATO);
+                apply_catppuccin_visuals(ctx, CatppuccinPalette::macchiato());
             }
             Theme::Mocha => {
-                catppuccin_egui::set_theme(ctx, catppuccin_egui::MOCHA);
+                apply_catppuccin_visuals(ctx, CatppuccinPalette::mocha());
             }
         }
     }
@@ -542,4 +542,79 @@ impl SettingsPanel {
             let _ = sender.send(result).await;
         });
     }
+}
+
+struct CatppuccinPalette {
+    base: egui::Color32,
+    surface0: egui::Color32,
+    surface1: egui::Color32,
+    text: egui::Color32,
+    subtext: egui::Color32,
+    accent: egui::Color32,
+}
+
+impl CatppuccinPalette {
+    fn latte() -> Self {
+        Self {
+            base: egui::Color32::from_rgb(239, 241, 245),
+            surface0: egui::Color32::from_rgb(204, 208, 218),
+            surface1: egui::Color32::from_rgb(188, 192, 204),
+            text: egui::Color32::from_rgb(76, 79, 105),
+            subtext: egui::Color32::from_rgb(108, 111, 133),
+            accent: egui::Color32::from_rgb(30, 102, 245),
+        }
+    }
+
+    fn frappe() -> Self {
+        Self {
+            base: egui::Color32::from_rgb(48, 52, 70),
+            surface0: egui::Color32::from_rgb(65, 69, 89),
+            surface1: egui::Color32::from_rgb(81, 87, 109),
+            text: egui::Color32::from_rgb(198, 208, 245),
+            subtext: egui::Color32::from_rgb(181, 191, 226),
+            accent: egui::Color32::from_rgb(140, 170, 238),
+        }
+    }
+
+    fn macchiato() -> Self {
+        Self {
+            base: egui::Color32::from_rgb(36, 39, 58),
+            surface0: egui::Color32::from_rgb(54, 58, 79),
+            surface1: egui::Color32::from_rgb(73, 77, 100),
+            text: egui::Color32::from_rgb(202, 211, 245),
+            subtext: egui::Color32::from_rgb(184, 192, 224),
+            accent: egui::Color32::from_rgb(138, 173, 244),
+        }
+    }
+
+    fn mocha() -> Self {
+        Self {
+            base: egui::Color32::from_rgb(30, 30, 46),
+            surface0: egui::Color32::from_rgb(49, 50, 68),
+            surface1: egui::Color32::from_rgb(69, 71, 90),
+            text: egui::Color32::from_rgb(205, 214, 244),
+            subtext: egui::Color32::from_rgb(186, 194, 222),
+            accent: egui::Color32::from_rgb(137, 180, 250),
+        }
+    }
+}
+
+fn apply_catppuccin_visuals(ctx: &egui::Context, palette: CatppuccinPalette) {
+    let mut visuals = egui::Visuals::dark();
+    visuals.panel_fill = palette.base;
+    visuals.window_fill = palette.base;
+    visuals.extreme_bg_color = palette.base;
+    visuals.faint_bg_color = palette.surface0;
+    visuals.widgets.noninteractive.bg_fill = palette.surface0;
+    visuals.widgets.noninteractive.fg_stroke.color = palette.text;
+    visuals.widgets.inactive.bg_fill = palette.surface0;
+    visuals.widgets.inactive.fg_stroke.color = palette.subtext;
+    visuals.widgets.hovered.bg_fill = palette.surface1;
+    visuals.widgets.hovered.fg_stroke.color = palette.text;
+    visuals.widgets.active.bg_fill = palette.accent;
+    visuals.widgets.active.fg_stroke.color = palette.base;
+    visuals.selection.bg_fill = palette.accent;
+    visuals.selection.stroke.color = palette.text;
+    visuals.override_text_color = Some(palette.text);
+    ctx.set_visuals(visuals);
 }

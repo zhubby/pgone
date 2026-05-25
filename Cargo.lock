@@ -1810,13 +1810,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "catppuccin-egui"
-version = "5.7.0"
-dependencies = [
- "egui",
-]
-
-[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3299,18 +3292,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui-data-table"
-version = "0.10.0"
-dependencies = [
- "egui",
- "egui_extras",
- "itertools 0.14.0",
- "serde",
- "tap",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "egui-notify"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3326,25 +3307,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4e4b18e368ff336c8dd2102992e2631b118f29a2164b0d2be9d8889dcd367e"
 dependencies = [
  "egui",
-]
-
-[[package]]
-name = "egui-scale"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ce997efb2ffc1b52c36694dcf272e60f7ed918c27ea8a8e4df3ba512cf53f3c"
-dependencies = [
- "egui",
-]
-
-[[package]]
-name = "egui-snarl"
-version = "0.9.0"
-dependencies = [
- "egui",
- "egui-scale",
- "slab",
- "smallvec",
 ]
 
 [[package]]
@@ -3441,7 +3403,6 @@ dependencies = [
  "mime_guess2",
  "profiling",
  "resvg",
- "serde",
 ]
 
 [[package]]
@@ -3538,7 +3499,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6866f3bfdf8207509a033af1a75a7b08abda06bbaaeae6669323fd5a097df2e9"
 dependencies = [
  "enum-map-derive",
- "serde",
 ]
 
 [[package]]
@@ -7486,16 +7446,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-openai",
- "catppuccin-egui",
  "chrono",
  "csv",
  "ecolor",
  "eframe",
  "egui",
- "egui-data-table",
  "egui-notify",
  "egui-phosphor",
- "egui-snarl",
  "egui_commonmark",
  "egui_dock",
  "egui_extras",

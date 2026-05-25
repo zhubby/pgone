@@ -18,7 +18,10 @@ enum StorageCommand {
     Refresh,
     UpsertDbConfig(DbConfig),
     DeleteDbConfig(String),
-    UpsertSetting { key: String, value: String },
+    UpsertSetting {
+        key: String,
+        value: String,
+    },
     CopyFile {
         source_path: String,
         target: FileUploadTarget,
@@ -204,9 +207,10 @@ impl GuiStorage {
     }
 
     pub fn copy_file_to_index(&self, source_path: String, target: FileUploadTarget) {
-        let _ = self
-            .commands
-            .send(StorageCommand::CopyFile { source_path, target });
+        let _ = self.commands.send(StorageCommand::CopyFile {
+            source_path,
+            target,
+        });
     }
 
     pub fn take_file_upload_results(&self) -> Vec<Result<FileUploadResult, String>> {
@@ -251,7 +255,10 @@ async fn refresh_cache(storage: &StorageService, cache: &Arc<Mutex<StorageCache>
     match storage.list_files().await {
         Ok(files) => {
             if let Ok(mut cache) = cache.lock() {
-                cache.files = files.into_iter().map(|file| (file.id.clone(), file)).collect();
+                cache.files = files
+                    .into_iter()
+                    .map(|file| (file.id.clone(), file))
+                    .collect();
             }
         }
         Err(error) => set_error(cache, error.to_string()),

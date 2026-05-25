@@ -47,11 +47,6 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 
-[patch.crates-io]
-catppuccin-egui = { path = "vendor/catppuccin-egui" }
-egui-data-table = { path = "vendor/egui-data-table" }
-egui-snarl = { path = "vendor/egui-snarl" }
-
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.23.0"
@@ -108,9 +103,6 @@ ecolor = { version = "0.34.2", default-features = false }
 epaint = { version = "0.34.2", default-features = false }
 egui_plot = { version = "0.35.0", default-features = false }
 egui_commonmark = "0.23"
-egui-snarl = "0.9"
-catppuccin-egui = { version = "5.7.0", default-features = false }
-egui-data-table = "0.10"
 epaint_default_fonts = "0.34.2"
 egui_table = "0.8.0"
 egui-phosphor = "0.12"

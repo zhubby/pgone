@@ -4,7 +4,9 @@ use super::utils;
 use crate::futures;
 use pgone_sql::Session;
 
-fn spawn_operation(operation: impl std::future::Future<Output = Result<(), String>> + Send + 'static) {
+fn spawn_operation(
+    operation: impl std::future::Future<Output = Result<(), String>> + Send + 'static,
+) {
     futures::spawn(async move {
         if let Err(error) = operation.await {
             tracing::error!(error, "Database structure operation failed");

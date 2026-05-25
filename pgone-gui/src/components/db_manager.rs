@@ -157,11 +157,7 @@ fn spawn_connection_test(db_name: String, dsn: String) -> mpsc::Receiver<Connect
     receiver
 }
 
-fn apply_connection_test_result(
-    form: &mut DbFormData,
-    db_name: &str,
-    result: Result<(), String>,
-) {
+fn apply_connection_test_result(form: &mut DbFormData, db_name: &str, result: Result<(), String>) {
     match result {
         Ok(()) => {
             form.test_status = Some(true);

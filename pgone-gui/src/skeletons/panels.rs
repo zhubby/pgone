@@ -69,7 +69,7 @@ pub fn show_center_panel(
                 state: state.clone(),
                 db: db.sql_context_copy(),
             };
-        results_table.ui(ui, Some(&mut sql_ctx));
+            results_table.ui(ui, Some(&mut sql_ctx));
             // Update pools back if they were modified
             db.pools = sql_ctx.db.pools;
         });

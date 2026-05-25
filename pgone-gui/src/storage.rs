@@ -13,7 +13,10 @@ use tokio::sync::mpsc;
 enum SessionStorageCommand {
     SaveSession(ChatSession),
     DeleteSession(String),
-    AddMessage { session_id: String, message: Message },
+    AddMessage {
+        session_id: String,
+        message: Message,
+    },
 }
 
 #[derive(Default)]

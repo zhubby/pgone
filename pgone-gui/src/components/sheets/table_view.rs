@@ -1,139 +1,27 @@
 use super::ResultsTable;
 use crate::components::SqlCtx;
-use egui_data_table::{DataTable, Renderer, RowViewer};
-use std::collections::HashSet;
+use egui_extras::{Column, TableBuilder};
 
-/// 查询结果行数据结构
-/// 将动态的 Vec<String> 转换为结构化的行数据，便于 egui-data-table 使用
-#[derive(Clone)]
-struct QueryRow {
-    cells: Vec<String>,
-}
+fn truncate_cell_text(text: &str) -> String {
+    const MAX_LENGTH: usize = 12;
 
-/// 查询结果表格的 RowViewer 实现
-/// 负责定义如何显示和编辑表格的每一行数据
-struct QueryRowViewer {
-    /// 列名列表
-    columns: Vec<String>,
-    /// 主键列集合，用于标识主键列
-    primary_keys: HashSet<String>,
-}
+    let first_line = if let Some(crlf_pos) = text.find("\r\n") {
+        text.chars().take(crlf_pos).collect::<String>() + "..."
+    } else if let Some(newline_pos) = text.find('\n') {
+        text.chars().take(newline_pos).collect::<String>() + "..."
+    } else if let Some(carriage_pos) = text.find('\r') {
+        text.chars().take(carriage_pos).collect::<String>() + "..."
+    } else {
+        text.to_string()
+    };
 
-impl QueryRowViewer {
-    /// 截断单元格文本，最长12个字符，超过使用省略号显示
-    /// 遇到换行符直接截断并追加省略号，确保始终只显示一行
-    /// 使用字符迭代器确保正确处理多字节字符（如中文）
-    fn truncate_cell_text(text: &str) -> String {
-        const MAX_LENGTH: usize = 12;
-
-        // 首先处理换行符：找到第一个换行符的位置
-        // 优先处理 \r\n（Windows 换行符），然后是单独的 \n 或 \r
-        let first_line = if let Some(crlf_pos) = text.find("\r\n") {
-            // 找到 \r\n，截断并追加省略号
-            let truncated: String = text.chars().take(crlf_pos).collect();
-            format!("{}...", truncated)
-        } else if let Some(newline_pos) = text.find('\n') {
-            // 找到单独的 \n，截断并追加省略号
-            let truncated: String = text.chars().take(newline_pos).collect();
-            format!("{}...", truncated)
-        } else if let Some(carriage_pos) = text.find('\r') {
-            // 找到单独的 \r，截断并追加省略号
-            let truncated: String = text.chars().take(carriage_pos).collect();
-            format!("{}...", truncated)
-        } else {
-            // 没有换行符，使用原文本
-            text.to_string()
-        };
-
-        // 然后处理长度限制
-        if first_line.chars().count() <= MAX_LENGTH {
-            first_line
-        } else {
-            // 使用字符迭代器确保正确处理多字节字符
-            let truncated: String = first_line.chars().take(MAX_LENGTH).collect();
-            format!("{}...", truncated)
-        }
-    }
-}
-
-impl RowViewer<QueryRow> for QueryRowViewer {
-    /// 返回列数
-    fn num_columns(&mut self) -> usize {
-        self.columns.len()
-    }
-
-    /// 显示单元格的只读视图
-    /// 单元格内容最长显示12个字符，超过部分使用省略号
-    fn show_cell_view(&mut self, ui: &mut egui::Ui, row: &QueryRow, column: usize) {
-        if let Some(cell_value) = row.cells.get(column) {
-            let truncated = Self::truncate_cell_text(cell_value);
-            ui.label(truncated);
-        } else {
-            ui.label("");
-        }
-    }
-
-    /// 显示单元格的编辑视图（查询结果表格为只读，不实现编辑功能）
-    /// 单元格内容最长显示12个字符，超过部分使用省略号
-    fn show_cell_editor(
-        &mut self,
-        ui: &mut egui::Ui,
-        row: &mut QueryRow,
-        column: usize,
-    ) -> Option<egui::Response> {
-        // 查询结果表格是只读的，所以直接显示只读视图
-        if let Some(cell_value) = row.cells.get(column) {
-            let truncated = Self::truncate_cell_text(cell_value);
-            Some(ui.label(truncated))
-        } else {
-            Some(ui.label(""))
-        }
-    }
-
-    /// 设置单元格的值（查询结果表格为只读，不实现）
-    fn set_cell_value(&mut self, src: &QueryRow, dst: &mut QueryRow, column: usize) {
-        if let Some(value) = src.cells.get(column) {
-            if let Some(dst_cell) = dst.cells.get_mut(column) {
-                *dst_cell = value.clone();
-            }
-        }
-    }
-
-    /// 创建新的空行
-    fn new_empty_row(&mut self) -> QueryRow {
-        QueryRow {
-            cells: vec![String::new(); self.columns.len()],
-        }
-    }
-
-    /// 返回列名
-    /// 如果是主键列，会在列名前添加钥匙图标
-    fn column_name(&mut self, column: usize) -> std::borrow::Cow<'static, str> {
-        if let Some(col_name) = self.columns.get(column) {
-            if self.primary_keys.contains(col_name) {
-                // 主键列：返回带钥匙图标的列名
-                format!("{} {}", egui_phosphor::regular::KEY, col_name).into()
-            } else {
-                col_name.clone().into()
-            }
-        } else {
-            "".into()
-        }
-    }
-
-    /// 单元格是否可编辑（查询结果表格为只读）
-    fn is_editable_cell(&mut self, _column: usize, _row: usize, _row_value: &QueryRow) -> bool {
-        false
-    }
-
-    /// 是否允许行插入（查询结果表格不允许）
-    fn allow_row_insertions(&mut self) -> bool {
-        false
-    }
-
-    /// 是否允许行删除（查询结果表格不允许）
-    fn allow_row_deletions(&mut self) -> bool {
-        false
+    if first_line.chars().count() <= MAX_LENGTH {
+        first_line
+    } else {
+        format!(
+            "{}...",
+            first_line.chars().take(MAX_LENGTH).collect::<String>()
+        )
     }
 }
 
@@ -289,29 +177,41 @@ impl ResultsTable {
         // debug!("query_columns: {:?}", self.query_columns);
         // debug!("query_rows: {:?}", self.query_rows);
 
-        // 将查询结果转换为 QueryRow 格式
-        let table_data: Vec<QueryRow> = self
-            .query_rows
-            .iter()
-            .map(|row| QueryRow { cells: row.clone() })
-            .collect();
+        let columns = self.query_columns.clone();
+        let rows = self.query_rows.clone();
+        let primary_keys = self.primary_key_columns.clone();
 
-        // 创建 DataTable 实例
-        // DataTable 包装 Vec，提供表格数据管理功能
-        // 使用 FromIterator trait 从 Vec 创建 DataTable
-        let mut data_table: DataTable<QueryRow> = table_data.into_iter().collect();
+        egui::ScrollArea::both().show(ui, |ui| {
+            let table = TableBuilder::new(ui)
+                .striped(true)
+                .resizable(true)
+                .columns(Column::auto().at_least(96.0), columns.len());
 
-        // 创建 RowViewer 实例
-        // RowViewer 定义了如何显示和渲染表格的每一行
-        let mut viewer = QueryRowViewer {
-            columns: self.query_columns.clone(),
-            primary_keys: self.primary_key_columns.clone(),
-        };
-
-        // 使用 egui-data-table 的 Renderer 渲染表格
-        // Renderer 负责实际的 UI 渲染，包括列头、单元格、滚动等
-        // Renderer::new 接受 DataTable 和 RowViewer 的引用，然后调用 show() 方法渲染
-        Renderer::new(&mut data_table, &mut viewer).show(ui);
+            table
+                .header(22.0, |mut header| {
+                    for column in &columns {
+                        header.col(|ui| {
+                            if primary_keys.contains(column) {
+                                ui.strong(format!("{} {}", egui_phosphor::regular::KEY, column));
+                            } else {
+                                ui.strong(column);
+                            }
+                        });
+                    }
+                })
+                .body(|mut body| {
+                    for row in &rows {
+                        body.row(22.0, |mut table_row| {
+                            for index in 0..columns.len() {
+                                table_row.col(|ui| {
+                                    let value = row.get(index).map(String::as_str).unwrap_or("");
+                                    ui.label(truncate_cell_text(value));
+                                });
+                            }
+                        });
+                    }
+                });
+        });
     }
 
     /// 导出查询结果为 CSV 文件

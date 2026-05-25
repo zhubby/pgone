@@ -1,230 +1,84 @@
 use super::design;
 use super::operations;
 use super::types::{DbTree, DialogType, EditableColumn};
-use egui_data_table::{DataTable, Renderer, RowViewer};
 
-/// 列数据的 RowViewer 实现
-struct ColumnRowViewer;
+fn column_names() -> &'static [&'static str] {
+    &[
+        "名称",
+        "类型",
+        "长度",
+        "精度",
+        "小数位",
+        "可空",
+        "默认值",
+        "注释",
+    ]
+}
 
-impl ColumnRowViewer {
-    fn new() -> Self {
-        Self
+fn show_editable_column_row(ui: &mut egui::Ui, row: &mut EditableColumn, row_index: usize) {
+    let response = ui.text_edit_singleline(&mut row.name);
+    if response.changed() && row.original_name.is_none() && !row.is_new {
+        row.original_name = Some(row.name.clone());
     }
 
-    fn column_names() -> &'static [&'static str] {
-        &[
-            "名称",
-            "类型",
-            "长度",
-            "精度",
-            "小数位",
-            "可空",
-            "默认值",
-            "注释",
-        ]
+    let types = [
+        "VARCHAR",
+        "CHAR",
+        "TEXT",
+        "INTEGER",
+        "BIGINT",
+        "SMALLINT",
+        "NUMERIC",
+        "DECIMAL",
+        "REAL",
+        "DOUBLE PRECISION",
+        "BOOLEAN",
+        "DATE",
+        "TIME",
+        "TIMESTAMP",
+        "TIMESTAMPTZ",
+        "JSON",
+        "JSONB",
+    ];
+    let mut selected = types
+        .iter()
+        .position(|value| row.data_type.to_uppercase().starts_with(value))
+        .unwrap_or(0);
+    egui::ComboBox::from_id_salt(("design_type", row_index))
+        .selected_text(types[selected])
+        .show_ui(ui, |ui| {
+            for (index, value) in types.iter().enumerate() {
+                if ui.selectable_label(index == selected, *value).clicked() {
+                    selected = index;
+                    row.data_type = value.to_string();
+                }
+            }
+        });
+
+    edit_optional_i32(ui, &mut row.character_maximum_length);
+    edit_optional_i32(ui, &mut row.numeric_precision);
+    edit_optional_i32(ui, &mut row.numeric_scale);
+    ui.checkbox(&mut row.nullable, "");
+    edit_optional_string(ui, &mut row.default);
+    edit_optional_string(ui, &mut row.comment);
+    ui.end_row();
+}
+
+fn edit_optional_i32(ui: &mut egui::Ui, value: &mut Option<i32>) {
+    let mut text = value.map(|value| value.to_string()).unwrap_or_default();
+    if ui.text_edit_singleline(&mut text).changed() {
+        *value = if text.trim().is_empty() {
+            None
+        } else {
+            text.trim().parse().ok()
+        };
     }
 }
 
-impl RowViewer<EditableColumn> for ColumnRowViewer {
-    fn num_columns(&mut self) -> usize {
-        Self::column_names().len()
-    }
-
-    fn show_cell_view(&mut self, ui: &mut egui::Ui, row: &EditableColumn, column: usize) {
-        let _ = match column {
-            0 => ui.label(&row.name),
-            1 => ui.label(&row.data_type),
-            2 => ui.label(
-                row.character_maximum_length
-                    .map(|v| v.to_string())
-                    .unwrap_or_default(),
-            ),
-            3 => ui.label(
-                row.numeric_precision
-                    .map(|v| v.to_string())
-                    .unwrap_or_default(),
-            ),
-            4 => ui.label(row.numeric_scale.map(|v| v.to_string()).unwrap_or_default()),
-            5 => ui.label(if row.nullable { "是" } else { "否" }),
-            6 => ui.label(row.default.as_deref().unwrap_or("")),
-            7 => ui.label(row.comment.as_deref().unwrap_or("")),
-            _ => ui.label(""),
-        };
-    }
-
-    fn show_cell_editor(
-        &mut self,
-        ui: &mut egui::Ui,
-        row: &mut EditableColumn,
-        column: usize,
-    ) -> Option<egui::Response> {
-        match column {
-            0 => {
-                let response = ui.text_edit_singleline(&mut row.name);
-                // 如果名称改变且不是新列，更新 original_name
-                if row.original_name.is_none() && !row.is_new {
-                    row.original_name = Some(row.name.clone());
-                }
-                Some(response)
-            }
-            1 => {
-                // 数据类型下拉选择
-                let types = [
-                    "VARCHAR",
-                    "CHAR",
-                    "TEXT",
-                    "INTEGER",
-                    "BIGINT",
-                    "SMALLINT",
-                    "NUMERIC",
-                    "DECIMAL",
-                    "REAL",
-                    "DOUBLE PRECISION",
-                    "BOOLEAN",
-                    "DATE",
-                    "TIME",
-                    "TIMESTAMP",
-                    "TIMESTAMPTZ",
-                    "JSON",
-                    "JSONB",
-                ];
-                let mut selected = 0;
-                for (i, t) in types.iter().enumerate() {
-                    if row.data_type.to_uppercase().starts_with(t) {
-                        selected = i;
-                        break;
-                    }
-                }
-                let response = egui::ComboBox::from_id_salt(("type", column))
-                    .selected_text(types[selected])
-                    .show_ui(ui, |ui| {
-                        for (i, t) in types.iter().enumerate() {
-                            if ui.selectable_label(i == selected, *t).clicked() {
-                                row.data_type = t.to_string();
-                            }
-                        }
-                    });
-                Some(response.response)
-            }
-            2 => {
-                let mut len_str = row
-                    .character_maximum_length
-                    .map(|v| v.to_string())
-                    .unwrap_or_default();
-                let response = ui.text_edit_singleline(&mut len_str);
-                if let Ok(len) = len_str.parse::<i32>() {
-                    row.character_maximum_length = Some(len);
-                } else if len_str.is_empty() {
-                    row.character_maximum_length = None;
-                }
-                Some(response)
-            }
-            3 => {
-                let mut prec_str = row
-                    .numeric_precision
-                    .map(|v| v.to_string())
-                    .unwrap_or_default();
-                let response = ui.text_edit_singleline(&mut prec_str);
-                if let Ok(prec) = prec_str.parse::<i32>() {
-                    row.numeric_precision = Some(prec);
-                } else if prec_str.is_empty() {
-                    row.numeric_precision = None;
-                }
-                Some(response)
-            }
-            4 => {
-                let mut scale_str = row.numeric_scale.map(|v| v.to_string()).unwrap_or_default();
-                let response = ui.text_edit_singleline(&mut scale_str);
-                if let Ok(scale) = scale_str.parse::<i32>() {
-                    row.numeric_scale = Some(scale);
-                } else if scale_str.is_empty() {
-                    row.numeric_scale = None;
-                }
-                Some(response)
-            }
-            5 => {
-                let response = ui.checkbox(&mut row.nullable, "");
-                Some(response)
-            }
-            6 => {
-                let default_str = row.default.as_deref().unwrap_or("");
-                let mut default = default_str.to_string();
-                let response = ui.text_edit_singleline(&mut default);
-                if default.is_empty() {
-                    row.default = None;
-                } else {
-                    row.default = Some(default);
-                }
-                Some(response)
-            }
-            7 => {
-                let comment_str = row.comment.as_deref().unwrap_or("");
-                let mut comment = comment_str.to_string();
-                let response = ui.text_edit_singleline(&mut comment);
-                if comment.is_empty() {
-                    row.comment = None;
-                } else {
-                    row.comment = Some(comment);
-                }
-                Some(response)
-            }
-            _ => None,
-        }
-    }
-
-    fn set_cell_value(&mut self, src: &EditableColumn, dst: &mut EditableColumn, column: usize) {
-        match column {
-            0 => dst.name = src.name.clone(),
-            1 => dst.data_type = src.data_type.clone(),
-            2 => dst.character_maximum_length = src.character_maximum_length,
-            3 => dst.numeric_precision = src.numeric_precision,
-            4 => dst.numeric_scale = src.numeric_scale,
-            5 => dst.nullable = src.nullable,
-            6 => dst.default = src.default.clone(),
-            7 => dst.comment = src.comment.clone(),
-            _ => {}
-        }
-    }
-
-    fn new_empty_row(&mut self) -> EditableColumn {
-        EditableColumn {
-            name: String::new(),
-            data_type: "VARCHAR".to_string(),
-            character_maximum_length: None,
-            numeric_precision: None,
-            numeric_scale: None,
-            nullable: true,
-            default: None,
-            comment: None,
-            is_new: true,
-            is_deleted: false,
-            original_name: None,
-        }
-    }
-
-    fn column_name(&mut self, column: usize) -> std::borrow::Cow<'static, str> {
-        Self::column_names()
-            .get(column)
-            .copied()
-            .unwrap_or("")
-            .into()
-    }
-
-    fn is_editable_cell(
-        &mut self,
-        column: usize,
-        _row: usize,
-        _row_value: &EditableColumn,
-    ) -> bool {
-        column < 8 // 所有列都可编辑
-    }
-
-    fn allow_row_insertions(&mut self) -> bool {
-        true
-    }
-
-    fn allow_row_deletions(&mut self) -> bool {
-        true
+fn edit_optional_string(ui: &mut egui::Ui, value: &mut Option<String>) {
+    let mut text = value.clone().unwrap_or_default();
+    if ui.text_edit_singleline(&mut text).changed() {
+        *value = if text.is_empty() { None } else { Some(text) };
     }
 }
 
@@ -699,20 +553,25 @@ pub(super) fn show_dialogs(
                     if tree.design_table_columns.is_empty() {
                         ui.label("No columns to display");
                     } else {
-                        // 使用 egui-data-table 渲染可编辑表格
-                        let mut data_table: DataTable<EditableColumn> =
-                            tree.design_table_columns.clone().into_iter().collect();
-                        let mut viewer = ColumnRowViewer::new();
-
-                        // 使用 ScrollArea 允许滚动，固定窗口高度时内容超出会显示滚动条
-                        egui::ScrollArea::vertical()
+                        egui::ScrollArea::both()
                             .auto_shrink([false; 2])
                             .show(ui, |ui| {
-                                Renderer::new(&mut data_table, &mut viewer).show(ui);
-                            });
+                                egui::Grid::new("design_table_columns")
+                                    .striped(true)
+                                    .num_columns(column_names().len())
+                                    .show(ui, |ui| {
+                                        for name in column_names() {
+                                            ui.strong(*name);
+                                        }
+                                        ui.end_row();
 
-                        // 更新列数据
-                        tree.design_table_columns = data_table.iter().cloned().collect();
+                                        for (row_index, column) in
+                                            tree.design_table_columns.iter_mut().enumerate()
+                                        {
+                                            show_editable_column_row(ui, column, row_index);
+                                        }
+                                    });
+                            });
 
                         // 右下角按钮
                         ui.separator();
