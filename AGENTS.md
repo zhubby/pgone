@@ -4,8 +4,7 @@
 
 This repository is a Rust workspace for PostgreSQL tooling. Crates are split by responsibility:
 
-- `pgone-mcp-server`: MCP server, database registry, PostgreSQL introspection, STDIO and Streamable HTTP transports.
-- `pgone-mcp-client`: MCP client implementation for talking to MCP servers.
+- `pgone-mcp`: MCP server/client implementation, database registry, PostgreSQL introspection, STDIO and Streamable HTTP transports.
 - `pgone`: CLI entrypoint for quick runs and PostgreSQL extension-related code.
 - `pgone-gui`: desktop GUI built with `egui`/`eframe`.
 - `pgone-storage`: embedded local storage backed by SQLite/libsql/Turso.
@@ -37,10 +36,10 @@ MCP server examples:
 
 ```bash
 PGONE_MCP_PROTOCOL=stdio \
-cargo run -p pgone-mcp-server -- --protocol stdio --dbconfig-id <id>
+cargo run -p pgone-mcp --bin pgone-mcp-server -- --protocol stdio --dbconfig-id <id>
 
 PGONE_MCP_PROTOCOL=streamable \
-cargo run -p pgone-mcp-server -- --protocol streamable --addr 127.0.0.1:3000 --dbconfig-id <id>
+cargo run -p pgone-mcp --bin pgone-mcp-server -- --protocol streamable --addr 127.0.0.1:3000 --dbconfig-id <id>
 ```
 
 Some existing `justfile`/`Makefile` targets still use `PGONE_MCP_STDIO=1`; prefer `PGONE_MCP_PROTOCOL=stdio` or `--protocol stdio` for new docs and scripts unless maintaining compatibility with those targets.
@@ -193,4 +192,3 @@ PRs should include:
 - config, migration, or documentation updates when behavior changes,
 - sample CLI/MCP output when user-facing behavior is modified,
 - screenshots or short recordings for GUI changes.
-

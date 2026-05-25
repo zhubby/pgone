@@ -134,7 +134,7 @@ print(json.dumps(response.json(), indent=2))
 
 - **HTTP 服务器**: 使用 `axum` 框架提供 RESTful API
 - **数据库连接**: 使用 `sqlx` 创建 PostgreSQL 连接池
-- **Schema 查询**: 复用 `pgone-mcp-server` 中的 `PostgresIntrospector` 实现
+- **Schema 查询**: 复用 `pgone-mcp` 中的 `PostgresIntrospector` 实现
 - **协议**: 基于 JSON 的 A2A 协议消息格式
 
 ## 开发
@@ -160,4 +160,3 @@ cargo run -p pgone-a2a
 ## 许可证
 
 MIT License
-

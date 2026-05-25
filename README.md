@@ -23,7 +23,7 @@ PGone provides:
   - Schema browser and graph visualization
   - Performance monitoring
 
-- **`pgone-mcp-server`** — MCP protocol server
+- **`pgone-mcp`** — MCP server/client implementation
   - Connection registry (YAML-based or environment variables)
   - Database introspection and schema discovery
   - STDIO and Streamable HTTP transport modes
@@ -42,7 +42,6 @@ PGone provides:
 - **`pgone-a2a`** — Agent-to-agent communication
 - **`pgone-util`** — Shared utilities and logging
 - **`pgone-vector`** — Vector database support
-- **`pgone-mcp-client`** — MCP client implementation
 - **`pgone-cli`** — Unified `pgone` command entrypoint for GUI and services
 
 ---
@@ -79,7 +78,7 @@ cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio
 cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol streamable --addr 127.0.0.1:3000
 ```
 
-Existing service-specific binaries, such as `pgone-gui` and `pgone-mcp-server`, remain available for compatibility.
+Existing service-specific binaries, such as `pgone-gui` and the `pgone-mcp-server` binary from `pgone-mcp`, remain available for compatibility.
 
 ### Services
 

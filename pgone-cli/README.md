@@ -26,4 +26,4 @@ cargo run -p pgone-cli -- a2a
 ```
 
 The package name is `pgone-cli`, and the installed binary name is `pgone`.
-Existing service-specific binaries remain available for compatibility.
+Existing service-specific binaries remain available for compatibility, including `pgone-mcp-server` from the `pgone-mcp` crate.

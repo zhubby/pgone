@@ -8156,7 +8156,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.8.5",
- "pgone-mcp-server",
+ "pgone-mcp",
  "pgone-sql",
  "serde",
  "serde_json",
@@ -8216,7 +8216,7 @@ dependencies = [
  "pgone-a2a",
  "pgone-apiserver",
  "pgone-gui",
- "pgone-mcp-server",
+ "pgone-mcp",
  "pgone-proxy",
  "pgone-util",
  "tokio",
@@ -8257,8 +8257,7 @@ dependencies = [
  "open",
  "pgone-a2a",
  "pgone-llm",
- "pgone-mcp-client",
- "pgone-mcp-server",
+ "pgone-mcp",
  "pgone-sql",
  "pgone-storage",
  "pgone-util",
@@ -8308,21 +8307,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pgone-mcp-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "reqwest",
- "rmcp",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "pgone-mcp-server"
+name = "pgone-mcp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -8334,6 +8319,7 @@ dependencies = [
  "pgone-sql",
  "pgone-storage",
  "pgone-util",
+ "reqwest",
  "rmcp",
  "serde",
  "serde_json",
