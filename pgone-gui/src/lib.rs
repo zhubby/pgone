@@ -41,10 +41,7 @@ pub struct AppFrame {
     chat: ChatPanel,
     db_tree: DbTree,
     settings_panel: SettingsPanel,
-    left_panel_visible: bool,
-    right_panel_visible: bool,
-    left_panel_width: f32,
-    right_panel_width: f32,
+    dock_layout: skeletons::dock::DockLayout,
     session_storage: SessionStorage,
     show_monitor: Option<skeletons::monitors::MonitorMetric>,
     show_export: bool,
@@ -174,10 +171,7 @@ impl AppFrame {
             chat: Default::default(),
             db_tree: Default::default(),
             settings_panel: Default::default(),
-            left_panel_visible: true,
-            right_panel_visible: true,
-            left_panel_width: 250.0,
-            right_panel_width: 300.0,
+            dock_layout: Default::default(),
             session_storage,
             show_monitor: None,
             show_export: false,
@@ -267,17 +261,15 @@ impl AppFrame {
 }
 
 impl eframe::App for AppFrame {
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        self.update(ui.ctx(), frame);
-    }
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        let mut reset_dock_layout = false;
 
-    fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
         // Menu bar
         skeletons::menu_bar::show_menu_bar(
-            ctx,
+            &ctx,
             &mut self.db,
-            &mut self.left_panel_visible,
-            &mut self.right_panel_visible,
+            &mut reset_dock_layout,
             &mut self.show_settings,
             &mut self.show_about,
             &mut self.show_monitor,
@@ -285,17 +277,21 @@ impl eframe::App for AppFrame {
             &mut self.show_import,
         );
 
+        if reset_dock_layout {
+            self.dock_layout.reset();
+        }
+
         // Status bar
-        skeletons::status_bar::show_status_bar(ctx, &mut self.db, &self.state.settings);
+        skeletons::status_bar::show_status_bar(&ctx, &mut self.db, &self.state.settings);
 
         // Database management windows
-        self.db.ui_add_db_window(ctx);
-        self.db.ui_manage_db_window(ctx);
-        self.db.ui_edit_db_window(ctx);
+        self.db.ui_add_db_window(&ctx);
+        self.db.ui_manage_db_window(&ctx);
+        self.db.ui_edit_db_window(&ctx);
 
         // Settings window
         if skeletons::windows::show_settings_window(
-            ctx,
+            &ctx,
             &mut self.show_settings,
             &mut self.state,
             &mut self.settings_panel,
@@ -305,10 +301,14 @@ impl eframe::App for AppFrame {
         }
 
         // About window
-        skeletons::windows::show_about_window(ctx, &mut self.show_about);
+        skeletons::windows::show_about_window(&ctx, &mut self.show_about);
 
         // Monitor window
-        skeletons::monitors::window::show_monitor_window(ctx, &mut self.show_monitor, &mut self.db);
+        skeletons::monitors::window::show_monitor_window(
+            &ctx,
+            &mut self.show_monitor,
+            &mut self.db,
+        );
 
         // Check for pending graph window open
         if let Some(schema_info) = self.db_tree.take_pending_open_graph() {
@@ -320,7 +320,7 @@ impl eframe::App for AppFrame {
 
         // Graph window
         skeletons::windows::show_graph_window(
-            ctx,
+            &ctx,
             &mut self.show_graph,
             self.graph_schema.clone(),
             &mut self.db,
@@ -328,44 +328,31 @@ impl eframe::App for AppFrame {
         );
 
         // Export window
-        self.show_export_window(ctx);
+        self.show_export_window(&ctx);
 
         // Import window
-        self.show_import_window(ctx);
+        self.show_import_window(&ctx);
 
-        // Panels
-        skeletons::panels::show_left_panel(
-            ctx,
-            self.left_panel_visible,
-            self.left_panel_width,
-            &mut self.db_tree,
-            &mut self.db,
-            &mut self.results_table,
-        );
-
-        skeletons::panels::show_right_panel(
-            ctx,
-            self.right_panel_visible,
-            self.right_panel_width,
-            &mut self.chat,
-            &mut self.state,
-            &mut self.preview,
-            &mut self.session_storage,
-            &self.db,
-        );
-
-        skeletons::panels::show_center_panel(
-            ctx,
-            &mut self.db,
-            &mut self.results_table,
-            &self.state,
-        );
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0.))
+            .show_inside(ui, |ui| {
+                self.dock_layout.ui(
+                    ui,
+                    &mut self.db_tree,
+                    &mut self.db,
+                    &mut self.results_table,
+                    &mut self.chat,
+                    &mut self.state,
+                    &mut self.preview,
+                    &mut self.session_storage,
+                );
+            });
 
         // Image preview window
-        self.preview.ui_window(ctx);
+        self.preview.ui_window(&ctx);
 
         // 显示通知
-        notify::show(ctx);
+        notify::show(&ctx);
     }
 }
 

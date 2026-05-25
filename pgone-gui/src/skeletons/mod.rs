@@ -1,3 +1,4 @@
+pub mod dock;
 pub mod formatters;
 pub mod menu_bar;
 pub mod monitors;

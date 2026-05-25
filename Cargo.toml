@@ -97,6 +97,7 @@ opentelemetry_sdk = "0.31"
 tracing-opentelemetry = "0.32"
 rmcp = { version = "0.10.0" }
 rig-core = "0.25.0"
+egui_dock = "0.19"
 
 # Turso/libsql for local embedded storage
 libsql = { version = "0.4" }
