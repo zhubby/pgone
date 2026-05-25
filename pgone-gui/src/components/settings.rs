@@ -1,5 +1,6 @@
 use crate::models::{Settings, SendShortcut, Theme};
 use crate::futures;
+use crate::styles::toggle::toggle;
 use egui::{ComboBox, Ui};
 use std::fs;
 use std::path::Path;
@@ -309,6 +310,14 @@ impl SettingsPanel {
                 });
             });
         }
+        
+        ui.add_space(5.0);
+        
+        // Stream API toggle
+        ui.horizontal(|ui| {
+            ui.label("启用流式 API:");
+            ui.add(toggle(&mut settings.enable_stream_api));
+        });
         
         ui.add_space(5.0);
         

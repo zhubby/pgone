@@ -52,6 +52,9 @@ sqlparser = "0.48"
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
 sqlx = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+futures-core = "0.3"
 hex = "0.4"
 csv = "1"
 async-openai = "0.25"

@@ -169,6 +169,8 @@ pub struct Settings {
     pub proxy_enabled: bool,
     pub proxy_host: Option<String>,
     pub proxy_port: Option<u16>,
+    #[serde(default = "default_enable_stream_api")]
+    pub enable_stream_api: bool,
 }
 
 fn default_theme() -> Theme {
@@ -187,6 +189,10 @@ fn default_proxy_enabled() -> bool {
     false
 }
 
+fn default_enable_stream_api() -> bool {
+    false
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -202,6 +208,7 @@ impl Default for Settings {
             proxy_enabled: false,
             proxy_host: None,
             proxy_port: None,
+            enable_stream_api: false,
         }
     }
 }
@@ -248,6 +255,9 @@ impl Settings {
         } else {
             map.insert("proxy_port".to_string(), "".to_string());
         }
+        
+        // Stream API setting
+        map.insert("enable_stream_api".to_string(), self.enable_stream_api.to_string());
         
         map
     }
@@ -357,6 +367,13 @@ impl Settings {
                 }
             } else {
                 settings.proxy_port = None;
+            }
+        }
+        
+        // Parse enable_stream_api
+        if let Some(value) = map.get("enable_stream_api") {
+            if let Ok(enabled) = value.parse::<bool>() {
+                settings.enable_stream_api = enabled;
             }
         }
         

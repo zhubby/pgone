@@ -16,6 +16,7 @@ use super::session_selector::SessionSelector;
 pub struct ChatPanel {
     pub input_area: InputArea,
     openai_receiver: Option<mpsc::Receiver<Result<String, String>>>,
+    stream_receiver: Option<mpsc::Receiver<Result<String, String>>>,
     model_loader: ModelLoader,
     enable_thinking: bool,
     enable_search: bool,
@@ -27,6 +28,7 @@ impl Default for ChatPanel {
         Self {
             input_area: InputArea::default(),
             openai_receiver: None,
+            stream_receiver: None,
             model_loader: ModelLoader::default(),
             enable_thinking: false,
             enable_search: false,
@@ -43,6 +45,7 @@ impl Clone for ChatPanel {
                 pending_resources: self.input_area.pending_resources.clone(),
             },
             openai_receiver: None, // Receivers cannot be cloned, reset on clone
+            stream_receiver: None, // Receivers cannot be cloned, reset on clone
             model_loader: ModelLoader {
                 available_models: self.model_loader.available_models.clone(),
                 models_receiver: None, // Receivers cannot be cloned, reset on clone
@@ -94,7 +97,76 @@ impl ChatPanel {
                         self.send_openai_with_tools(ctxs);
                     }
                     
-                    // 检查OpenAI请求结果
+                    // 检查流式响应
+                    if let Some(ref mut receiver) = self.stream_receiver {
+                        let mut has_update = false;
+                        loop {
+                            match receiver.try_recv() {
+                                Ok(result) => {
+                                    match result {
+                                        Ok(chunk) => {
+                                            if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                                                // 更新最后一条 assistant 消息，如果不存在则创建
+                                                if let Some(last_msg) = sess.messages.last_mut() {
+                                                    if matches!(last_msg.role, Role::Assistant) {
+                                                        if let MessageContent::Markdown(ref mut content) = last_msg.content {
+                                                            content.push_str(&chunk);
+                                                            has_update = true;
+                                                        }
+                                                    } else {
+                                                        // 最后一条不是 assistant 消息，创建新的
+                                                        let message = Message {
+                                                            role: Role::Assistant,
+                                                            timestamp: Utc::now(),
+                                                            content: MessageContent::Markdown(chunk),
+                                                        };
+                                                        sess.messages.push(message);
+                                                        has_update = true;
+                                                    }
+                                                } else {
+                                                    // 没有消息，创建新的
+                                                    let message = Message {
+                                                        role: Role::Assistant,
+                                                        timestamp: Utc::now(),
+                                                        content: MessageContent::Markdown(chunk),
+                                                    };
+                                                    sess.messages.push(message);
+                                                    has_update = true;
+                                                }
+                                                sess.updated_at = Utc::now();
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let message = format!("流式 API 错误: {}", e);
+                                            crate::notify::error(&message);
+                                            tracing::error!("{}", message);
+                                            self.stream_receiver = None;
+                                            break;
+                                        }
+                                    }
+                                }
+                                Err(mpsc::error::TryRecvError::Empty) => {
+                                    // 没有更多数据，退出循环
+                                    break;
+                                }
+                                Err(mpsc::error::TryRecvError::Disconnected) => {
+                                    // Channel已断开，流式响应完成，保存最终消息
+                                    if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                                        if let Err(e) = ctxs.storage.save_session(sess) {
+                                            tracing::error!("保存会话失败: {}", e);
+                                        }
+                                    }
+                                    self.stream_receiver = None;
+                                    break;
+                                }
+                            }
+                        }
+                        if has_update {
+                            ctxs.should_scroll_to_bottom = true;
+                        }
+                    }
+                    
+                    // 检查OpenAI请求结果（非流式）
                     if let Some(ref mut receiver) = self.openai_receiver {
                         match receiver.try_recv() {
                             Ok(result) => {
@@ -342,9 +414,7 @@ impl ChatPanel {
         let proxy_port = ctxs.state.settings.proxy_port;
         let tools = pgone_mcp_server::mcp::list_tools();
         let dbconfig_id_clone = dbconfig_id.clone();
-
-        let (sender, receiver) = mpsc::channel(1);
-        self.openai_receiver = Some(receiver);
+        let enable_stream_api = ctxs.state.settings.enable_stream_api;
 
         // 获取当前会话ID（在spawn之前）
         let session_id = if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
@@ -362,120 +432,209 @@ impl ChatPanel {
             chat_messages.push(pgone_llm::chat::ChatMessage::user(prompt_clone.clone()));
         }
 
-        futures::spawn(async move {
-            let mut config = Config::new(key_clone);
-            if let Some(url) = base_url {
-                config = config.with_base_url(url);
+        // 如果启用流式 API，使用流式模式
+        if enable_stream_api {
+            // 创建临时的 assistant 消息
+            if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                let temp_message = Message {
+                    role: Role::Assistant,
+                    timestamp: Utc::now(),
+                    content: MessageContent::Markdown(String::new()),
+                };
+                sess.messages.push(temp_message);
+                sess.updated_at = Utc::now();
             }
-            if proxy_enabled {
-                if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
-                    config = config.with_proxy(host, port);
+
+            let (stream_sender, stream_receiver) = mpsc::channel(100);
+            self.stream_receiver = Some(stream_receiver);
+
+            futures::spawn(async move {
+                let mut config = Config::new(key_clone);
+                if let Some(url) = base_url {
+                    config = config.with_base_url(url);
                 }
-            }
-            let client = match Client::new(config, provider) {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = sender.send(Err(e.to_string())).await;
-                    return;
+                if proxy_enabled {
+                    if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
+                        config = config.with_proxy(host, port);
+                    }
                 }
-            };
-            
-            // 创建 MCP 服务器实例
-            let mcp_server = match PgoneMcpServer::new(dbconfig_id_clone.clone()).await {
-                Ok(server) => server,
-                Err(e) => {
-                    let _ = sender.send(Err(format!("创建 MCP 服务器失败: {}", e))).await;
-                    return;
-                }
-            };
-            
-            // 处理多轮对话，直到没有 tool_calls
-            let mut current_messages = chat_messages;
-            let mut max_iterations = 10; // 防止无限循环
-            
-            loop {
-                if max_iterations == 0 {
-                    let _ = sender.send(Err("达到最大工具调用轮次限制".to_string())).await;
-                    return;
-                }
-                max_iterations -= 1;
-                
+                let client = match Client::new(config, provider) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        let _ = stream_sender.send(Err(e.to_string())).await;
+                        return;
+                    }
+                };
+
+                // 创建流式请求
                 let mut request = pgone_llm::chat::ChatRequest::new(model_clone.clone())
-                    .with_messages(current_messages.clone())
+                    .with_messages(chat_messages.clone())
                     .with_tools(tools.iter().map(|t| t.clone().into()).collect());
                 
                 // 设置会话ID用于审计
                 if let Some(ref sid) = session_id {
                     request = request.with_session_id(sid.clone());
                 }
-                
-                let resp = match client.chat_create(request).await {
-                    Ok(resp) => resp,
+
+                // 获取流式响应
+                let stream = client.chat_create_stream(request);
+                use futures_util::StreamExt;
+                use std::pin::Pin;
+                // stream 已经是 Box<dyn Stream>，使用 Pin::from 转换为 Pin<Box<dyn Stream>>
+                // 注意：这里需要明确指定 Stream trait 的类型
+                let mut stream = Pin::from(stream);
+                let mut accumulated_content = String::new();
+
+                // Pin<Box<T>> 实现了 Unpin，所以可以直接调用 next()
+                while let Some(result) = stream.as_mut().next().await {
+                    match result {
+                        Ok(chunk) => {
+                            // 提取内容增量
+                            if let Some(delta) = chunk.choices.first()
+                                .and_then(|c| c.delta.content.as_ref())
+                            {
+                                accumulated_content.push_str(delta);
+                                let _ = stream_sender.send(Ok(delta.to_string())).await;
+                            }
+                            
+                            // 检查是否完成
+                            if chunk.choices.first()
+                                .and_then(|c| c.finish_reason.as_ref())
+                                .is_some()
+                            {
+                                // 流式响应完成
+                                // 注意：流式响应中工具调用的处理较复杂，这里先不处理
+                                // 如果需要工具调用，可能需要回退到非流式模式
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            let _ = stream_sender.send(Err(e.to_string())).await;
+                            return;
+                        }
+                    }
+                }
+            });
+        } else {
+            // 非流式模式，使用原有逻辑
+            let (sender, receiver) = mpsc::channel(1);
+            self.openai_receiver = Some(receiver);
+
+            futures::spawn(async move {
+                let mut config = Config::new(key_clone);
+                if let Some(url) = base_url {
+                    config = config.with_base_url(url);
+                }
+                if proxy_enabled {
+                    if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
+                        config = config.with_proxy(host, port);
+                    }
+                }
+                let client = match Client::new(config, provider) {
+                    Ok(c) => c,
                     Err(e) => {
                         let _ = sender.send(Err(e.to_string())).await;
                         return;
                     }
                 };
                 
-                // 检查是否有 tool_calls
-                if let Some(tool_calls) = &resp.tool_calls {
-                    if !tool_calls.is_empty() {
-                        // 需要调用工具
-                        let mut function_messages = Vec::new();
-                        
-                        for tool_call in tool_calls {
-                            // 解析参数
-                            let args: Value = match serde_json::from_str(&tool_call.arguments) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    let error_msg = format!("解析工具参数失败: {}", e);
-                                    function_messages.push(pgone_llm::chat::ChatMessage::function(
-                                        tool_call.name.clone(),
-                                        error_msg,
-                                    ));
-                                    continue;
-                                }
-                            };
+                // 创建 MCP 服务器实例
+                let mcp_server = match PgoneMcpServer::new(dbconfig_id_clone.clone()).await {
+                    Ok(server) => server,
+                    Err(e) => {
+                        let _ = sender.send(Err(format!("创建 MCP 服务器失败: {}", e))).await;
+                        return;
+                    }
+                };
+                
+                // 处理多轮对话，直到没有 tool_calls
+                let mut current_messages = chat_messages;
+                let mut max_iterations = 10; // 防止无限循环
+                
+                loop {
+                    if max_iterations == 0 {
+                        let _ = sender.send(Err("达到最大工具调用轮次限制".to_string())).await;
+                        return;
+                    }
+                    max_iterations -= 1;
+                    
+                    let mut request = pgone_llm::chat::ChatRequest::new(model_clone.clone())
+                        .with_messages(current_messages.clone())
+                        .with_tools(tools.iter().map(|t| t.clone().into()).collect());
+                    
+                    // 设置会话ID用于审计
+                    if let Some(ref sid) = session_id {
+                        request = request.with_session_id(sid.clone());
+                    }
+                    
+                    let resp = match client.chat_create(request).await {
+                        Ok(resp) => resp,
+                        Err(e) => {
+                            let _ = sender.send(Err(e.to_string())).await;
+                            return;
+                        }
+                    };
+                    
+                    // 检查是否有 tool_calls
+                    if let Some(tool_calls) = &resp.tool_calls {
+                        if !tool_calls.is_empty() {
+                            // 需要调用工具
+                            let mut function_messages = Vec::new();
                             
-                            // 调用工具
-                            match mcp_server.call_tool_direct(&tool_call.name, args).await {
-                                Ok(result) => {
-                                    // 将结果转换为字符串
-                                    let result_str = match serde_json::to_string(&result) {
-                                        Ok(s) => s,
-                                        Err(e) => format!("序列化工具结果失败: {}", e),
-                                    };
-                                    function_messages.push(pgone_llm::chat::ChatMessage::function(
-                                        tool_call.name.clone(),
-                                        result_str,
-                                    ));
-                                }
-                                Err(e) => {
-                                    let error_msg = format!("工具调用失败: {}", e);
-                                    function_messages.push(pgone_llm::chat::ChatMessage::function(
-                                        tool_call.name.clone(),
-                                        error_msg,
-                                    ));
+                            for tool_call in tool_calls {
+                                // 解析参数
+                                let args: Value = match serde_json::from_str(&tool_call.arguments) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        let error_msg = format!("解析工具参数失败: {}", e);
+                                        function_messages.push(pgone_llm::chat::ChatMessage::function(
+                                            tool_call.name.clone(),
+                                            error_msg,
+                                        ));
+                                        continue;
+                                    }
+                                };
+                                
+                                // 调用工具
+                                match mcp_server.call_tool_direct(&tool_call.name, args).await {
+                                    Ok(result) => {
+                                        // 将结果转换为字符串
+                                        let result_str = match serde_json::to_string(&result) {
+                                            Ok(s) => s,
+                                            Err(e) => format!("序列化工具结果失败: {}", e),
+                                        };
+                                        function_messages.push(pgone_llm::chat::ChatMessage::function(
+                                            tool_call.name.clone(),
+                                            result_str,
+                                        ));
+                                    }
+                                    Err(e) => {
+                                        let error_msg = format!("工具调用失败: {}", e);
+                                        function_messages.push(pgone_llm::chat::ChatMessage::function(
+                                            tool_call.name.clone(),
+                                            error_msg,
+                                        ));
+                                    }
                                 }
                             }
+                            
+                            // 将 assistant 消息（包含 tool_calls）和 function messages 添加到消息历史
+                            // 即使 content 为空，也需要添加 assistant 消息以保持对话连续性
+                            current_messages.push(pgone_llm::chat::ChatMessage::assistant(resp.content.clone()));
+                            current_messages.extend(function_messages);
+                            
+                            // 继续下一轮
+                            continue;
                         }
-                        
-                        // 将 assistant 消息（包含 tool_calls）和 function messages 添加到消息历史
-                        // 即使 content 为空，也需要添加 assistant 消息以保持对话连续性
-                        current_messages.push(pgone_llm::chat::ChatMessage::assistant(resp.content.clone()));
-                        current_messages.extend(function_messages);
-                        
-                        // 继续下一轮
-                        continue;
                     }
+                    
+                    // 没有 tool_calls，返回最终响应
+                    let final_response = resp.content;
+                    let _ = sender.send(Ok(final_response)).await;
+                    return;
                 }
-                
-                // 没有 tool_calls，返回最终响应
-                let final_response = resp.content;
-                let _ = sender.send(Ok(final_response)).await;
-                return;
-            }
-        });
+            });
+        }
     }
 }
 
