@@ -10,8 +10,6 @@ This repository is a Rust workspace for PostgreSQL tooling. Crates are split by 
 - `pgone-storage`: embedded local storage backed by SQLite/libsql/Turso.
 - `pgone-sql`: SQL parsing, database metadata models, and PostgreSQL session helpers.
 - `pgone-llm`: LLM provider integrations and related model/tool APIs.
-- `pgone-proxy`: PostgreSQL proxy, query extraction, replay, and row/type conversion.
-- `pgone-apiserver`: HTTP/gRPC API server and proxy service definitions.
 - `pgone-agent`, `pgone-vector`, `pgone-util`: agent scaffolding, vector support, and shared utilities.
 
 Keep new code in the crate that owns the domain concern. Avoid leaking GUI-specific state into protocol/storage crates, and avoid putting database adapter behavior into CLI or UI layers.
@@ -27,8 +25,6 @@ Use workspace-level commands from the repository root. Per local tooling policy,
 - `cargo fmt --all`: apply Rust formatting.
 - `cargo clippy --workspace --all-targets -- -D warnings`: lint strictly.
 - `cargo run -p pgone-gui`: run the desktop GUI.
-- `cargo run -p pgone-proxy`: run the PostgreSQL proxy.
-- `cargo run -p pgone-apiserver`: run the API server.
 
 MCP server examples:
 

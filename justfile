@@ -36,14 +36,6 @@ run-gui:
 run-mcp-server dbconfig_id protocol="stdio":
     cargo run -p pgone-cli -- mcp-server --dbconfig-id {{dbconfig_id}} --protocol {{protocol}}
 
-# 运行 Proxy
-run-proxy:
-    cargo run -p pgone-cli -- proxy
-
-# 运行 API Server
-run-apiserver:
-    cargo run -p pgone-cli -- apiserver
-
 # 安装开发工具
 install-tools:
     cargo install cargo-bundle

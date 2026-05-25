@@ -37,11 +37,9 @@ PGone provides:
 
 - **`pgone-sql`** — SQL parsing and database models
 - **`pgone-llm`** — LLM provider integrations (OpenAI, Gemini, Ollama)
-- **`pgone-proxy`** — Database proxy and query analysis
-- **`pgone-apiserver`** — HTTP/gRPC API server
 - **`pgone-util`** — Shared utilities and logging
 - **`pgone-vector`** — Vector database support
-- **`pgone-cli`** — Unified `pgone` command entrypoint for GUI and services
+- **`pgone-cli`** — Unified `pgone` command entrypoint for GUI and MCP server runs
 
 ---
 
@@ -84,13 +82,6 @@ cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol streamable
 ```
 
 Existing service-specific binaries, such as `pgone-gui` and the `pgone-mcp-server` binary from `pgone-mcp`, remain available for compatibility.
-
-### Services
-
-```bash
-cargo run -p pgone-cli -- apiserver
-cargo run -p pgone-cli -- proxy
-```
 
 ---
 
