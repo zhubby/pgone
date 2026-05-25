@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use pgone_mcp_server::mcp;
+use pgone_mcp::mcp;
 use pgone_util::log::init_log_simple;
 use std::env;
 use tracing::info;
@@ -80,4 +80,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

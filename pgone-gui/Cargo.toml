@@ -79,8 +79,7 @@ pgone-sql = { workspace = true }
 pgone-util = { workspace = true }
 pgone-llm = { workspace = true }
 pgone-storage = { workspace = true }
-pgone-mcp-client = { workspace = true }
-pgone-mcp-server = { workspace = true }
+pgone-mcp = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-async-rw"] }
 
 # 添加以下配置

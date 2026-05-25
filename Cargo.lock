@@ -8208,6 +8208,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pgone-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "pgone-a2a",
+ "pgone-apiserver",
+ "pgone-gui",
+ "pgone-mcp-server",
+ "pgone-proxy",
+ "pgone-util",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "pgone-gui"
 version = "0.1.0"
 dependencies = [

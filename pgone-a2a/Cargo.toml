@@ -20,7 +20,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
-pgone-mcp-server = { workspace = true }
+pgone-mcp = { workspace = true }
 pgone-sql = { workspace = true }
 
 [[bin]]

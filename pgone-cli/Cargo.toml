@@ -1,0 +1,28 @@
+[package]
+name = "pgone-cli"
+version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+documentation = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[[bin]]
+name = "pgone"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+pgone-a2a = { workspace = true }
+pgone-apiserver = { workspace = true }
+pgone-gui = { workspace = true }
+pgone-mcp = { workspace = true }
+pgone-proxy = { workspace = true }
+pgone-util = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

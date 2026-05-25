@@ -6,7 +6,7 @@ use axum::{
     routing::post,
     Router,
 };
-use pgone_mcp_server::{
+use pgone_mcp::{
     adapter::SqlSessionIntrospector,
     core::models::{DatabaseSchema, IntrospectOptions},
 };

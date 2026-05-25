@@ -45,25 +45,23 @@ clean:
 
 # 运行 GUI 应用
 run-gui:
-	cargo run -p pgone-gui
+	cargo run -p pgone-cli -- gui
 
 # 运行 MCP Server (STDIO 模式)
 run-mcp-server:
-	PGONE_CONNECTIONS_PATH=pgone-mcp-server/examples/connections.yaml \
-	PGONE_MCP_STDIO=1 \
-	cargo run -p pgone-mcp-server
+	cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio
 
 # 运行 Proxy
 run-proxy:
-	cargo run -p pgone-proxy
+	cargo run -p pgone-cli -- proxy
 
 # 运行 API Server
 run-apiserver:
-	cargo run -p pgone-apiserver
+	cargo run -p pgone-cli -- apiserver
 
 # 运行 A2A
 run-a2a:
-	cargo run -p pgone-a2a
+	cargo run -p pgone-cli -- a2a
 
 # 安装开发工具
 install-tools:
@@ -78,4 +76,3 @@ lint: fmt clippy
 
 # 组合命令：格式化 + clippy + 测试
 check: fmt clippy test
-

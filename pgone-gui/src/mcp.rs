@@ -1,5 +1,5 @@
 use anyhow::Result;
-use pgone_mcp_client::McpClient;
+use pgone_mcp::McpClient;
 use rmcp::model::{CallToolResult, Tool};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -174,4 +174,3 @@ impl Drop for McpClientManager {
         }
     }
 }
-

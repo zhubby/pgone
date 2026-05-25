@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use pgone_mcp_server::mcp::run_stdio;
+use pgone_mcp::mcp::run_stdio;
 use pgone_storage::DATABASE_PATH;
 use tracing_subscriber::EnvFilter;
 

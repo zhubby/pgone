@@ -43,6 +43,7 @@ PGone provides:
 - **`pgone-util`** — Shared utilities and logging
 - **`pgone-vector`** — Vector database support
 - **`pgone-mcp-client`** — MCP client implementation
+- **`pgone-cli`** — Unified `pgone` command entrypoint for GUI and services
 
 ---
 
@@ -57,30 +58,35 @@ cargo build --workspace
 ### Run GUI
 
 ```bash
-cargo run -p pgone-gui
+cargo run -p pgone-cli --
+```
+
+The explicit GUI command is also available:
+
+```bash
+cargo run -p pgone-cli -- gui
 ```
 
 ### MCP Server
 
 **STDIO mode** (for agent integrations):
 ```bash
-PGONE_CONNECTIONS_PATH=examples/connections.yaml \
-PGONE_MCP_PROTOCOL=stdio \
-cargo run -p pgone-mcp-server
+cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio
 ```
 
 **Streamable HTTP mode** (default):
 ```bash
-PGONE_MCP_PROTOCOL=streamable \
-PGONE_MCP_ADDR=127.0.0.1:3000 \
-cargo run -p pgone-mcp-server
+cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol streamable --addr 127.0.0.1:3000
 ```
 
-### Quick Introspection
+Existing service-specific binaries, such as `pgone-gui` and `pgone-mcp-server`, remain available for compatibility.
+
+### Services
 
 ```bash
-PGONE_PG_DSN=postgres://user:pass@host:5432/dbname \
-cargo run -p pgone-mcp-server
+cargo run -p pgone-cli -- apiserver
+cargo run -p pgone-cli -- proxy
+cargo run -p pgone-cli -- a2a
 ```
 
 ---
@@ -114,6 +120,7 @@ cargo run -p pgone-mcp-server
 
 ```bash
 cargo build --workspace
+cargo check -p pgone-cli
 cargo test --workspace
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings

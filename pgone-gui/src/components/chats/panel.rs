@@ -5,7 +5,7 @@ use chrono::Utc;
 use egui::Widget;
 use tokio::sync::mpsc;
 use pgone_llm::{Client, Config};
-use pgone_mcp_server::mcp::PgoneMcpServer;
+use pgone_mcp::mcp::PgoneMcpServer;
 use serde_json::Value;
 
 use super::input_area::InputArea;
@@ -412,7 +412,7 @@ impl ChatPanel {
         let proxy_enabled = ctxs.state.settings.proxy_enabled;
         let proxy_host = ctxs.state.settings.proxy_host.clone();
         let proxy_port = ctxs.state.settings.proxy_port;
-        let tools = pgone_mcp_server::mcp::list_tools();
+        let tools = pgone_mcp::mcp::list_tools();
         let dbconfig_id_clone = dbconfig_id.clone();
         let enable_stream_api = ctxs.state.settings.enable_stream_api;
 
@@ -637,4 +637,3 @@ impl ChatPanel {
         }
     }
 }
-

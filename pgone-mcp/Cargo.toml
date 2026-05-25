@@ -1,5 +1,5 @@
 [package]
-name = "pgone-mcp-server"
+name = "pgone-mcp"
 version = { workspace = true }
 edition = { workspace = true }
 authors = { workspace = true }
@@ -32,6 +32,14 @@ clap = { workspace = true }
 pgone-util = { workspace = true }
 pgone-sql = { workspace = true }
 pgone-storage = { workspace = true }
-rmcp = { workspace = true, features = ["transport-sse-server","transport-streamable-http-server"] }
+reqwest = { workspace = true, features = ["json"] }
+rmcp = { workspace = true, features = [
+    "client",
+    "transport-sse-client",
+    "transport-streamable-http-client",
+    "transport-async-rw",
+    "transport-sse-server",
+    "transport-streamable-http-server",
+] }
 axum = { workspace = true }
 tokio-util = { workspace = true }

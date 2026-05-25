@@ -24,6 +24,10 @@ connections:
 ```bash
 PGONE_CONNECTIONS_PATH=/path/to/connections.yaml PGONE_MCP_STDIO=1 cargo run -p pgone-mcp-server
 ```
+也可以通过统一 CLI 启动：
+```bash
+cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio
+```
 3) 与进程通过 STDIO 交换“每行一个 JSON”的消息。
 
 ### 一次性快速自省（非 MCP）

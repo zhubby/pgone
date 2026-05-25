@@ -1,11 +1,5 @@
 use clap::Parser;
-use pgone_apiserver::{grpc, serve};
-use pgone_util::log;
-use std::net::SocketAddr;
-use std::str::FromStr;
-use tokio::signal;
-use tokio::sync::broadcast;
-use tracing::{info, warn};
+use pgone_apiserver::ApiServerConfig;
 
 /// PostgreSQL API 服务器
 #[derive(Parser, Debug)]
@@ -47,113 +41,16 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 解析命令行参数
     let args = Args::parse();
-
-    // 初始化日志系统
-    log::init_log(log::LogConfig {
-        level: log::LogLevel::from_str(&args.log_level)?,
+    pgone_apiserver::run(ApiServerConfig {
+        log_level: args.log_level,
         enable_otel: args.enable_otel,
-        json_format: args.json_log,
-        service_name: Some(args.service_name.clone()),
-    })?;
-
-    info!("pgone-apiserver 启动中...");
-
-    // 解析 HTTP 服务器地址
-    let http_addr: SocketAddr = format!("{}:{}", args.http_bind, args.http_port)
-        .parse()
-        .map_err(|e| anyhow::anyhow!("无效的 HTTP 地址: {}", e))?;
-
-    // 解析 gRPC 服务器地址
-    let grpc_addr: SocketAddr = format!("{}:{}", args.grpc_bind, args.grpc_port)
-        .parse()
-        .map_err(|e| anyhow::anyhow!("无效的 gRPC 地址: {}", e))?;
-
-    info!(
-        http_addr = %http_addr,
-        grpc_addr = %grpc_addr,
-        "服务器地址配置完成"
-    );
-
-    // 创建广播 channel 用于关闭信号
-    let (shutdown_tx, _) = broadcast::channel::<()>(1);
-
-    // 创建可以被多次等待的关闭信号 future
-    let create_shutdown_signal = || {
-        let mut shutdown_rx = shutdown_tx.subscribe();
-        async move {
-            let _ = shutdown_rx.recv().await;
-        }
-    };
-
-    // 启动信号监听任务
-    let shutdown_tx_clone = shutdown_tx.clone();
-    tokio::spawn(async move {
-        // 监听 Ctrl+C 和 SIGTERM 信号
-        let ctrl_c = async {
-            signal::ctrl_c()
-                .await
-                .expect("failed to install Ctrl+C handler");
-            warn!("收到 Ctrl+C 信号，开始优雅关闭...");
-        };
-
-        #[cfg(unix)]
-        let terminate = async {
-            signal::unix::signal(signal::unix::SignalKind::terminate())
-                .expect("failed to install signal handler")
-                .recv()
-                .await;
-            warn!("收到 SIGTERM 信号，开始优雅关闭...");
-        };
-
-        #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
-
-        tokio::select! {
-            _ = ctrl_c => {},
-            _ = terminate => {},
-        }
-
-        // 发送关闭信号
-        let _ = shutdown_tx_clone.send(());
-    });
-
-    info!("启动 HTTP 和 gRPC 服务器...");
-
-    // 使用 tokio::select! 同时运行 HTTP 和 gRPC 服务器
-    tokio::select! {
-        result = serve(http_addr, create_shutdown_signal()) => {
-            match result {
-                Ok(_) => {
-                    info!("HTTP 服务器已关闭");
-                }
-                Err(e) => {
-                    tracing::error!(error = ?e, "HTTP 服务器错误");
-                    return Err(e);
-                }
-            }
-        }
-        result = grpc::serve_grpc(grpc_addr, create_shutdown_signal()) => {
-            match result {
-                Ok(_) => {
-                    info!("gRPC 服务器已关闭");
-                }
-                Err(e) => {
-                    tracing::error!(error = ?e, "gRPC 服务器错误");
-                    return Err(e);
-                }
-            }
-        }
-    }
-
-    info!("所有服务器已关闭，正在清理资源...");
-
-    // 清理 OpenTelemetry 资源
-    if args.enable_otel {
-        log::shutdown_otel();
-    }
-
-    Ok(())
+        json_log: args.json_log,
+        service_name: args.service_name,
+        http_bind: args.http_bind,
+        http_port: args.http_port,
+        grpc_bind: args.grpc_bind,
+        grpc_port: args.grpc_port,
+    })
+    .await
 }
-
