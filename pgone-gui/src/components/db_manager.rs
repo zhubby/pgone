@@ -459,6 +459,7 @@ impl DbManager {
             let mut open = true;
             let center = ui.ctx().content_rect().center();
             egui::Window::new("Switch Database Config")
+                .id(egui::Id::new("switch_database_config_window"))
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(false)
@@ -482,6 +483,7 @@ impl DbManager {
             let mut open = true;
             let center = ctx.content_rect().center();
             egui::Window::new("New Database")
+                .id(egui::Id::new("new_database_window"))
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
@@ -708,6 +710,7 @@ impl DbManager {
             let mut open = true;
             let center = ctx.content_rect().center();
             egui::Window::new("Edit Database")
+                .id(egui::Id::new("edit_database_window"))
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
@@ -929,6 +932,7 @@ impl DbManager {
             let mut open = true;
             let center = ctx.content_rect().center();
             egui::Window::new("Databases")
+                .id(egui::Id::new("databases_window"))
                 .open(&mut open)
                 .default_size(egui::vec2(600.0, 400.0))
                 .default_pos(center)
@@ -1081,6 +1085,7 @@ impl DbManager {
             let center = ctx.content_rect().center();
 
             egui::Window::new("确认删除")
+                .id(egui::Id::new("confirm_delete_database_window"))
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)

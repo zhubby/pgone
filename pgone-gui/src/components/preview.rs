@@ -37,6 +37,7 @@ impl PreviewManager {
         let mut open = true;
         let center = ctx.content_rect().center();
         egui::Window::new("Image Preview")
+            .id(egui::Id::new("image_preview_window"))
             .open(&mut open)
             .default_pos(center)
             .pivot(egui::Align2::CENTER_CENTER)

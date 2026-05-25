@@ -183,6 +183,7 @@ impl ResultsTable {
 
         egui::ScrollArea::both().show(ui, |ui| {
             let table = TableBuilder::new(ui)
+                .id_salt("query_results_table")
                 .striped(true)
                 .resizable(true)
                 .columns(Column::auto().at_least(96.0), columns.len());

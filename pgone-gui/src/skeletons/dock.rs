@@ -3,10 +3,12 @@ use crate::components::{
 };
 use crate::models::PersistedState;
 use crate::storage::SessionStorage;
-use eframe::egui::{Ui, WidgetText};
-use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use eframe::egui::{Rect, Ui, WidgetText};
+use egui_dock::{DockArea, DockState, Node, NodeIndex, Style, TabViewer};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DockTab {
     DatabaseStructure,
     SqlEditor,
@@ -38,6 +40,43 @@ impl Default for DockLayout {
 }
 
 impl DockLayout {
+    pub fn from_state(state: DockState<DockTab>) -> Option<Self> {
+        Self::has_required_tabs(&state).then_some(Self { state })
+    }
+
+    pub fn state(&self) -> &DockState<DockTab> {
+        &self.state
+    }
+
+    pub fn sanitized_state(&self) -> DockState<DockTab> {
+        let mut state = self.state.clone();
+        for surface in state.iter_surfaces_mut() {
+            let Some(tree) = surface.node_tree_mut() else {
+                continue;
+            };
+
+            for node in tree.iter_mut() {
+                match node {
+                    Node::Leaf(leaf) => {
+                        if !leaf.rect.is_finite() {
+                            leaf.rect = Rect::ZERO;
+                        }
+                        if !leaf.viewport.is_finite() {
+                            leaf.viewport = Rect::ZERO;
+                        }
+                    }
+                    Node::Horizontal(split) | Node::Vertical(split) => {
+                        if !split.rect.is_finite() {
+                            split.rect = Rect::ZERO;
+                        }
+                    }
+                    Node::Empty => {}
+                }
+            }
+        }
+        state
+    }
+
     pub fn reset(&mut self) {
         self.state = Self::default_state();
     }
@@ -77,6 +116,17 @@ impl DockLayout {
             surface.split_left(NodeIndex::root(), 0.78, vec![DockTab::DatabaseStructure]);
         surface.split_right(center_node, 0.70, vec![DockTab::Chat]);
         state
+    }
+
+    fn has_required_tabs(state: &DockState<DockTab>) -> bool {
+        [
+            DockTab::DatabaseStructure,
+            DockTab::SqlEditor,
+            DockTab::Results,
+            DockTab::Chat,
+        ]
+        .into_iter()
+        .all(|required| state.iter_all_tabs().any(|(_, tab)| *tab == required))
     }
 }
 

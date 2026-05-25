@@ -264,6 +264,7 @@ pub fn show_toml_formatter_window(ctx: &Context, show: &mut bool, content: &str)
 
     let mut should_close = false;
     Window::new("TOML 格式化器")
+        .id(egui::Id::new("toml_formatter_window"))
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)

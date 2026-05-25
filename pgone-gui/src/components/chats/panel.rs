@@ -289,6 +289,7 @@ impl ChatPanel {
                 .unwrap_or_else(|| "当前会话".to_string());
 
             egui::Window::new("确认删除会话")
+                .id(egui::Id::new("confirm_delete_session_window"))
                 .open(&mut open)
                 .default_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)

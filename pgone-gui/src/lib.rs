@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod futures;
+mod layout_settings;
 mod models;
 use models::*;
 mod notify;
@@ -102,6 +103,7 @@ pub struct AppFrame {
     db_tree: DbTree,
     settings_panel: SettingsPanel,
     dock_layout: skeletons::dock::DockLayout,
+    last_saved_layout_json: Option<String>,
     session_storage: SessionStorage,
     gui_storage: GuiStorage,
     settings_loaded_from_storage: bool,
@@ -172,7 +174,8 @@ impl AppFrame {
             chat: Default::default(),
             db_tree: Default::default(),
             settings_panel: Default::default(),
-            dock_layout: Default::default(),
+            dock_layout: layout_settings::load_dock_layout(),
+            last_saved_layout_json: None,
             session_storage,
             gui_storage,
             settings_loaded_from_storage: false,
@@ -200,6 +203,29 @@ impl AppFrame {
         let kv_map = self.state.settings.to_kv_map();
         for (key, value) in kv_map {
             self.gui_storage.upsert_setting(key, value);
+        }
+    }
+
+    fn save_dock_layout_if_changed(&mut self) {
+        let current_json = match layout_settings::dock_layout_json(&self.dock_layout) {
+            Ok(json) => json,
+            Err(error) => {
+                tracing::warn!("Failed to serialize dock layout: {}", error);
+                return;
+            }
+        };
+
+        if self.last_saved_layout_json.as_deref() == Some(current_json.as_str()) {
+            return;
+        }
+
+        match layout_settings::save_dock_layout(&self.dock_layout) {
+            Ok(saved_json) => {
+                self.last_saved_layout_json = Some(saved_json);
+            }
+            Err(error) => {
+                tracing::warn!("Failed to save dock layout: {error:#}");
+            }
         }
     }
 
@@ -252,6 +278,7 @@ impl AppFrame {
 
         let mut open = true;
         egui::Window::new("导出数据")
+            .id(egui::Id::new("export_window"))
             .open(&mut open)
             .default_pos(ctx.content_rect().center())
             .pivot(egui::Align2::CENTER_CENTER)
@@ -277,6 +304,7 @@ impl AppFrame {
 
         let mut open = true;
         egui::Window::new("导入数据")
+            .id(egui::Id::new("import_window"))
             .open(&mut open)
             .default_pos(ctx.content_rect().center())
             .pivot(egui::Align2::CENTER_CENTER)
@@ -327,6 +355,7 @@ impl eframe::App for AppFrame {
 
         if reset_dock_layout {
             self.dock_layout.reset();
+            self.last_saved_layout_json = None;
         }
 
         // Status bar
@@ -396,6 +425,8 @@ impl eframe::App for AppFrame {
                 );
             });
 
+        self.save_dock_layout_if_changed();
+
         // Image preview window
         self.preview.ui_window(&ctx);
 
@@ -426,6 +457,7 @@ pub fn run() -> anyhow::Result<()> {
     let title = "PGone";
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_app_id("com.github.zhubby.pgone")
             .with_maximized(true)
             .with_icon(icon)
             .with_title_shown(false),

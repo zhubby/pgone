@@ -1,6 +1,6 @@
 use crate::components::{DbManager, SchemaGraph, SettingsPanel};
 use crate::models::PersistedState;
-use eframe::egui::{Align2, Context, Window};
+use eframe::egui::{Align2, Context, Id, Window};
 
 pub fn show_settings_window(
     ctx: &Context,
@@ -15,6 +15,7 @@ pub fn show_settings_window(
     let mut open = true;
     let mut should_save = false;
     Window::new("设置")
+        .id(Id::new("settings_window"))
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)
@@ -45,6 +46,7 @@ pub fn show_about_window(ctx: &Context, show_about: &mut bool) {
 
     let mut open = true;
     Window::new("关于")
+        .id(Id::new("about_window"))
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)
@@ -109,6 +111,7 @@ pub fn show_graph_window(
         .and_then(|(_database, _schema)| db_manager.active_dsn());
 
     Window::new(title)
+        .id(Id::new("schema_graph_window"))
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)

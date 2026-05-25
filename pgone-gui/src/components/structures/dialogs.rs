@@ -123,6 +123,7 @@ pub(super) fn show_dialogs(
 
         let center = ui.ctx().content_rect().center();
         let mut window = egui::Window::new(title)
+            .id(egui::Id::new(("structure_dialog", title)))
             .open(&mut open)
             .default_pos(center)
             .pivot(egui::Align2::CENTER_CENTER)

@@ -7,7 +7,7 @@ use super::replication;
 use super::statements;
 use super::tables;
 use crate::components::DbManager;
-use eframe::egui::{Align2, Context, Window};
+use eframe::egui::{Align2, Context, Id, Window};
 
 /// 显示监控窗口
 pub fn show_monitor_window(
@@ -27,6 +27,7 @@ pub fn show_monitor_window(
     let dsn = get_dsn(db_manager);
 
     Window::new(title)
+        .id(Id::new("monitor_window"))
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)

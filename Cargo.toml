@@ -94,9 +94,9 @@ rig-lancedb = "0.2.28"
 lancedb = "0.22.3"
 arrow = "56.2.0"
 gemini-rust = "1.5.1"
-egui_dock = "0.19"
+egui_dock = { version = "0.19", features = ["serde"] }
 egui = { version = "0.34.2", default-features = false }
-eframe = "0.34.2"
+eframe = { version = "0.34.2", features = ["persistence"] }
 egui_extras = "0.34.2"
 emath = { version = "0.34.2", default-features = false }
 ecolor = { version = "0.34.2", default-features = false }
