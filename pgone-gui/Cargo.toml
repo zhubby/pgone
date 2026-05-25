@@ -15,64 +15,64 @@ name = "pgone-gui"
 path = "src/main.rs"
 
 [dependencies]
-egui = { version = "0.34.2", default-features = false }
-eframe = { version = "0.34.2" }
-egui_extras = { version = "0.34.2" }
-emath = { version = "0.34.2", default-features = false }
-ecolor = { version = "0.34.2", default-features = false }
-epaint = { version = "0.34.2", default-features = false }
-egui_plot = { version = "0.35.0", default-features = false }
-egui_commonmark = { version = "0.23", features = [
+egui = { workspace = true }
+eframe = { workspace = true }
+egui_extras = { workspace = true }
+emath = { workspace = true }
+ecolor = { workspace = true }
+epaint = { workspace = true }
+egui_plot = { workspace = true }
+egui_commonmark = { workspace = true, features = [
     "svg",
     "fetch",
     "better_syntax_highlighting",
     "embedded_image",
 ] }
-egui-snarl = "0.9"
-catppuccin-egui = { version = "5.7.0", default-features = false, features = [
+egui-snarl = { workspace = true }
+catppuccin-egui = { workspace = true, features = [
     "egui34",
 ] }
-egui-data-table = { version = "0.10" }
-epaint_default_fonts = { version = "0.34.2" }
-egui_table = "0.8.0"
-egui-phosphor = "0.12"
-egui-notify = "0.22"
+egui-data-table = { workspace = true }
+epaint_default_fonts = { workspace = true }
+egui_table = { workspace = true }
+egui-phosphor = { workspace = true }
+egui-notify = { workspace = true }
 egui_dock = { workspace = true }
 
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1"
-serde_yaml = "0.9"
-toml = "0.8"
-chrono = { version = "0.4", features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+toml = { workspace = true }
+chrono = { workspace = true }
 uuid = { workspace = true }
-image = { version = "0.25", default-features = false, features = ["png"] }
-webbrowser = "1"
-rfd = "0.15"
-open = "5"
-sqlparser = "0.48"
+image = { workspace = true, features = ["png"] }
+webbrowser = { workspace = true }
+rfd = { workspace = true }
+open = { workspace = true }
+sqlparser = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
 sqlx = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
-futures-core = "0.3"
-hex = "0.4"
-csv = "1"
-async-openai = "0.25"
-urlencoding = "2"
-url = "2.5"
-icns = "0.3.1"
+futures-core = { workspace = true }
+hex = { workspace = true }
+csv = { workspace = true }
+async-openai = { workspace = true }
+urlencoding = { workspace = true }
+url = { workspace = true }
+icns = { workspace = true }
 anyhow = { workspace = true }
 strum = { workspace = true }
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
-poll-promise = "0.3"
+poll-promise = { workspace = true }
 once_cell = { workspace = true }
 etl = { workspace = true }
-sea-query = "1.0.0-rc.1"
-sysinfo = "0.37.2"
-regex = "1"
+sea-query = { workspace = true }
+sysinfo = { workspace = true }
+regex = { workspace = true }
 
 
 pgone-sql = { workspace = true }

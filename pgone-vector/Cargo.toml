@@ -12,14 +12,14 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-lancedb = "0.22.3"
-rig-lancedb = "0.2.28"
+lancedb = { workspace = true }
+rig-lancedb = { workspace = true }
 rig-core = { workspace = true }
 pgone-storage = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-arrow = "56.2.0"
+arrow = { workspace = true }
 futures-util = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true }
