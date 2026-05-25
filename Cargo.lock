@@ -7501,6 +7501,7 @@ dependencies = [
  "image",
  "once_cell",
  "open",
+ "pgone-agent",
  "pgone-llm",
  "pgone-mcp",
  "pgone-sql",

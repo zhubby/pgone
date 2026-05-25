@@ -1,37 +1,54 @@
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use crate::components::ChatCtx;
 use crate::futures;
 use crate::models::{Message, MessageContent, Role};
 use chrono::Utc;
-use egui::Widget;
-use pgone_llm::{Client, Config};
-use pgone_mcp::mcp::PgoneMcpServer;
-use serde_json::Value;
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use pgone_agent::{
+    AgentContext, AgentEvent, AgentMessage, AgentRole, AgentTurnRequest, AgentTurnResponse,
+    OpenAiCompatibleProvider, PgOneAgentService, ProviderConfig, StorageBackedAgentToolServices,
+};
 use tokio::sync::mpsc;
 
-use super::input_area::InputArea;
-use super::message_list::MessageList;
 use super::model_loader::ModelLoader;
-use super::session_selector::SessionSelector;
+
+const AGENT_COMPOSER_OUTER_HEIGHT: f32 = 172.0;
+const AGENT_MESSAGE_FRAME_VERTICAL_INSET: f32 = 16.0;
+const AGENT_SECTION_SPACING: f32 = 8.0;
+const DEFAULT_OPENAI_CHAT_COMPLETIONS_URL: &str = "https://api.openai.com/v1/chat/completions";
+
+struct AgentTurnResult {
+    request_id: u64,
+    response: Result<AgentTurnResponse, String>,
+}
 
 pub struct ChatPanel {
-    pub input_area: InputArea,
-    openai_receiver: Option<mpsc::Receiver<Result<String, String>>>,
-    stream_receiver: Option<mpsc::Receiver<Result<String, String>>>,
+    input: String,
+    pending_resources: Vec<PathBuf>,
+    markdown_cache: CommonMarkCache,
+    events: Vec<AgentEvent>,
+    response_receiver: Option<mpsc::Receiver<AgentTurnResult>>,
     model_loader: ModelLoader,
-    enable_thinking: bool,
-    enable_search: bool,
+    in_flight: Option<u64>,
+    error: Option<String>,
+    next_request_id: u64,
     show_delete_confirm: bool,
 }
 
 impl Default for ChatPanel {
     fn default() -> Self {
         Self {
-            input_area: InputArea::default(),
-            openai_receiver: None,
-            stream_receiver: None,
+            input: String::new(),
+            pending_resources: Vec::new(),
+            markdown_cache: CommonMarkCache::default(),
+            events: Vec::new(),
+            response_receiver: None,
             model_loader: ModelLoader::default(),
-            enable_thinking: false,
-            enable_search: false,
+            in_flight: None,
+            error: None,
+            next_request_id: 1,
             show_delete_confirm: false,
         }
     }
@@ -40,284 +57,536 @@ impl Default for ChatPanel {
 impl Clone for ChatPanel {
     fn clone(&self) -> Self {
         Self {
-            input_area: InputArea {
-                input: self.input_area.input.clone(),
-                pending_resources: self.input_area.pending_resources.clone(),
-            },
-            openai_receiver: None, // Receivers cannot be cloned, reset on clone
-            stream_receiver: None, // Receivers cannot be cloned, reset on clone
+            input: self.input.clone(),
+            pending_resources: self.pending_resources.clone(),
+            markdown_cache: CommonMarkCache::default(),
+            events: self.events.clone(),
+            response_receiver: None,
             model_loader: ModelLoader {
                 available_models: self.model_loader.available_models.clone(),
-                models_receiver: None, // Receivers cannot be cloned, reset on clone
+                models_receiver: None,
                 models_loaded: self.model_loader.models_loaded,
             },
-            enable_thinking: self.enable_thinking,
-            enable_search: self.enable_search,
-            show_delete_confirm: false, // 重置确认对话框状态
+            in_flight: None,
+            error: self.error.clone(),
+            next_request_id: self.next_request_id,
+            show_delete_confirm: false,
         }
     }
 }
 
 impl ChatPanel {
     pub fn ui(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
-        // 检查并加载模型
         self.model_loader.check_and_load(ctxs);
+        self.process_agent_response(ctxs);
 
-        // 标题和 Session 选择器
-        ui.horizontal(|ui| {
-            ui.heading(format!("{} Chat", egui_phosphor::regular::CHATS));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // 关闭按钮
-                if ui
-                    .button(format!("{}", egui_phosphor::regular::X))
-                    .clicked()
-                {
-                    self.show_delete_confirm = true;
+        show_agent_header(ui, self, ctxs);
+        ui.add_space(AGENT_SECTION_SPACING);
+
+        let reserved_height = AGENT_COMPOSER_OUTER_HEIGHT
+            + AGENT_MESSAGE_FRAME_VERTICAL_INSET
+            + AGENT_SECTION_SPACING;
+        let message_height = (ui.available_height() - reserved_height).max(120.0);
+        self.show_agent_messages(ctxs, ui, message_height);
+
+        if self.show_agent_composer(ctxs, ui) {
+            self.send_agent_turn(ctxs);
+        }
+
+        self.show_delete_confirmation(ctxs, ui);
+    }
+
+    fn process_agent_response(&mut self, ctxs: &mut ChatCtx) {
+        let Some(receiver) = self.response_receiver.as_mut() else {
+            return;
+        };
+
+        match receiver.try_recv() {
+            Ok(result) => {
+                if self.in_flight != Some(result.request_id) {
+                    return;
                 }
-                ui.add_space(5.0);
-                SessionSelector::ui(ctxs, ui);
-            });
-        });
-        ui.separator();
+                self.in_flight = None;
+                self.response_receiver = None;
 
-        egui_extras::StripBuilder::new(ui)
-            .size(egui_extras::Size::remainder())
-            .size(egui_extras::Size::exact(200.0))
-            .size(egui_extras::Size::exact(50.0))
-            .vertical(|mut strip| {
-                // 消息列表
-                strip.cell(|ui| {
-                    MessageList::ui(ctxs, ui);
-                });
-
-                // 输入区域
-                strip.cell(|ui| {
-                    let mut should_send = false;
-                    self.input_area.ui(ctxs, ui, &mut should_send);
-
-                    // 检查快捷键发送
-                    if should_send {
-                        self.send_openai_with_tools(ctxs);
-                    }
-
-                    // 检查流式响应
-                    if let Some(ref mut receiver) = self.stream_receiver {
-                        let mut has_update = false;
-                        loop {
-                            match receiver.try_recv() {
-                                Ok(result) => {
-                                    match result {
-                                        Ok(chunk) => {
-                                            if let Some(sess) = ctxs
-                                                .state
-                                                .sessions
-                                                .get_mut(ctxs.state.current_index)
-                                            {
-                                                // 更新最后一条 assistant 消息，如果不存在则创建
-                                                if let Some(last_msg) = sess.messages.last_mut() {
-                                                    if matches!(last_msg.role, Role::Assistant) {
-                                                        if let MessageContent::Markdown(
-                                                            ref mut content,
-                                                        ) = last_msg.content
-                                                        {
-                                                            content.push_str(&chunk);
-                                                            has_update = true;
-                                                        }
-                                                    } else {
-                                                        // 最后一条不是 assistant 消息，创建新的
-                                                        let message = Message {
-                                                            role: Role::Assistant,
-                                                            timestamp: Utc::now(),
-                                                            content: MessageContent::Markdown(
-                                                                chunk,
-                                                            ),
-                                                        };
-                                                        sess.messages.push(message);
-                                                        has_update = true;
-                                                    }
-                                                } else {
-                                                    // 没有消息，创建新的
-                                                    let message = Message {
-                                                        role: Role::Assistant,
-                                                        timestamp: Utc::now(),
-                                                        content: MessageContent::Markdown(chunk),
-                                                    };
-                                                    sess.messages.push(message);
-                                                    has_update = true;
-                                                }
-                                                sess.updated_at = Utc::now();
-                                            }
-                                        }
-                                        Err(e) => {
-                                            let message = format!("流式 API 错误: {}", e);
-                                            crate::notify::error(&message);
-                                            tracing::error!("{}", message);
-                                            self.stream_receiver = None;
-                                            break;
-                                        }
-                                    }
-                                }
-                                Err(mpsc::error::TryRecvError::Empty) => {
-                                    // 没有更多数据，退出循环
-                                    break;
-                                }
-                                Err(mpsc::error::TryRecvError::Disconnected) => {
-                                    // Channel已断开，流式响应完成，保存最终消息
-                                    if let Some(sess) =
-                                        ctxs.state.sessions.get_mut(ctxs.state.current_index)
-                                    {
-                                        if let Err(e) = ctxs.storage.save_session(sess) {
-                                            tracing::error!("保存会话失败: {}", e);
-                                        }
-                                    }
-                                    self.stream_receiver = None;
-                                    break;
-                                }
+                match result.response {
+                    Ok(response) => {
+                        self.events = response.events;
+                        self.error = None;
+                        if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                            sess.messages.push(Message {
+                                role: Role::Assistant,
+                                timestamp: Utc::now(),
+                                content: MessageContent::Markdown(response.message.content),
+                            });
+                            sess.updated_at = Utc::now();
+                            if let Err(error) = ctxs.storage.save_session(sess) {
+                                tracing::error!("保存 Agent 响应失败: {error}");
                             }
-                        }
-                        if has_update {
                             ctxs.should_scroll_to_bottom = true;
                         }
                     }
-
-                    // 检查OpenAI请求结果（非流式）
-                    if let Some(ref mut receiver) = self.openai_receiver {
-                        match receiver.try_recv() {
-                            Ok(result) => {
-                                match result {
-                                    Ok(text) => {
-                                        if let Some(sess) =
-                                            ctxs.state.sessions.get_mut(ctxs.state.current_index)
-                                        {
-                                            let message = Message {
-                                                role: Role::Assistant,
-                                                timestamp: Utc::now(),
-                                                content: MessageContent::Markdown(text.clone()),
-                                            };
-                                            sess.messages.push(message.clone());
-                                            sess.updated_at = Utc::now();
-
-                                            if let Err(e) = ctxs.storage.save_session(sess) {
-                                                tracing::error!("保存会话失败: {}", e);
-                                            }
-                                            // 设置滚动到底部标志
-                                            ctxs.should_scroll_to_bottom = true;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let message = format!("OpenAI error: {}", e);
-                                        crate::notify::error(&message);
-                                        tracing::error!("{}", message);
-                                    }
-                                }
-                                self.openai_receiver = None;
-                            }
-                            Err(mpsc::error::TryRecvError::Empty) => {
-                                // 还没有结果，继续等待
-                            }
-                            Err(mpsc::error::TryRecvError::Disconnected) => {
-                                // Channel已断开，清理
-                                self.openai_receiver = None;
-                            }
-                        }
+                    Err(error) => {
+                        self.error = Some(error.clone());
+                        crate::notify::error(&error);
+                        tracing::error!("Agent turn failed: {error}");
                     }
-                });
+                }
+            }
+            Err(mpsc::error::TryRecvError::Empty) => {}
+            Err(mpsc::error::TryRecvError::Disconnected) => {
+                self.in_flight = None;
+                self.response_receiver = None;
+                let error = "Agent request channel disconnected".to_owned();
+                self.error = Some(error.clone());
+                tracing::error!("{error}");
+            }
+        }
+    }
 
-                // 底部按钮栏
-                strip.cell(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(format!(
-                                "{} Send",
-                                egui_phosphor::regular::PAPER_PLANE_RIGHT
-                            ))
-                            .clicked()
-                        {
-                            self.send_openai_with_tools(ctxs);
+    fn show_agent_messages(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui, message_height: f32) {
+        let should_scroll = ctxs.should_scroll_to_bottom;
+        if should_scroll {
+            ctxs.should_scroll_to_bottom = false;
+        }
+
+        egui::Frame::new()
+            .fill(ui.visuals().panel_fill)
+            .stroke(egui::Stroke::new(
+                1.0,
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+            ))
+            .corner_radius(egui::CornerRadius::same(6))
+            .inner_margin(egui::Margin::same(8))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("agent_messages")
+                    .max_height(message_height)
+                    .min_scrolled_height(message_height)
+                    .auto_shrink([false, false])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        let messages: Vec<Message> = ctxs
+                            .state
+                            .sessions
+                            .get(ctxs.state.current_index)
+                            .map(|session| session.messages.clone())
+                            .unwrap_or_default();
+
+                        if messages.is_empty() {
+                            show_agent_empty_state(ui);
                         }
 
-                        egui::widgets::Checkbox::new(&mut self.enable_search, "联网搜索").ui(ui);
-                        egui::widgets::Checkbox::new(&mut self.enable_thinking, "深度思考").ui(ui);
+                        for message in &messages {
+                            show_agent_message(
+                                ctxs,
+                                ui,
+                                message,
+                                &mut self.markdown_cache,
+                                self.in_flight.is_some(),
+                            );
+                            ui.add_space(8.0);
+                        }
 
-                        // 模型选择下拉框
-                        ui.add_space(10.0);
-                        let available_models = if self.model_loader.available_models.is_empty() {
-                            vec![
-                                "gpt-4o-mini".to_string(),
-                                "gpt-4o".to_string(),
-                                "gpt-4-turbo".to_string(),
-                                "gpt-4".to_string(),
-                                "gpt-3.5-turbo".to_string(),
-                            ]
-                        } else {
-                            self.model_loader.available_models.clone()
-                        };
+                        if !self.events.is_empty() {
+                            show_agent_tool_activity(ui, &self.events);
+                            ui.add_space(8.0);
+                        }
 
-                        let mut selected_model = ctxs.openai_model.clone();
-                        egui::ComboBox::from_id_salt("model_selector")
-                            .selected_text(&selected_model)
-                            .width(150.0)
-                            .show_ui(ui, |ui| {
-                                for model in available_models.iter() {
-                                    let model_str = model.clone();
-                                    ui.selectable_value(
-                                        &mut selected_model,
-                                        model_str.clone(),
-                                        model_str,
-                                    );
-                                }
-                            });
+                        if let Some(error) = &self.error {
+                            show_agent_error(ui, error);
+                        }
 
-                        // 如果模型改变了，更新到ctxs和settings
-                        if selected_model != ctxs.openai_model {
-                            ctxs.openai_model = selected_model.clone();
-                            ctxs.state.settings.openai_model = selected_model;
+                        if self.in_flight.is_some() {
+                            show_agent_thinking(ui);
+                        }
+
+                        if should_scroll {
+                            ui.allocate_space(egui::Vec2::ZERO);
+                            ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
                         }
                     });
-                })
+            });
+    }
+
+    fn show_agent_composer(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) -> bool {
+        let can_send = self.in_flight.is_none() && !self.input.trim().is_empty();
+        let mut send_clicked = false;
+
+        egui::Frame::new()
+            .fill(ui.visuals().extreme_bg_color)
+            .stroke(egui::Stroke::new(
+                1.0,
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+            ))
+            .corner_radius(egui::CornerRadius::same(6))
+            .inner_margin(egui::Margin::symmetric(8, 8))
+            .show(ui, |ui| {
+                ui.set_min_height(148.0);
+                self.show_pending_resources(ctxs, ui);
+                let input_response = ui.add(
+                    egui::TextEdit::multiline(&mut self.input)
+                        .desired_rows(5)
+                        .desired_width(ui.available_width())
+                        .return_key(egui::KeyboardShortcut::new(
+                            egui::Modifiers::SHIFT,
+                            egui::Key::Enter,
+                        ))
+                        .hint_text("Ask PgOne Agent about this database..."),
+                );
+                let enter_pressed = input_response.has_focus()
+                    && ui.input(|input| {
+                        input.key_pressed(egui::Key::Enter) && !input.modifiers.shift
+                    });
+
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    show_agent_context_bar(ui, ctxs);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let send_text = egui::RichText::new(
+                            egui_phosphor::regular::PAPER_PLANE_TILT,
+                        )
+                        .color(if can_send {
+                            ui.visuals().hyperlink_color
+                        } else {
+                            ui.visuals().weak_text_color()
+                        });
+                        send_clicked = ui
+                            .add_enabled(can_send, egui::Button::new(send_text))
+                            .on_hover_text("Send")
+                            .clicked();
+
+                        self.show_model_selector(ctxs, ui);
+                        self.show_resource_buttons(ui);
+                    });
+                });
+
+                if can_send && enter_pressed {
+                    send_clicked = true;
+                    ui.ctx().input_mut(|input| {
+                        input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                    });
+                    if self.input.ends_with('\n') {
+                        self.input.pop();
+                    }
+                }
             });
 
-        // 显示删除确认对话框
-        if self.show_delete_confirm {
-            let mut open = true;
-            let center = ui.ctx().content_rect().center();
-            let current_session_title = ctxs
-                .state
-                .sessions
-                .get(ctxs.state.current_index)
-                .map(|s| s.title.clone())
-                .unwrap_or_else(|| "当前会话".to_string());
+        send_clicked
+    }
 
-            egui::Window::new("确认删除会话")
-                .id(egui::Id::new("confirm_delete_session_window"))
-                .open(&mut open)
-                .default_pos(center)
-                .pivot(egui::Align2::CENTER_CENTER)
-                .show(ui.ctx(), |ui| {
-                    ui.label(format!("确定要删除会话 '{}' 吗？", current_session_title));
-                    ui.label(
-                        egui::RichText::new("此操作不可恢复，会话及其所有消息将被永久删除。")
-                            .color(egui::Color32::RED),
-                    );
-                    ui.add_space(10.0);
+    fn show_model_selector(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
+        let available_models = if self.model_loader.available_models.is_empty() {
+            vec![
+                "gpt-4o-mini".to_string(),
+                "gpt-4o".to_string(),
+                "gpt-4-turbo".to_string(),
+                "gpt-4".to_string(),
+                "gpt-3.5-turbo".to_string(),
+            ]
+        } else {
+            self.model_loader.available_models.clone()
+        };
 
-                    ui.horizontal(|ui| {
-                        if ui.button("取消").clicked() {
-                            self.show_delete_confirm = false;
-                        }
-                        if ui
-                            .button(egui::RichText::new("确认删除").color(egui::Color32::RED))
-                            .clicked()
-                        {
-                            self.delete_current_session(ctxs);
-                            self.show_delete_confirm = false;
-                        }
+        let mut selected_model = ctxs.openai_model.clone();
+        egui::ComboBox::from_id_salt("agent_model_selector")
+            .selected_text(&selected_model)
+            .width(150.0)
+            .show_ui(ui, |ui| {
+                for model in available_models {
+                    ui.selectable_value(&mut selected_model, model.clone(), model);
+                }
+            });
+
+        if selected_model != ctxs.openai_model {
+            ctxs.openai_model = selected_model.clone();
+            ctxs.state.settings.openai_model = selected_model;
+        }
+    }
+
+    fn show_resource_buttons(&mut self, ui: &mut egui::Ui) {
+        if ui
+            .button(egui_phosphor::regular::IMAGE)
+            .on_hover_text("Attach image")
+            .clicked()
+            && let Some(path) = rfd::FileDialog::new()
+                .add_filter("Image", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+                .pick_file()
+        {
+            self.pending_resources.push(path);
+        }
+
+        if ui
+            .button(egui_phosphor::regular::FILE)
+            .on_hover_text("Attach file")
+            .clicked()
+            && let Some(path) = rfd::FileDialog::new().pick_file()
+        {
+            self.pending_resources.push(path);
+        }
+    }
+
+    fn show_pending_resources(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
+        if self.pending_resources.is_empty() {
+            return;
+        }
+
+        ui.horizontal_wrapped(|ui| {
+            let mut remove = Vec::new();
+            for (index, path) in self.pending_resources.iter().enumerate() {
+                egui::Frame::new()
+                    .fill(ui.visuals().widgets.inactive.bg_fill)
+                    .stroke(ui.visuals().widgets.inactive.bg_stroke)
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::symmetric(6, 4))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if is_image_path(path) {
+                                if let Some(handle) = ctxs.preview.ensure_texture(ui.ctx(), path) {
+                                    let image = egui::widgets::Image::new(&handle)
+                                        .fit_to_exact_size(egui::vec2(24.0, 24.0));
+                                    ui.add(image);
+                                } else {
+                                    ui.label(egui_phosphor::regular::IMAGE);
+                                }
+                            } else {
+                                ui.label(egui_phosphor::regular::FILE);
+                            }
+                            ui.label(
+                                egui::RichText::new(file_name(path))
+                                    .small()
+                                    .color(ui.visuals().text_color()),
+                            );
+                            if ui
+                                .small_button(egui_phosphor::regular::X)
+                                .on_hover_text("Remove")
+                                .clicked()
+                            {
+                                remove.push(index);
+                            }
+                        });
                     });
-                });
-
-            if !open {
-                self.show_delete_confirm = false;
             }
+            for index in remove.into_iter().rev() {
+                self.pending_resources.remove(index);
+            }
+        });
+        ui.add_space(4.0);
+    }
+
+    fn send_agent_turn(&mut self, ctxs: &mut ChatCtx) {
+        let prompt = self.input.trim().to_owned();
+        if prompt.is_empty() {
+            return;
+        }
+
+        let Some(api_key) = ctxs.openai_api_key.clone() else {
+            let error = "请先配置 API Key".to_owned();
+            self.error = Some(error.clone());
+            crate::notify::error(&error);
+            return;
+        };
+
+        let Some(dbconfig_id) = ctxs.active_db_config_id.clone() else {
+            let error = "请先选择一个数据库配置".to_owned();
+            self.error = Some(error.clone());
+            crate::notify::error(&error);
+            return;
+        };
+
+        let Some(session) = ctxs.state.sessions.get(ctxs.state.current_index) else {
+            return;
+        };
+
+        let session_id = session.id.clone();
+        let history = session
+            .messages
+            .iter()
+            .filter_map(message_to_agent_history)
+            .collect::<Vec<_>>();
+
+        self.send_resources(ctxs);
+
+        if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+            if should_replace_default_title(&session.title) {
+                session.title = conversation_title(&prompt);
+            }
+            session.messages.push(Message {
+                role: Role::User,
+                timestamp: Utc::now(),
+                content: MessageContent::Markdown(prompt.clone()),
+            });
+            session.updated_at = Utc::now();
+            if let Err(error) = ctxs.storage.save_session(session) {
+                tracing::error!("保存用户消息失败: {error}");
+            }
+            ctxs.should_scroll_to_bottom = true;
+        }
+
+        self.input.clear();
+        self.error = None;
+        self.events.clear();
+        let request_id = self.next_request_id;
+        self.next_request_id += 1;
+        self.in_flight = Some(request_id);
+
+        let base_url =
+            normalize_chat_completions_url(ctxs.state.settings.openai_base_url.as_deref());
+        let model = ctxs.openai_model.clone();
+        let stream = ctxs.state.settings.enable_stream_api;
+        let proxy_enabled = ctxs.state.settings.proxy_enabled;
+        let proxy_host = ctxs.state.settings.proxy_host.clone();
+        let proxy_port = ctxs.state.settings.proxy_port;
+        let selected_database = ctxs.selected_database.clone();
+
+        let request = AgentTurnRequest {
+            session_id,
+            message: prompt,
+            context: AgentContext {
+                dbconfig_id: Some(dbconfig_id),
+                database_name: selected_database,
+                selected_schema: None,
+                selected_table: None,
+            },
+            history,
+        };
+
+        let (sender, receiver) = mpsc::channel(1);
+        self.response_receiver = Some(receiver);
+
+        futures::spawn(async move {
+            let mut provider_config = match ProviderConfig::new(base_url, api_key, model, stream) {
+                Ok(config) => config,
+                Err(error) => {
+                    let _ = sender
+                        .send(AgentTurnResult {
+                            request_id,
+                            response: Err(error.to_string()),
+                        })
+                        .await;
+                    return;
+                }
+            };
+            provider_config.proxy_enabled = proxy_enabled;
+            provider_config.proxy_host = proxy_host;
+            provider_config.proxy_port = proxy_port;
+
+            let provider = match OpenAiCompatibleProvider::new(provider_config) {
+                Ok(provider) => provider,
+                Err(error) => {
+                    let _ = sender
+                        .send(AgentTurnResult {
+                            request_id,
+                            response: Err(error.to_string()),
+                        })
+                        .await;
+                    return;
+                }
+            };
+
+            let service = PgOneAgentService::new(
+                Arc::new(provider),
+                Arc::new(StorageBackedAgentToolServices::new()),
+            );
+            let response = service
+                .run_agent_turn(request)
+                .await
+                .map_err(|error| error.to_string());
+            let _ = sender
+                .send(AgentTurnResult {
+                    request_id,
+                    response,
+                })
+                .await;
+        });
+    }
+
+    fn send_resources(&mut self, ctxs: &mut ChatCtx) {
+        let resources = self.pending_resources.drain(..).collect::<Vec<_>>();
+        for path in resources {
+            if is_image_path(&path) {
+                self.add_image_message(ctxs, path);
+            } else if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                session.messages.push(Message {
+                    role: Role::User,
+                    timestamp: Utc::now(),
+                    content: MessageContent::Markdown(format!("[文件] {}", path.display())),
+                });
+                session.updated_at = Utc::now();
+                if let Err(error) = ctxs.storage.save_session(session) {
+                    tracing::error!("保存文件消息失败: {error}");
+                }
+            }
+        }
+    }
+
+    fn add_image_message(&mut self, ctxs: &mut ChatCtx, path: PathBuf) {
+        let (width, height) = match image::open(&path) {
+            Ok(image) => (image.width(), image.height()),
+            Err(_) => (0, 0),
+        };
+
+        if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+            session.messages.push(Message {
+                role: Role::User,
+                timestamp: Utc::now(),
+                content: MessageContent::Image {
+                    path,
+                    width,
+                    height,
+                },
+            });
+            session.updated_at = Utc::now();
+
+            if let Err(error) = ctxs.storage.save_session(session) {
+                tracing::error!("保存图片消息失败: {error}");
+            }
+        }
+    }
+
+    fn show_delete_confirmation(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
+        if !self.show_delete_confirm {
+            return;
+        }
+
+        let mut open = true;
+        let center = ui.ctx().content_rect().center();
+        let current_session_title = ctxs
+            .state
+            .sessions
+            .get(ctxs.state.current_index)
+            .map(|session| session.title.clone())
+            .unwrap_or_else(|| "当前会话".to_owned());
+
+        egui::Window::new("确认删除会话")
+            .id(egui::Id::new("confirm_delete_session_window"))
+            .open(&mut open)
+            .default_pos(center)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .show(ui.ctx(), |ui| {
+                ui.label(format!("确定要删除会话 '{}' 吗？", current_session_title));
+                ui.label(
+                    egui::RichText::new("此操作不可恢复，会话及其所有消息将被永久删除。")
+                        .color(ui.visuals().error_fg_color),
+                );
+                ui.add_space(10.0);
+
+                ui.horizontal(|ui| {
+                    if ui.button("取消").clicked() {
+                        self.show_delete_confirm = false;
+                    }
+                    if ui
+                        .button(egui::RichText::new("确认删除").color(ui.visuals().error_fg_color))
+                        .clicked()
+                    {
+                        self.delete_current_session(ctxs);
+                        self.show_delete_confirm = false;
+                    }
+                });
+            });
+
+        if !open {
+            self.show_delete_confirm = false;
         }
     }
 
@@ -329,359 +598,562 @@ impl ChatPanel {
         let current_index = ctxs.state.current_index;
         if let Some(session) = ctxs.state.sessions.get(current_index) {
             let session_id = session.id.clone();
-
-            // 从存储中删除会话
-            if let Err(e) = ctxs.storage.delete_session(&session_id) {
-                tracing::error!("删除会话失败: {}", e);
-                crate::notify::error(&format!("删除会话失败: {}", e));
+            if let Err(error) = ctxs.storage.delete_session(&session_id) {
+                tracing::error!("删除会话失败: {error}");
+                crate::notify::error(&format!("删除会话失败: {error}"));
                 return;
             }
 
-            // 从内存中删除会话
             ctxs.state.sessions.remove(current_index);
+            self.events.clear();
+            self.error = None;
 
-            // 调整当前索引
             if ctxs.state.sessions.is_empty() {
-                // 如果没有会话了，创建一个新的默认会话
                 let new_id = ctxs.state.next_session_id.to_string();
                 ctxs.state.next_session_id += 1;
-                let new_session =
-                    crate::models::ChatSession::default_with_timestamp(new_id.clone());
+                let new_session = crate::models::ChatSession::default_with_timestamp(new_id);
                 ctxs.state.sessions.push(new_session.clone());
                 ctxs.state.current_index = 0;
-
-                // 保存新会话
-                if let Err(e) = ctxs.storage.save_session(&new_session) {
-                    tracing::error!("保存新会话失败: {}", e);
+                if let Err(error) = ctxs.storage.save_session(&new_session) {
+                    tracing::error!("保存新会话失败: {error}");
                 }
-            } else {
-                // 如果删除的不是最后一个，保持索引不变（因为后面的元素会前移）
-                // 如果删除的是最后一个，需要将索引减1
-                if current_index >= ctxs.state.sessions.len() {
-                    ctxs.state.current_index = ctxs.state.sessions.len() - 1;
-                }
+            } else if current_index >= ctxs.state.sessions.len() {
+                ctxs.state.current_index = ctxs.state.sessions.len() - 1;
             }
 
             crate::notify::info("会话已删除");
         }
     }
+}
 
-    pub fn send_openai_with_tools(&mut self, ctxs: &mut ChatCtx) {
-        let Some(key) = ctxs.openai_api_key.clone() else {
-            return;
-        };
-        let base_url = ctxs.state.settings.openai_base_url.clone();
-        let model = ctxs.openai_model.clone();
-        let prompt = self.input_area.input.trim().to_string();
+fn show_agent_header(ui: &mut egui::Ui, panel: &mut ChatPanel, ctxs: &mut ChatCtx) {
+    let (status_icon, status_text, status_color) = if panel.in_flight.is_some() {
+        (
+            egui_phosphor::regular::CIRCLE_NOTCH,
+            "Thinking",
+            ui.visuals().hyperlink_color,
+        )
+    } else if panel.error.is_some() {
+        (
+            egui_phosphor::regular::WARNING_CIRCLE,
+            "Needs attention",
+            ui.visuals().error_fg_color,
+        )
+    } else {
+        (
+            egui_phosphor::regular::SPARKLE,
+            "Ready",
+            ui.visuals().weak_text_color(),
+        )
+    };
 
-        // 先发送所有待发送的资源
-        self.input_area.send_resources(ctxs);
-
-        // 如果文本输入为空且没有资源，直接返回
-        if prompt.is_empty() && self.input_area.pending_resources.is_empty() {
-            return;
-        }
-
-        // 查询历史消息（在保存当前消息之前）
-        let mut history_messages = Vec::new();
-        if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
-            match ctxs.storage.query_messages_by_session(&sess.id) {
-                Ok(messages) => {
-                    // 反转结果（查询结果是降序，需要转为升序）
-                    let reversed_messages: Vec<_> = messages.into_iter().rev().collect();
-                    // 转换为 ChatMessage，只处理 Markdown 类型
-                    for msg in reversed_messages {
-                        if let MessageContent::Markdown(content) = &msg.content {
-                            let chat_msg = match msg.role {
-                                Role::User => pgone_llm::chat::ChatMessage::user(content.clone()),
-                                Role::Assistant => {
-                                    pgone_llm::chat::ChatMessage::assistant(content.clone())
-                                }
-                                Role::System => {
-                                    pgone_llm::chat::ChatMessage::system(content.clone())
-                                }
-                            };
-                            history_messages.push(chat_msg);
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("查询历史消息失败: {}", e);
-                }
-            }
-        }
-
-        // 保存用户消息（如果有文本）
-        if !prompt.is_empty() {
-            if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-                let user_message = Message {
-                    role: Role::User,
-                    timestamp: Utc::now(),
-                    content: MessageContent::Markdown(prompt.clone()),
-                };
-                sess.messages.push(user_message);
-                sess.updated_at = Utc::now();
-
-                if let Err(e) = ctxs.storage.save_session(sess) {
-                    tracing::error!("保存用户消息失败: {}", e);
-                }
-                // 发送消息后也滚动到底部
-                ctxs.should_scroll_to_bottom = true;
-            }
-        }
-
-        // 检查是否选择了数据库
-        let dbconfig_id = ctxs.active_db_config_id.clone();
-        if dbconfig_id.is_none() {
-            crate::notify::error("请先选择一个数据库配置");
-            return;
-        }
-        let dbconfig_id = dbconfig_id.unwrap();
-
-        self.input_area.input.clear();
-        let key_clone = key.clone();
-        let model_clone = model.clone();
-        let prompt_clone = prompt.clone();
-        let provider = ctxs.state.settings.llm_provider;
-        let proxy_enabled = ctxs.state.settings.proxy_enabled;
-        let proxy_host = ctxs.state.settings.proxy_host.clone();
-        let proxy_port = ctxs.state.settings.proxy_port;
-        let tools = pgone_mcp::mcp::list_tools();
-        let dbconfig_id_clone = dbconfig_id.clone();
-        let enable_stream_api = ctxs.state.settings.enable_stream_api;
-
-        // 获取当前会话ID（在spawn之前）
-        let session_id = if let Some(sess) = ctxs.state.sessions.get(ctxs.state.current_index) {
-            Some(sess.id.clone())
-        } else {
-            None
-        };
-
-        // 构建消息列表：系统提示 + 历史消息 + 当前用户输入
-        let mut chat_messages = vec![pgone_llm::chat::ChatMessage::system(
-            crate::prompt::system_prompt(),
-        )];
-        chat_messages.extend(history_messages);
-        if !prompt_clone.is_empty() {
-            chat_messages.push(pgone_llm::chat::ChatMessage::user(prompt_clone.clone()));
-        }
-
-        // 如果启用流式 API，使用流式模式
-        if enable_stream_api {
-            // 创建临时的 assistant 消息
-            if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-                let temp_message = Message {
-                    role: Role::Assistant,
-                    timestamp: Utc::now(),
-                    content: MessageContent::Markdown(String::new()),
-                };
-                sess.messages.push(temp_message);
-                sess.updated_at = Utc::now();
-            }
-
-            let (stream_sender, stream_receiver) = mpsc::channel(100);
-            self.stream_receiver = Some(stream_receiver);
-
-            futures::spawn(async move {
-                let mut config = Config::new(key_clone);
-                if let Some(url) = base_url {
-                    config = config.with_base_url(url);
-                }
-                if proxy_enabled {
-                    if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
-                        config = config.with_proxy(host, port);
-                    }
-                }
-                let client = match Client::new(config, provider) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        let _ = stream_sender.send(Err(e.to_string())).await;
-                        return;
-                    }
-                };
-
-                // 创建流式请求
-                let mut request = pgone_llm::chat::ChatRequest::new(model_clone.clone())
-                    .with_messages(chat_messages.clone())
-                    .with_tools(tools.iter().map(|t| t.clone().into()).collect());
-
-                // 设置会话ID用于审计
-                if let Some(ref sid) = session_id {
-                    request = request.with_session_id(sid.clone());
-                }
-
-                // 获取流式响应
-                let stream = client.chat_create_stream(request);
-                use futures_util::StreamExt;
-                use std::pin::Pin;
-                // stream 已经是 Box<dyn Stream>，使用 Pin::from 转换为 Pin<Box<dyn Stream>>
-                // 注意：这里需要明确指定 Stream trait 的类型
-                let mut stream = Pin::from(stream);
-                let mut accumulated_content = String::new();
-
-                // Pin<Box<T>> 实现了 Unpin，所以可以直接调用 next()
-                while let Some(result) = stream.as_mut().next().await {
-                    match result {
-                        Ok(chunk) => {
-                            // 提取内容增量
-                            if let Some(delta) =
-                                chunk.choices.first().and_then(|c| c.delta.content.as_ref())
-                            {
-                                accumulated_content.push_str(delta);
-                                let _ = stream_sender.send(Ok(delta.to_string())).await;
-                            }
-
-                            // 检查是否完成
-                            if chunk
-                                .choices
-                                .first()
-                                .and_then(|c| c.finish_reason.as_ref())
-                                .is_some()
-                            {
-                                // 流式响应完成
-                                // 注意：流式响应中工具调用的处理较复杂，这里先不处理
-                                // 如果需要工具调用，可能需要回退到非流式模式
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            let _ = stream_sender.send(Err(e.to_string())).await;
-                            return;
-                        }
-                    }
-                }
+    egui::Frame::new()
+        .fill(ui.visuals().widgets.inactive.bg_fill)
+        .stroke(ui.visuals().widgets.inactive.bg_stroke)
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(egui_phosphor::regular::SPARKLE)
+                        .color(ui.visuals().hyperlink_color),
+                );
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("PgOne Agent").strong());
+                    ui.label(
+                        egui::RichText::new(current_conversation_title(ctxs))
+                            .small()
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(egui::RichText::new(status_text).small().color(status_color));
+                    ui.label(egui::RichText::new(status_icon).color(status_color));
+                    show_agent_conversation_menu(ui, panel, ctxs);
+                });
             });
-        } else {
-            // 非流式模式，使用原有逻辑
-            let (sender, receiver) = mpsc::channel(1);
-            self.openai_receiver = Some(receiver);
+        });
+}
 
-            futures::spawn(async move {
-                let mut config = Config::new(key_clone);
-                if let Some(url) = base_url {
-                    config = config.with_base_url(url);
-                }
-                if proxy_enabled {
-                    if let (Some(host), Some(port)) = (proxy_host, proxy_port) {
-                        config = config.with_proxy(host, port);
-                    }
-                }
-                let client = match Client::new(config, provider) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        let _ = sender.send(Err(e.to_string())).await;
-                        return;
-                    }
-                };
-
-                // 创建 MCP 服务器实例
-                let mcp_server = match PgoneMcpServer::new(dbconfig_id_clone.clone()).await {
-                    Ok(server) => server,
-                    Err(e) => {
-                        let _ = sender
-                            .send(Err(format!("创建 MCP 服务器失败: {}", e)))
-                            .await;
-                        return;
-                    }
-                };
-
-                // 处理多轮对话，直到没有 tool_calls
-                let mut current_messages = chat_messages;
-                let mut max_iterations = 10; // 防止无限循环
-
-                loop {
-                    if max_iterations == 0 {
-                        let _ = sender
-                            .send(Err("达到最大工具调用轮次限制".to_string()))
-                            .await;
-                        return;
-                    }
-                    max_iterations -= 1;
-
-                    let mut request = pgone_llm::chat::ChatRequest::new(model_clone.clone())
-                        .with_messages(current_messages.clone())
-                        .with_tools(tools.iter().map(|t| t.clone().into()).collect());
-
-                    // 设置会话ID用于审计
-                    if let Some(ref sid) = session_id {
-                        request = request.with_session_id(sid.clone());
-                    }
-
-                    let resp = match client.chat_create(request).await {
-                        Ok(resp) => resp,
-                        Err(e) => {
-                            let _ = sender.send(Err(e.to_string())).await;
-                            return;
-                        }
-                    };
-
-                    // 检查是否有 tool_calls
-                    if let Some(tool_calls) = &resp.tool_calls {
-                        if !tool_calls.is_empty() {
-                            // 需要调用工具
-                            let mut function_messages = Vec::new();
-
-                            for tool_call in tool_calls {
-                                // 解析参数
-                                let args: Value = match serde_json::from_str(&tool_call.arguments) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        let error_msg = format!("解析工具参数失败: {}", e);
-                                        function_messages.push(
-                                            pgone_llm::chat::ChatMessage::function(
-                                                tool_call.name.clone(),
-                                                error_msg,
-                                            ),
-                                        );
-                                        continue;
-                                    }
-                                };
-
-                                // 调用工具
-                                match mcp_server.call_tool_direct(&tool_call.name, args).await {
-                                    Ok(result) => {
-                                        // 将结果转换为字符串
-                                        let result_str = match serde_json::to_string(&result) {
-                                            Ok(s) => s,
-                                            Err(e) => format!("序列化工具结果失败: {}", e),
-                                        };
-                                        function_messages.push(
-                                            pgone_llm::chat::ChatMessage::function(
-                                                tool_call.name.clone(),
-                                                result_str,
-                                            ),
-                                        );
-                                    }
-                                    Err(e) => {
-                                        let error_msg = format!("工具调用失败: {}", e);
-                                        function_messages.push(
-                                            pgone_llm::chat::ChatMessage::function(
-                                                tool_call.name.clone(),
-                                                error_msg,
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-
-                            // 将 assistant 消息（包含 tool_calls）和 function messages 添加到消息历史
-                            // 即使 content 为空，也需要添加 assistant 消息以保持对话连续性
-                            current_messages.push(pgone_llm::chat::ChatMessage::assistant(
-                                resp.content.clone(),
-                            ));
-                            current_messages.extend(function_messages);
-
-                            // 继续下一轮
-                            continue;
-                        }
-                    }
-
-                    // 没有 tool_calls，返回最终响应
-                    let final_response = resp.content;
-                    let _ = sender.send(Ok(final_response)).await;
-                    return;
-                }
-            });
+fn show_agent_conversation_menu(ui: &mut egui::Ui, panel: &mut ChatPanel, ctxs: &mut ChatCtx) {
+    ui.menu_button(egui_phosphor::regular::CHATS, |ui| {
+        if ui
+            .button(format!("{} New chat", egui_phosphor::regular::PLUS))
+            .clicked()
+        {
+            create_new_session(ctxs);
+            panel.events.clear();
+            panel.error = None;
+            ui.close();
         }
+
+        if ui
+            .add_enabled(
+                !ctxs.state.sessions.is_empty(),
+                egui::Button::new(format!("{} Delete current", egui_phosphor::regular::TRASH)),
+            )
+            .clicked()
+        {
+            panel.show_delete_confirm = true;
+            ui.close();
+        }
+
+        if !ctxs.state.sessions.is_empty() {
+            ui.separator();
+        }
+
+        for (index, session) in ctxs.state.sessions.iter().enumerate() {
+            let selected = index == ctxs.state.current_index;
+            let label = if selected {
+                format!("{} {}", egui_phosphor::regular::CHECK, session.title)
+            } else {
+                session.title.clone()
+            };
+            if ui.selectable_label(selected, label).clicked() {
+                ctxs.state.current_index = index;
+                panel.events.clear();
+                panel.error = None;
+                ui.close();
+            }
+        }
+    })
+    .response
+    .on_hover_text("Agent conversations");
+}
+
+fn create_new_session(ctxs: &mut ChatCtx) {
+    let new_id = ctxs.state.next_session_id.to_string();
+    ctxs.state.next_session_id += 1;
+    let new_session = crate::models::ChatSession::default_with_timestamp(new_id);
+    ctxs.state.sessions.push(new_session.clone());
+    ctxs.state.current_index = ctxs.state.sessions.len() - 1;
+
+    if let Err(error) = ctxs.storage.save_session(&new_session) {
+        tracing::error!("保存新会话失败: {error}");
+    }
+}
+
+fn current_conversation_title(ctxs: &ChatCtx) -> String {
+    ctxs.state
+        .sessions
+        .get(ctxs.state.current_index)
+        .map(|session| session.title.clone())
+        .unwrap_or_else(|| "Database assistant".to_owned())
+}
+
+fn show_agent_context_bar(ui: &mut egui::Ui, ctxs: &ChatCtx) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 14.0;
+        context_chip(
+            ui,
+            egui_phosphor::regular::DATABASE,
+            ctxs.active_db_label
+                .as_deref()
+                .unwrap_or("No database selected"),
+        );
+        context_chip(
+            ui,
+            egui_phosphor::regular::TABLE,
+            ctxs.selected_database.as_deref().unwrap_or("No database"),
+        );
+    });
+}
+
+fn context_chip(ui: &mut egui::Ui, icon: &str, text: &str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.label(
+            egui::RichText::new(icon)
+                .small()
+                .color(ui.visuals().weak_text_color()),
+        );
+        ui.label(egui::RichText::new(text).small());
+    });
+}
+
+fn show_agent_empty_state(ui: &mut egui::Ui) {
+    ui.add_space(24.0);
+    ui.vertical_centered(|ui| {
+        ui.label(
+            egui::RichText::new(egui_phosphor::regular::SPARKLE)
+                .size(22.0)
+                .color(ui.visuals().hyperlink_color),
+        );
+        ui.label(egui::RichText::new("Ask PgOne about this database").strong());
+        ui.label(
+            egui::RichText::new("Inspect schemas, explain tables, or render relationships.")
+                .small()
+                .color(ui.visuals().weak_text_color()),
+        );
+    });
+}
+
+fn show_agent_message(
+    ctxs: &mut ChatCtx,
+    ui: &mut egui::Ui,
+    message: &Message,
+    markdown_cache: &mut CommonMarkCache,
+    request_in_flight: bool,
+) {
+    match message.role {
+        Role::User => show_user_message(ctxs, ui, message),
+        Role::Assistant => show_assistant_message(ui, message, markdown_cache),
+        Role::System => show_system_message(ui, message),
+    }
+
+    if !request_in_flight
+        && let MessageContent::Markdown(text) = &message.content
+        && ui
+            .small_button(format!("{} Copy", egui_phosphor::regular::COPY))
+            .clicked()
+    {
+        ui.ctx().copy_text(text.clone());
+    }
+}
+
+fn show_user_message(ctxs: &mut ChatCtx, ui: &mut egui::Ui, message: &Message) {
+    let width = agent_bubble_width(ui);
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+        message_bubble(
+            ctxs,
+            ui,
+            message,
+            MessageBubbleStyle {
+                label: "You",
+                icon: egui_phosphor::regular::USER,
+                max_width: width,
+                fill: ui.visuals().selection.bg_fill,
+                stroke: ui.visuals().selection.stroke,
+                accent: ui.visuals().selection.stroke.color,
+                markdown: false,
+            },
+        );
+    });
+}
+
+fn show_assistant_message(
+    ui: &mut egui::Ui,
+    message: &Message,
+    markdown_cache: &mut CommonMarkCache,
+) {
+    markdown_message_bubble(
+        ui,
+        message,
+        markdown_cache,
+        MessageBubbleStyle {
+            label: "PgOne",
+            icon: egui_phosphor::regular::SPARKLE,
+            max_width: agent_bubble_width(ui),
+            fill: ui.visuals().extreme_bg_color,
+            stroke: egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+            accent: ui.visuals().hyperlink_color,
+            markdown: true,
+        },
+    );
+}
+
+fn show_system_message(ui: &mut egui::Ui, message: &Message) {
+    plain_message_bubble(
+        ui,
+        message,
+        MessageBubbleStyle {
+            label: "System",
+            icon: egui_phosphor::regular::USER_GEAR,
+            max_width: agent_bubble_width(ui),
+            fill: ui.visuals().widgets.inactive.bg_fill,
+            stroke: ui.visuals().widgets.inactive.bg_stroke,
+            accent: ui.visuals().weak_text_color(),
+            markdown: false,
+        },
+    );
+}
+
+struct MessageBubbleStyle<'a> {
+    label: &'a str,
+    icon: &'a str,
+    max_width: f32,
+    fill: egui::Color32,
+    stroke: egui::Stroke,
+    accent: egui::Color32,
+    markdown: bool,
+}
+
+fn message_bubble(
+    ctxs: &mut ChatCtx,
+    ui: &mut egui::Ui,
+    message: &Message,
+    style: MessageBubbleStyle,
+) {
+    egui::Frame::new()
+        .fill(style.fill)
+        .stroke(style.stroke)
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.set_max_width(style.max_width);
+            bubble_header(ui, &style);
+            show_message_content(ctxs, ui, message, style.max_width);
+        });
+}
+
+fn plain_message_bubble(ui: &mut egui::Ui, message: &Message, style: MessageBubbleStyle) {
+    egui::Frame::new()
+        .fill(style.fill)
+        .stroke(style.stroke)
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.set_max_width(style.max_width);
+            bubble_header(ui, &style);
+            if let MessageContent::Markdown(text) = &message.content {
+                ui.add(egui::Label::new(text.as_str()).wrap());
+            }
+        });
+}
+
+fn markdown_message_bubble(
+    ui: &mut egui::Ui,
+    message: &Message,
+    markdown_cache: &mut CommonMarkCache,
+    style: MessageBubbleStyle,
+) {
+    egui::Frame::new()
+        .fill(style.fill)
+        .stroke(style.stroke)
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.set_max_width(style.max_width);
+            bubble_header(ui, &style);
+            if let MessageContent::Markdown(text) = &message.content {
+                CommonMarkViewer::new()
+                    .default_width(Some(style.max_width as usize))
+                    .show(ui, markdown_cache, text);
+            }
+        });
+}
+
+fn bubble_header(ui: &mut egui::Ui, style: &MessageBubbleStyle) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(style.icon).small().color(style.accent));
+        ui.label(
+            egui::RichText::new(style.label)
+                .small()
+                .strong()
+                .color(style.accent),
+        );
+    });
+}
+
+fn show_message_content(ctxs: &mut ChatCtx, ui: &mut egui::Ui, message: &Message, max_width: f32) {
+    match &message.content {
+        MessageContent::Markdown(text) => {
+            ui.add(egui::Label::new(text.as_str()).wrap());
+        }
+        MessageContent::Image {
+            path,
+            width,
+            height,
+        } => {
+            if let Some(handle) = ctxs.preview.ensure_texture(ui.ctx(), path) {
+                let original_size = egui::vec2(*width as f32, *height as f32);
+                let bounded = if original_size.x > 0.0 && original_size.y > 0.0 {
+                    original_size.min(egui::vec2(max_width, 360.0))
+                } else {
+                    egui::vec2(max_width.min(360.0), 240.0)
+                };
+                let response =
+                    ui.add(egui::widgets::Image::new(&handle).fit_to_exact_size(bounded));
+                if response.clicked() {
+                    ctxs.preview.open(path.clone());
+                }
+            } else {
+                ui.label(format!("[image missing] {}", path.display()));
+            }
+        }
+        MessageContent::Video { path, .. } => {
+            if ui.link(path.display().to_string()).clicked() {
+                let _ = open::that(path);
+            }
+        }
+    }
+}
+
+fn agent_bubble_width(ui: &egui::Ui) -> f32 {
+    (ui.available_width() * 0.82).max(120.0)
+}
+
+fn show_agent_tool_activity(ui: &mut egui::Ui, events: &[AgentEvent]) {
+    egui::CollapsingHeader::new(format!("{} Tool activity", egui_phosphor::regular::WRENCH))
+        .default_open(false)
+        .show(ui, |ui| {
+            for event in events {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(agent_event_icon(event))
+                            .color(agent_event_color(ui, event)),
+                    );
+                    ui.label(
+                        egui::RichText::new(format_agent_event(event))
+                            .small()
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                });
+            }
+        });
+}
+
+fn show_agent_error(ui: &mut egui::Ui, error: &str) {
+    status_frame(ui, ui.visuals().error_fg_color, |ui| {
+        ui.label(
+            egui::RichText::new(egui_phosphor::regular::WARNING_CIRCLE)
+                .color(ui.visuals().error_fg_color),
+        );
+        ui.label(egui::RichText::new(error).color(ui.visuals().error_fg_color));
+    });
+}
+
+fn show_agent_thinking(ui: &mut egui::Ui) {
+    status_frame(ui, ui.visuals().hyperlink_color, |ui| {
+        ui.add(egui::Spinner::new().size(14.0));
+        ui.label(
+            egui::RichText::new("PgOne is thinking...")
+                .small()
+                .color(ui.visuals().weak_text_color()),
+        );
+    });
+}
+
+fn status_frame<R>(
+    ui: &mut egui::Ui,
+    color: egui::Color32,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) {
+    egui::Frame::new()
+        .fill(ui.visuals().widgets.inactive.bg_fill)
+        .stroke(egui::Stroke::new(1.0, color))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.horizontal(add_contents);
+        });
+}
+
+fn agent_event_icon(event: &AgentEvent) -> &'static str {
+    match event {
+        AgentEvent::ToolStarted { .. } => egui_phosphor::regular::CIRCLE_NOTCH,
+        AgentEvent::ToolFinished { .. } => egui_phosphor::regular::CHECK_CIRCLE,
+        AgentEvent::ToolFailed { .. } => egui_phosphor::regular::WARNING_CIRCLE,
+        AgentEvent::Completed { .. } => egui_phosphor::regular::CHECK,
+    }
+}
+
+fn agent_event_color(ui: &egui::Ui, event: &AgentEvent) -> egui::Color32 {
+    match event {
+        AgentEvent::ToolStarted { .. } => ui.visuals().hyperlink_color,
+        AgentEvent::ToolFinished { .. } | AgentEvent::Completed { .. } => {
+            ui.visuals().weak_text_color()
+        }
+        AgentEvent::ToolFailed { .. } => ui.visuals().error_fg_color,
+    }
+}
+
+fn format_agent_event(event: &AgentEvent) -> String {
+    match event {
+        AgentEvent::ToolStarted { name, .. } => format!("Started {name}"),
+        AgentEvent::ToolFinished { name, .. } => format!("Finished {name}"),
+        AgentEvent::ToolFailed { name, error } => format!("{name} failed: {error}"),
+        AgentEvent::Completed { status, summary } => format!("{status:?}: {summary}"),
+    }
+}
+
+fn message_to_agent_history(message: &Message) -> Option<AgentMessage> {
+    let MessageContent::Markdown(content) = &message.content else {
+        return None;
+    };
+
+    match message.role {
+        Role::User => Some(AgentMessage {
+            role: AgentRole::User,
+            content: content.clone(),
+        }),
+        Role::Assistant => Some(AgentMessage {
+            role: AgentRole::Assistant,
+            content: content.clone(),
+        }),
+        Role::System => Some(AgentMessage {
+            role: AgentRole::System,
+            content: content.clone(),
+        }),
+    }
+}
+
+fn normalize_chat_completions_url(base_url: Option<&str>) -> String {
+    let Some(base_url) = base_url.map(str::trim).filter(|value| !value.is_empty()) else {
+        return DEFAULT_OPENAI_CHAT_COMPLETIONS_URL.to_owned();
+    };
+
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.ends_with("/chat/completions") {
+        trimmed.to_owned()
+    } else if trimmed.ends_with("/v1") {
+        format!("{trimmed}/chat/completions")
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn should_replace_default_title(title: &str) -> bool {
+    title.starts_with("新会话-") || title == "New conversation"
+}
+
+fn conversation_title(message: &str) -> String {
+    let mut title = message.chars().take(48).collect::<String>();
+    if title.trim().is_empty() {
+        title = "New conversation".to_owned();
+    }
+    title
+}
+
+fn is_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn file_name(path: &Path) -> &str {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_chat_completions_url_defaults_to_openai_endpoint() {
+        assert_eq!(
+            normalize_chat_completions_url(None),
+            DEFAULT_OPENAI_CHAT_COMPLETIONS_URL
+        );
+        assert_eq!(
+            normalize_chat_completions_url(Some(" ")),
+            DEFAULT_OPENAI_CHAT_COMPLETIONS_URL
+        );
+    }
+
+    #[test]
+    fn normalize_chat_completions_url_expands_v1_root() {
+        assert_eq!(
+            normalize_chat_completions_url(Some("https://api.openai.com/v1/")),
+            DEFAULT_OPENAI_CHAT_COMPLETIONS_URL
+        );
     }
 }

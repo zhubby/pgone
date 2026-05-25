@@ -17,6 +17,8 @@ pub struct ChatCtx<'a> {
     pub storage: &'a mut SessionStorage,
     pub should_scroll_to_bottom: bool,
     pub active_db_config_id: Option<String>,
+    pub active_db_label: Option<String>,
+    pub selected_database: Option<String>,
 }
 
 #[derive(Default)]

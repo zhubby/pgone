@@ -22,7 +22,7 @@ impl DockTab {
             Self::DatabaseStructure => "Database Structure",
             Self::SqlEditor => "SQL Editor",
             Self::Results => "Results",
-            Self::Chat => "Chat",
+            Self::Chat => "Agent",
         }
     }
 }
@@ -189,6 +189,8 @@ impl DockTabViewer<'_> {
             storage: self.storage,
             should_scroll_to_bottom: false,
             active_db_config_id: self.db.active_db_config_id.clone(),
+            active_db_label: self.db.active_db_config_id.clone(),
+            selected_database: self.results_table.selected_database.clone(),
         };
         self.chat.ui(&mut chat_ctx, ui);
     }
