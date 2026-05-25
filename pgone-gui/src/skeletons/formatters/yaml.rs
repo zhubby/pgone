@@ -231,7 +231,7 @@ pub fn show_yaml_formatter_window(
                             .layouter(&mut |ui, _text, wrap_width| {
                                 let mut job = highlight_yaml(&text_for_highlight, ui.visuals());
                                 job.wrap.max_width = wrap_width;
-                                ui.fonts(|f| f.layout_job(job))
+                                ui.fonts_mut(|f| f.layout_job(job))
                             }),
                     );
                 });
@@ -241,4 +241,3 @@ pub fn show_yaml_formatter_window(
         *show = false;
     }
 }
-

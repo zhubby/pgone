@@ -656,7 +656,7 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
                                             .layouter(&mut move |ui, _text, wrap_width| {
                                                 let mut job = crate::sql::highlight_sql(&ddl_for_highlight, ui.visuals());
                                                 job.wrap.max_width = wrap_width;
-                                                ui.fonts(|f| f.layout_job(job))
+                                                ui.fonts_mut(|f| f.layout_job(job))
                                             }),
                                     );
                                 });
@@ -791,4 +791,3 @@ pub(super) fn show_dialogs(tree: &mut DbTree, ui: &mut egui::Ui, db_manager: &mu
         }
     }
 }
-

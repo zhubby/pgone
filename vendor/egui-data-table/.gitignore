@@ -1,0 +1,8 @@
+/target
+/demo/dist
+
+.cargo
+.claude
+
+.vscode/launch.json
+Cargo.lock

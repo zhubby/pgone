@@ -262,6 +262,10 @@ impl AppFrame {
 }
 
 impl eframe::App for AppFrame {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.update(ui.ctx(), frame);
+    }
+
     fn update(&mut self, ctx: &Context, _: &mut eframe::Frame) {
         // Menu bar
         skeletons::menu_bar::show_menu_bar(

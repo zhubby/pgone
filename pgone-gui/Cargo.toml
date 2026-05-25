@@ -15,28 +15,28 @@ name = "pgone-gui"
 path = "src/main.rs"
 
 [dependencies]
-egui = { version = "0.32.3", default-features = false }
-eframe = { version = "0.32.3" }
-egui_extras = { version = "0.32.3" }
-emath = { version = "0.32.3", default-features = false }
-ecolor = { version = "0.32.3", default-features = false }
-epaint = { version = "0.32.3", default-features = false }
-egui_plot = { version = "0.33.0", default-features = false }
-egui_commonmark = { version = "0.21", features = [
+egui = { version = "0.34.2", default-features = false }
+eframe = { version = "0.34.2" }
+egui_extras = { version = "0.34.2" }
+emath = { version = "0.34.2", default-features = false }
+ecolor = { version = "0.34.2", default-features = false }
+epaint = { version = "0.34.2", default-features = false }
+egui_plot = { version = "0.35.0", default-features = false }
+egui_commonmark = { version = "0.23", features = [
     "svg",
     "fetch",
     "better_syntax_highlighting",
     "embedded_image",
 ] }
-egui-snarl = "0.8"
+egui-snarl = "0.9"
 catppuccin-egui = { version = "5.7.0", default-features = false, features = [
-    "egui32",
+    "egui34",
 ] }
-egui-data-table = { version = "0.8" }
-epaint_default_fonts = { version = "0.32.1" }
-egui_table = "0.4.0"
-egui-phosphor = "0.10"
-egui-notify = "0.20"
+egui-data-table = { version = "0.10" }
+epaint_default_fonts = { version = "0.34.2" }
+egui_table = "0.8.0"
+egui-phosphor = "0.12"
+egui-notify = "0.22"
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"

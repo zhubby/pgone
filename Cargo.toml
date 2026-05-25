@@ -41,6 +41,11 @@ members = [
 
 resolver = "2"
 
+[patch.crates-io]
+catppuccin-egui = { path = "vendor/catppuccin-egui" }
+egui-data-table = { path = "vendor/egui-data-table" }
+egui-snarl = { path = "vendor/egui-snarl" }
+
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.23.0"

@@ -100,7 +100,7 @@ impl ResultsTable {
                     .layouter(&mut move |ui, _text, wrap_width| {
                         let mut job = crate::sql::highlight_sql(&current_sql, ui.visuals());
                         job.wrap.max_width = wrap_width;
-                        ui.fonts(|f| f.layout_job(job))
+                        ui.fonts_mut(|f| f.layout_job(job))
                     }),
             );
 
@@ -299,7 +299,7 @@ impl ResultsTable {
         
         // 使用与 TextEdit 相同的布局逻辑（包括语法高亮）
         let current_sql = text_before_cursor.to_string();
-        let galley = ui.fonts(|f| {
+        let galley = ui.fonts_mut(|f| {
             let mut job = crate::sql::highlight_sql(&current_sql, ui.visuals());
             job.wrap.max_width = wrap_width;
             f.layout_job(job)
@@ -326,7 +326,7 @@ impl ResultsTable {
         
         // 计算光标在该行中的 x 位置
         let cursor_text = &line_text[..cursor_in_line.min(line_text.len())];
-        let cursor_x = ui.fonts(|f| {
+        let cursor_x = ui.fonts_mut(|f| {
             cursor_text.chars().map(|c| f.glyph_width(&font_id, c)).sum::<f32>()
         });
         
@@ -482,4 +482,3 @@ impl ResultsTable {
         }
     }
 }
-
