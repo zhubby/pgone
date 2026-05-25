@@ -12,3 +12,16 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+pgone-mcp = { workspace = true }
+pgone-llm = { workspace = true }
+pgone-sql = { workspace = true }
+pgone-storage = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

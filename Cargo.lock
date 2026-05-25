@@ -7441,6 +7441,21 @@ dependencies = [
 [[package]]
 name = "pgone-agent"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "pgone-llm",
+ "pgone-mcp",
+ "pgone-sql",
+ "pgone-storage",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "pgone-cli"
