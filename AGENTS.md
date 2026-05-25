@@ -5,7 +5,7 @@
 This repository is a Rust workspace for PostgreSQL tooling. Crates are split by responsibility:
 
 - `pgone-mcp`: MCP server/client implementation, database registry, PostgreSQL introspection, STDIO and Streamable HTTP transports.
-- `pgone`: CLI entrypoint for quick runs and PostgreSQL extension-related code.
+- `pgone-cli`: CLI entrypoint for quick GUI and MCP server runs.
 - `pgone-gui`: desktop GUI built with `egui`/`eframe`.
 - `pgone-storage`: embedded local storage backed by SQLite/libsql/Turso.
 - `pgone-sql`: SQL parsing, database metadata models, and PostgreSQL session helpers.

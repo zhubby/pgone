@@ -1,6 +1,0 @@
-comment = 'pgone:  Created by pgrx'
-default_version = '@CARGO_VERSION@'
-module_pathname = 'pgone'
-relocatable = false
-superuser = true
-trusted = false

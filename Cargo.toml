@@ -34,7 +34,6 @@ members = [
     "pgone-llm",
     "pgone-vector",
     "pgone-cli",
-    "pgone",
 ]
 
 resolver = "2"
@@ -88,7 +87,7 @@ sqlx = { version = "0.8.6", default-features = false, features = [
     "postgres",
 ] }
 strum = { version = "0.27", features = ["derive"] }
-sqlparser = { version = "0.59.0" }
+sqlparser = "0.48"
 bb8-postgres = "0.9.0"
 tokio-postgres = "0.7"
 opentelemetry = "0.31"
@@ -130,8 +129,6 @@ sea-query = "1.0.0-rc.1"
 sysinfo = "0.37.2"
 regex = "1"
 infer = "0.15"
-pgrx = "=0.16.1"
-pgrx-tests = "=0.16.1"
 
 # Turso/libsql for local embedded storage
 libsql = { version = "0.4" }
@@ -147,4 +144,3 @@ pgone-sql = { path = "pgone-sql" }
 pgone-llm = { path = "pgone-llm" }
 pgone-agent = { path = "pgone-agent" }
 pgone-vector = { path = "pgone-vector" }
-pgone = { path = "pgone" }
