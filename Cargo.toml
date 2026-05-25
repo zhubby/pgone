@@ -32,7 +32,6 @@ members = [
     "pgone-sql",
     "pgone-agent",
     "pgone-llm",
-    "pgone-vector",
     "pgone-cli",
 ]
 
@@ -90,9 +89,6 @@ opentelemetry_sdk = "0.31"
 tracing-opentelemetry = "0.32"
 rmcp = { version = "0.10.0" }
 rig-core = "0.25.0"
-rig-lancedb = "0.2.28"
-lancedb = "0.22.3"
-arrow = "56.2.0"
 gemini-rust = "1.5.1"
 egui_dock = { version = "0.19", features = ["serde"] }
 egui = { version = "0.34.2", default-features = false }
@@ -136,4 +132,3 @@ pgone-util = { path = "pgone-util" }
 pgone-sql = { path = "pgone-sql" }
 pgone-llm = { path = "pgone-llm" }
 pgone-agent = { path = "pgone-agent" }
-pgone-vector = { path = "pgone-vector" }

@@ -38,7 +38,6 @@ PGone provides:
 - **`pgone-sql`** — SQL parsing and database models
 - **`pgone-llm`** — LLM provider integrations (OpenAI, Gemini, Ollama)
 - **`pgone-util`** — Shared utilities and logging
-- **`pgone-vector`** — Vector database support
 - **`pgone-cli`** — Unified `pgone` command entrypoint for GUI and MCP server runs
 
 ---
