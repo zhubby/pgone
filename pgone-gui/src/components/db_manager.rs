@@ -1,7 +1,8 @@
 use crate::futures;
 use crate::notify;
-use pgone_storage::blocking::StorageBlocking;
+use crate::storage_handle::{FileUploadTarget as StorageFileUploadTarget, GuiStorage};
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbEngine {
@@ -91,10 +92,17 @@ pub struct DbManager {
     pub show_edit_db: bool,
     pub edit_db_id: Option<String>,
     pub edit_db_form: DbFormData,
-    pub storage: Option<StorageBlocking>,
+    pub storage: Option<GuiStorage>,
     pub pools: std::collections::HashMap<u64, PgPool>,
     pub delete_confirm_id: Option<String>,
     pub show_delete_confirm: bool,
+    add_test_receiver: Option<mpsc::Receiver<ConnectionTestResult>>,
+    edit_test_receiver: Option<mpsc::Receiver<ConnectionTestResult>>,
+}
+
+struct ConnectionTestResult {
+    db_name: String,
+    result: Result<(), String>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +113,19 @@ pub enum FilePickerTarget {
     EditSslCert,
     EditSslKey,
     EditSslRootcert,
+}
+
+impl From<FilePickerTarget> for StorageFileUploadTarget {
+    fn from(target: FilePickerTarget) -> Self {
+        match target {
+            FilePickerTarget::AddSslCert => Self::AddSslCert,
+            FilePickerTarget::AddSslKey => Self::AddSslKey,
+            FilePickerTarget::AddSslRootcert => Self::AddSslRootcert,
+            FilePickerTarget::EditSslCert => Self::EditSslCert,
+            FilePickerTarget::EditSslKey => Self::EditSslKey,
+            FilePickerTarget::EditSslRootcert => Self::EditSslRootcert,
+        }
+    }
 }
 
 impl Default for DbManager {
@@ -121,11 +142,81 @@ impl Default for DbManager {
             pools: Default::default(),
             delete_confirm_id: None,
             show_delete_confirm: false,
+            add_test_receiver: None,
+            edit_test_receiver: None,
+        }
+    }
+}
+
+fn spawn_connection_test(db_name: String, dsn: String) -> mpsc::Receiver<ConnectionTestResult> {
+    let (sender, receiver) = mpsc::channel(1);
+    futures::spawn(async move {
+        let result = DbManager::verify_connection_quickly(&dsn).await;
+        let _ = sender.send(ConnectionTestResult { db_name, result }).await;
+    });
+    receiver
+}
+
+fn apply_connection_test_result(
+    form: &mut DbFormData,
+    db_name: &str,
+    result: Result<(), String>,
+) {
+    match result {
+        Ok(()) => {
+            form.test_status = Some(true);
+            form.error = None;
+            notify::db_connection_success(db_name);
+        }
+        Err(error) => {
+            form.test_status = Some(false);
+            form.error = Some(error.clone());
+            notify::db_connection_error(db_name, &error);
         }
     }
 }
 
 impl DbManager {
+    fn poll_connection_tests(&mut self) {
+        if let Some(receiver) = &mut self.add_test_receiver {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    apply_connection_test_result(
+                        &mut self.add_db_form,
+                        &result.db_name,
+                        result.result,
+                    );
+                    self.add_test_receiver = None;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => {}
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    self.add_db_form.test_status = Some(false);
+                    self.add_db_form.error = Some("Connection test task stopped".into());
+                    self.add_test_receiver = None;
+                }
+            }
+        }
+
+        if let Some(receiver) = &mut self.edit_test_receiver {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    apply_connection_test_result(
+                        &mut self.edit_db_form,
+                        &result.db_name,
+                        result.result,
+                    );
+                    self.edit_test_receiver = None;
+                }
+                Err(mpsc::error::TryRecvError::Empty) => {}
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    self.edit_db_form.test_status = Some(false);
+                    self.edit_db_form.error = Some("Connection test task stopped".into());
+                    self.edit_test_receiver = None;
+                }
+            }
+        }
+    }
+
     pub fn shutdown(&mut self) {
         let pools = std::mem::take(&mut self.pools);
         if pools.is_empty() {
@@ -166,7 +257,7 @@ impl DbManager {
         ssl_cert_file_id: Option<&String>,
         ssl_key_file_id: Option<&String>,
         ssl_rootcert_file_id: Option<&String>,
-        storage: Option<&StorageBlocking>,
+        storage: Option<&GuiStorage>,
     ) -> Result<String, String> {
         let dbname = if database.trim().is_empty() {
             String::new()
@@ -195,9 +286,7 @@ impl DbManager {
             // Get file paths from file IDs
             if let Some(storage) = storage {
                 if let Some(cert_id) = ssl_cert_file_id {
-                    if let Ok(Some(file)) =
-                        futures::block_on_async(async { storage.get_file(cert_id).await })
-                    {
+                    if let Some(file) = storage.get_file(cert_id) {
                         let cert_path = pgone_storage::data_file_path(&file.current_path)
                             .to_string_lossy()
                             .to_string();
@@ -206,9 +295,7 @@ impl DbManager {
                 }
 
                 if let Some(key_id) = ssl_key_file_id {
-                    if let Ok(Some(file)) =
-                        futures::block_on_async(async { storage.get_file(key_id).await })
-                    {
+                    if let Some(file) = storage.get_file(key_id) {
                         let key_path = pgone_storage::data_file_path(&file.current_path)
                             .to_string_lossy()
                             .to_string();
@@ -217,9 +304,7 @@ impl DbManager {
                 }
 
                 if let Some(rootcert_id) = ssl_rootcert_file_id {
-                    if let Ok(Some(file)) =
-                        futures::block_on_async(async { storage.get_file(rootcert_id).await })
-                    {
+                    if let Some(file) = storage.get_file(rootcert_id) {
                         let rootcert_path = pgone_storage::data_file_path(&file.current_path)
                             .to_string_lossy()
                             .to_string();
@@ -266,16 +351,34 @@ impl DbManager {
 
     /// Get database name by ID
     pub fn get_db_name(&mut self, id: &str) -> Option<String> {
-        self.ensure_storage();
-        if let Some(ref storage) = self.storage {
-            // Use block_on_async for synchronous access from async context
-            if let Ok(Some(cfg)) =
-                futures::block_on_async(async { storage.get_db_config(id).await })
-            {
-                return Some(cfg.id);
-            }
+        self.storage
+            .as_ref()
+            .and_then(|storage| storage.get_db_config(id))
+            .map(|cfg| cfg.id)
+    }
+
+    pub fn active_db_config(&self) -> Option<pgone_storage::models::DbConfig> {
+        let id = self.active_db_config_id.as_ref()?;
+        self.storage.as_ref()?.get_db_config(id)
+    }
+
+    pub fn sql_context_copy(&self) -> Self {
+        Self {
+            active_db_config_id: self.active_db_config_id.clone(),
+            pools: self.pools.clone(),
+            storage: self.storage.clone(),
+            ..Default::default()
         }
-        None
+    }
+
+    pub fn active_dsn(&self) -> Option<String> {
+        self.active_db_config().map(|cfg| cfg.dsn)
+    }
+
+    pub fn dsn_for_database(&self, database: &str) -> Option<String> {
+        let cfg = self.active_db_config()?;
+        crate::components::structures::utils::replace_database_in_dsn(&cfg.dsn, database)
+            .or_else(|| Some(cfg.dsn))
     }
 
     /// Reset add database form fields to default values
@@ -290,13 +393,48 @@ impl DbManager {
     }
 
     pub fn ensure_storage(&mut self) {
-        if self.storage.is_some() {
-            return;
+        if let Some(storage) = &self.storage {
+            storage.refresh();
         }
-        if let Ok(storage) =
-            futures::block_on_async(async { StorageBlocking::open_default().await })
-        {
-            self.storage = Some(storage);
+    }
+
+    pub fn set_storage(&mut self, storage: GuiStorage) {
+        self.storage = Some(storage);
+    }
+
+    pub fn process_storage_events(&mut self) {
+        let Some(storage) = self.storage.as_ref() else {
+            return;
+        };
+
+        for result in storage.take_file_upload_results() {
+            match result {
+                Ok(result) => {
+                    let file_id = result.file.id.clone();
+                    match result.target {
+                        StorageFileUploadTarget::AddSslCert => {
+                            self.add_db_form.ssl_cert_file_id = Some(file_id);
+                        }
+                        StorageFileUploadTarget::AddSslKey => {
+                            self.add_db_form.ssl_key_file_id = Some(file_id);
+                        }
+                        StorageFileUploadTarget::AddSslRootcert => {
+                            self.add_db_form.ssl_rootcert_file_id = Some(file_id);
+                        }
+                        StorageFileUploadTarget::EditSslCert => {
+                            self.edit_db_form.ssl_cert_file_id = Some(file_id);
+                        }
+                        StorageFileUploadTarget::EditSslKey => {
+                            self.edit_db_form.ssl_key_file_id = Some(file_id);
+                        }
+                        StorageFileUploadTarget::EditSslRootcert => {
+                            self.edit_db_form.ssl_rootcert_file_id = Some(file_id);
+                        }
+                    }
+                    notify::info(format!("文件已上传: {}", result.file.original_path));
+                }
+                Err(error) => notify::error(format!("上传文件失败: {}", error)),
+            }
         }
     }
 
@@ -305,8 +443,7 @@ impl DbManager {
         self.ensure_storage();
         let mut to_switch: Option<String> = None;
         if let Some(storage) = &self.storage {
-            let list = futures::block_on_async(async { storage.list_db_configs(None).await })
-                .unwrap_or_default();
+            let list = storage.list_db_configs();
             for cfg in list {
                 let icon = egui_phosphor::regular::DATABASE;
                 let label = if Some(cfg.id.clone()) == self.active_db_config_id {
@@ -344,6 +481,7 @@ impl DbManager {
     }
 
     pub fn ui_add_db_window(&mut self, ctx: &egui::Context) {
+        self.poll_connection_tests();
         if self.show_add_db {
             let mut open = true;
             let center = ctx.content_rect().center();
@@ -569,6 +707,7 @@ impl DbManager {
     }
 
     pub fn ui_edit_db_window(&mut self, ctx: &egui::Context) {
+        self.poll_connection_tests();
         if self.show_edit_db {
             let mut open = true;
             let center = ctx.content_rect().center();
@@ -802,9 +941,7 @@ impl DbManager {
                 .show(ctx, |ui| {
                     self.ensure_storage();
                     if let Some(storage) = &self.storage {
-                        let list =
-                            futures::block_on_async(async { storage.list_db_configs(None).await })
-                                .unwrap_or_default();
+                        let list = storage.list_db_configs();
 
                         if list.is_empty() {
                             ui.label("No databases configured");
@@ -968,10 +1105,7 @@ impl DbManager {
                                 .clicked()
                             {
                                 if let Some(ref storage) = self.storage {
-                                    let id_clone = id.clone();
-                                    let _ = futures::block_on_async(async {
-                                        storage.delete_db_config(&id_clone).await
-                                    });
+                                    storage.delete_db_config(id);
                                     // Clear active if deleted
                                     if self.active_db_config_id.as_ref() == Some(id) {
                                         self.active_db_config_id = None;
@@ -1072,71 +1206,39 @@ impl DbManager {
 
         // 测试连接
         self.add_db_form.error = None;
-        let result = futures::block_on_async(async {
-            PgPoolOptions::new().max_connections(1).connect(&dsn).await
-        });
-
-        match result {
-            Ok(pool) => {
-                // 尝试执行一个简单查询来验证连接
-                let query_result =
-                    futures::block_on_async(async { sqlx::query("SELECT 1").execute(&pool).await });
-                match query_result {
-                    Ok(_) => {
-                        self.add_db_form.test_status = Some(true);
-                        self.add_db_form.error = None;
-                        notify::db_connection_success(&db_name);
-                    }
-                    Err(e) => {
-                        self.add_db_form.test_status = Some(false);
-                        let error_msg = format!("Connection test failed: {}", e);
-                        self.add_db_form.error = Some(error_msg.clone());
-                        notify::db_connection_error(&db_name, &error_msg);
-                    }
-                }
-            }
-            Err(e) => {
-                self.add_db_form.test_status = Some(false);
-                let error_msg = format!("Connection failed: {}", e);
-                self.add_db_form.error = Some(error_msg.clone());
-                notify::db_connection_error(&db_name, &error_msg);
-            }
-        }
+        self.add_db_form.test_status = None;
+        self.add_test_receiver = Some(spawn_connection_test(db_name, dsn));
     }
 
     /// Quickly verify database connection with timeout
     /// Returns Ok(()) if connection is successful, Err(error_message) if failed
-    pub fn verify_connection_quickly(dsn: &str) -> Result<(), String> {
+    pub async fn verify_connection_quickly(dsn: &str) -> Result<(), String> {
         use std::time::Duration;
         use tokio::time::timeout;
 
         // Set timeout to 5 seconds
         let timeout_duration = Duration::from_secs(5);
 
-        futures::block_on_async(async {
-            match timeout(timeout_duration, async {
-                // Try to connect
-                let pool = PgPoolOptions::new()
-                    .max_connections(1)
-                    .connect(dsn)
-                    .await
-                    .map_err(|e| format!("Connection failed: {}", e))?;
+        match timeout(timeout_duration, async {
+            let pool = PgPoolOptions::new()
+                .max_connections(1)
+                .connect(dsn)
+                .await
+                .map_err(|e| format!("Connection failed: {}", e))?;
 
-                // Try to execute a simple query
-                sqlx::query("SELECT 1")
-                    .execute(&pool)
-                    .await
-                    .map_err(|e| format!("Query execution failed: {}", e))?;
+            sqlx::query("SELECT 1")
+                .execute(&pool)
+                .await
+                .map_err(|e| format!("Query execution failed: {}", e))?;
 
-                Ok::<(), String>(())
-            })
-            .await
-            {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(e)) => Err(e),
-                Err(_) => Err("Connection timeout: database is not reachable".to_string()),
-            }
+            Ok::<(), String>(())
         })
+        .await
+        {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err("Connection timeout: database is not reachable".to_string()),
+        }
     }
 
     pub fn save_new_database(&mut self) -> Result<(), String> {
@@ -1188,11 +1290,8 @@ impl DbManager {
             created_at: now,
             updated_at: now,
         };
-        let res = futures::block_on_async(async { storage.upsert_db_config(&cfg).await });
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
+        storage.upsert_db_config(cfg);
+        Ok(())
     }
 
     /// Load database config for editing
@@ -1201,8 +1300,7 @@ impl DbManager {
         let Some(storage) = self.storage.as_ref() else {
             return Err("storage not ready".into());
         };
-        let cfg = futures::block_on_async(async { storage.get_db_config(id).await })
-            .map_err(|e| e.to_string())?;
+        let cfg = storage.get_db_config(id);
         let Some(cfg) = cfg else {
             return Err("Database config not found".into());
         };
@@ -1237,7 +1335,6 @@ impl DbManager {
                     self.edit_db_form.ssl_mode = ssl_mode.clone();
 
                     // Try to find file IDs from paths
-                    self.ensure_storage();
                     if let Some(storage) = &self.storage {
                         // Find SSL cert file ID
                         if let Some(cert_path) = query_pairs.get("sslcert") {
@@ -1284,8 +1381,7 @@ impl DbManager {
         };
 
         // Load existing config to preserve created_at
-        let existing_cfg = futures::block_on_async(async { storage.get_db_config(id).await })
-            .map_err(|e| e.to_string())?;
+        let existing_cfg = storage.get_db_config(id);
         let Some(existing_cfg) = existing_cfg else {
             return Err("Database config not found".into());
         };
@@ -1347,17 +1443,12 @@ impl DbManager {
             updated_at: Self::now_ts(),
         };
 
-        let res = futures::block_on_async(async { storage.upsert_db_config(&cfg).await });
-        match res {
-            Ok(_) => {
-                // Update active_db_config_id if it was the edited one
-                if self.active_db_config_id.as_ref() == Some(id) {
-                    self.active_db_config_id = Some(cfg.id.clone());
-                }
-                Ok(())
-            }
-            Err(e) => Err(e.to_string()),
+        let previous_id = id.clone();
+        storage.upsert_db_config(cfg.clone());
+        if self.active_db_config_id.as_ref() == Some(&previous_id) {
+            self.active_db_config_id = Some(cfg.id.clone());
         }
+        Ok(())
     }
 
     /// Open file picker dialog and upload selected file
@@ -1373,41 +1464,9 @@ impl DbManager {
             .add_filter("All Files", &["*"])
             .pick_file()
         {
-            // Upload file to storage
             if let Some(storage) = &self.storage {
                 let file_path = path.to_string_lossy().to_string();
-                match futures::block_on_async(async {
-                    storage.copy_file_to_index(&file_path).await
-                }) {
-                    Ok(file_index) => {
-                        // Set the file ID based on target
-                        match target {
-                            FilePickerTarget::AddSslCert => {
-                                self.add_db_form.ssl_cert_file_id = Some(file_index.id.clone());
-                            }
-                            FilePickerTarget::AddSslKey => {
-                                self.add_db_form.ssl_key_file_id = Some(file_index.id.clone());
-                            }
-                            FilePickerTarget::AddSslRootcert => {
-                                self.add_db_form.ssl_rootcert_file_id = Some(file_index.id.clone());
-                            }
-                            FilePickerTarget::EditSslCert => {
-                                self.edit_db_form.ssl_cert_file_id = Some(file_index.id.clone());
-                            }
-                            FilePickerTarget::EditSslKey => {
-                                self.edit_db_form.ssl_key_file_id = Some(file_index.id.clone());
-                            }
-                            FilePickerTarget::EditSslRootcert => {
-                                self.edit_db_form.ssl_rootcert_file_id =
-                                    Some(file_index.id.clone());
-                            }
-                        }
-                        notify::info(format!("文件已上传: {}", file_index.original_path));
-                    }
-                    Err(e) => {
-                        notify::error(format!("上传文件失败: {}", e));
-                    }
-                }
+                storage.copy_file_to_index(file_path, target.into());
             }
         }
     }
@@ -1415,9 +1474,7 @@ impl DbManager {
     /// Get file name by ID
     fn get_file_name(&self, file_id: &str) -> Option<String> {
         if let Some(storage) = &self.storage {
-            if let Ok(Some(file)) =
-                futures::block_on_async(async { storage.get_file(file_id).await })
-            {
+            if let Some(file) = storage.get_file(file_id) {
                 return Some(
                     std::path::Path::new(&file.original_path)
                         .file_name()
@@ -1431,7 +1488,7 @@ impl DbManager {
     }
 
     /// Find file ID by path (supports current data-dir paths, ./data/xxx, and xxx formats)
-    fn find_file_id_by_path(storage: &StorageBlocking, path: &str) -> Option<String> {
+    fn find_file_id_by_path(storage: &GuiStorage, path: &str) -> Option<String> {
         let normalized_path = std::path::Path::new(path)
             .strip_prefix(pgone_storage::data_dir())
             .ok()
@@ -1440,19 +1497,18 @@ impl DbManager {
             .unwrap_or(path);
 
         // List all files and search by path
-        if let Ok(files) = futures::block_on_async(async { storage.list_files().await }) {
-            // Try to find by current_path
-            if let Some(file) = files.iter().find(|f| f.current_path == normalized_path) {
-                return Some(file.id.clone());
-            }
+        let files = storage.list_files();
+        // Try to find by current_path
+        if let Some(file) = files.iter().find(|f| f.current_path == normalized_path) {
+            return Some(file.id.clone());
+        }
 
-            // Try to find by original_path
-            if let Some(file) = files
-                .iter()
-                .find(|f| f.original_path == path || f.original_path == normalized_path)
-            {
-                return Some(file.id.clone());
-            }
+        // Try to find by original_path
+        if let Some(file) = files
+            .iter()
+            .find(|f| f.original_path == path || f.original_path == normalized_path)
+        {
+            return Some(file.id.clone());
         }
 
         None
@@ -1485,9 +1541,7 @@ impl DbManager {
         let password = if self.edit_db_form.password.trim().is_empty() {
             if let Some(ref id) = self.edit_db_id {
                 if let Some(storage) = &self.storage {
-                    if let Ok(Some(cfg)) =
-                        futures::block_on_async(async { storage.get_db_config(id).await })
-                    {
+                    if let Some(cfg) = storage.get_db_config(id) {
                         if let Some(url) = url::Url::parse(&cfg.dsn).ok() {
                             url.password().unwrap_or("").to_string()
                         } else {
@@ -1541,35 +1595,8 @@ impl DbManager {
         };
 
         self.edit_db_form.error = None;
-        let result = futures::block_on_async(async {
-            PgPoolOptions::new().max_connections(1).connect(&dsn).await
-        });
-
-        match result {
-            Ok(pool) => {
-                let query_result =
-                    futures::block_on_async(async { sqlx::query("SELECT 1").execute(&pool).await });
-                match query_result {
-                    Ok(_) => {
-                        self.edit_db_form.test_status = Some(true);
-                        self.edit_db_form.error = None;
-                        notify::db_connection_success(&db_name);
-                    }
-                    Err(e) => {
-                        self.edit_db_form.test_status = Some(false);
-                        let error_msg = format!("Connection test failed: {}", e);
-                        self.edit_db_form.error = Some(error_msg.clone());
-                        notify::db_connection_error(&db_name, &error_msg);
-                    }
-                }
-            }
-            Err(e) => {
-                self.edit_db_form.test_status = Some(false);
-                let error_msg = format!("Connection failed: {}", e);
-                self.edit_db_form.error = Some(error_msg.clone());
-                notify::db_connection_error(&db_name, &error_msg);
-            }
-        }
+        self.edit_db_form.test_status = None;
+        self.edit_test_receiver = Some(spawn_connection_test(db_name, dsn));
     }
 
     /// Set a database config as default
@@ -1582,8 +1609,7 @@ impl DbManager {
         };
 
         // Get all configs
-        let all_configs = futures::block_on_async(async { storage.list_db_configs(None).await })
-            .map_err(|e| format!("Failed to list configs: {}", e))?;
+        let all_configs = storage.list_db_configs();
 
         let now = Self::now_ts();
 
@@ -1592,19 +1618,15 @@ impl DbManager {
             let mut updated_cfg = cfg.clone();
             updated_cfg.default_config = Some(false);
             updated_cfg.updated_at = now;
-            let _ = futures::block_on_async(async { storage.upsert_db_config(&updated_cfg).await });
+            storage.upsert_db_config(updated_cfg);
         }
 
         // Then, set the specified config's default_config to true
         if let Some(mut target_cfg) = all_configs.iter().find(|c| c.id == id).cloned() {
             target_cfg.default_config = Some(true);
             target_cfg.updated_at = now;
-            let res =
-                futures::block_on_async(async { storage.upsert_db_config(&target_cfg).await });
-            match res {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("Failed to set default config: {}", e)),
-            }
+            storage.upsert_db_config(target_cfg);
+            Ok(())
         } else {
             Err(format!("Database config '{}' not found", id))
         }

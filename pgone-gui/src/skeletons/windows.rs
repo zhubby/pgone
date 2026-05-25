@@ -104,17 +104,9 @@ pub fn show_graph_window(
     };
 
     // Get DSN before opening window to avoid borrow checker issues
-    let dsn = schema_info.as_ref().and_then(|(_database, _schema)| {
-        db_manager.ensure_storage();
-        db_manager.active_db_config_id.as_ref().and_then(|id| {
-            db_manager.storage.as_ref().and_then(|storage| {
-                crate::futures::block_on_async(async { storage.get_db_config(id).await })
-                    .ok()
-                    .flatten()
-                    .map(|cfg| cfg.dsn)
-            })
-        })
-    });
+    let dsn = schema_info
+        .as_ref()
+        .and_then(|(_database, _schema)| db_manager.active_dsn());
 
     Window::new(title)
         .open(&mut open)

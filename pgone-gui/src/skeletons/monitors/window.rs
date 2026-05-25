@@ -7,7 +7,6 @@ use super::replication;
 use super::statements;
 use super::tables;
 use crate::components::DbManager;
-use crate::futures;
 use eframe::egui::{Align2, Context, Window};
 
 /// 显示监控窗口
@@ -64,15 +63,7 @@ pub fn show_monitor_window(
 
 /// 获取当前活动数据库的DSN
 fn get_dsn(db_manager: &mut DbManager) -> Option<String> {
-    db_manager.ensure_storage();
-    db_manager.active_db_config_id.as_ref().and_then(|id| {
-        db_manager.storage.as_ref().and_then(|storage| {
-            futures::block_on_async(async { storage.get_db_config(id).await })
-                .ok()
-                .flatten()
-                .map(|cfg| cfg.dsn)
-        })
-    })
+    db_manager.active_dsn()
 }
 
 fn screen_center(ctx: &Context) -> eframe::egui::Pos2 {

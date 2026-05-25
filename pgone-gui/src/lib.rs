@@ -16,6 +16,8 @@ mod notify;
 mod sql;
 mod storage;
 use storage::SessionStorage;
+mod storage_handle;
+use storage_handle::GuiStorage;
 
 mod components;
 use components::{
@@ -101,6 +103,9 @@ pub struct AppFrame {
     settings_panel: SettingsPanel,
     dock_layout: skeletons::dock::DockLayout,
     session_storage: SessionStorage,
+    gui_storage: GuiStorage,
+    settings_loaded_from_storage: bool,
+    sessions_loaded_from_storage: bool,
     show_monitor: Option<skeletons::monitors::MonitorMetric>,
     show_export: bool,
     export_window: ExportWindow,
@@ -111,87 +116,24 @@ pub struct AppFrame {
 }
 
 impl AppFrame {
-    fn new() -> Self {
-        // Initialize storage first to load settings
+    fn new(ctx: Context, initial_settings: Settings) -> Self {
+        let gui_storage = GuiStorage::new(ctx.clone());
         let mut db_manager = components::DbManager::default();
-        db_manager.ensure_storage();
-
-        // Load default database config if exists and verify connection
-        if let Some(ref storage) = db_manager.storage {
-            if let Ok(Some(default_cfg)) =
-                futures::block_on_async(async { storage.get_default_db_config().await })
-            {
-                // Verify connection before setting as active
-                match components::DbManager::verify_connection_quickly(&default_cfg.dsn) {
-                    Ok(()) => {
-                        db_manager.active_db_config_id = Some(default_cfg.id.clone());
-                        tracing::info!("Loaded default database config: {}", default_cfg.id);
-                    }
-                    Err(e) => {
-                        notify::db_connection_error(&default_cfg.id, &e);
-                        tracing::warn!(
-                            "Default database config '{}' is not available: {}",
-                            default_cfg.id,
-                            e
-                        );
-                    }
-                }
-            }
-        }
-
-        // Load settings from database
-        let settings = if let Some(ref storage) = db_manager.storage {
-            if let Ok(kv_map) = futures::block_on_async(async { storage.get_all_settings().await })
-            {
-                let loaded_settings = Settings::from_kv_map(&kv_map);
-                tracing::debug!("Loaded settings from DB: {:?}", loaded_settings);
-                loaded_settings
-            } else {
-                tracing::warn!("Failed to load settings from database");
-                Settings::default()
-            }
-        } else {
-            tracing::warn!("Storage not available, using default settings");
-            Settings::default()
-        };
+        db_manager.set_storage(gui_storage.clone());
 
         // Initialize session storage
-        let mut session_storage = SessionStorage::new();
+        let session_storage = SessionStorage::new(ctx);
 
         // Load sessions from database
         let mut state = PersistedState {
             current_db_config_id: None,
-            settings: settings.clone(),
+            settings: initial_settings,
             sessions: vec![],
             current_index: 0,
             next_session_id: 1,
         };
 
-        // Load sessions from database
-        if let Ok(loaded_sessions) = session_storage.load_sessions() {
-            if !loaded_sessions.is_empty() {
-                state.sessions = loaded_sessions;
-                // Ensure current_index is valid
-                if state.current_index >= state.sessions.len() {
-                    state.current_index = 0;
-                }
-                // Update next_session_id based on loaded sessions
-                if let Some(max_id) = state
-                    .sessions
-                    .iter()
-                    .filter_map(|s| s.id.parse::<u64>().ok())
-                    .max()
-                {
-                    state.next_session_id = max_id + 1;
-                }
-            } else {
-                // 如果没有会话，创建一个默认会话
-                state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
-            }
-        } else {
-            // 如果加载失败，创建一个默认会话
-            state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
-        }
+        state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
 
         // 不需要初始化额外的进程来提供tools
         // 初始化 MCP client
@@ -232,6 +174,9 @@ impl AppFrame {
             settings_panel: Default::default(),
             dock_layout: Default::default(),
             session_storage,
+            gui_storage,
+            settings_loaded_from_storage: false,
+            sessions_loaded_from_storage: false,
             show_monitor: None,
             show_export: false,
             export_window: ExportWindow::default(),
@@ -244,28 +189,59 @@ impl AppFrame {
 
     #[allow(dead_code)]
     fn save_state(&mut self) {
-        // Save settings to database
-        self.db.ensure_storage();
-        if let Some(ref storage) = self.db.storage {
-            let kv_map = self.state.settings.to_kv_map();
-            let _ = futures::block_on_async(async {
-                for (key, value) in kv_map {
-                    let _ = storage.upsert_setting(&key, &value).await;
-                }
-            });
+        let kv_map = self.state.settings.to_kv_map();
+        for (key, value) in kv_map {
+            self.gui_storage.upsert_setting(key, value);
         }
     }
 
     /// Save settings to database
     pub fn save_settings(&mut self) {
-        self.db.ensure_storage();
-        if let Some(ref storage) = self.db.storage {
-            let kv_map = self.state.settings.to_kv_map();
-            let _ = futures::block_on_async(async {
-                for (key, value) in kv_map {
-                    let _ = storage.upsert_setting(&key, &value).await;
+        let kv_map = self.state.settings.to_kv_map();
+        for (key, value) in kv_map {
+            self.gui_storage.upsert_setting(key, value);
+        }
+    }
+
+    fn apply_storage_updates(&mut self) {
+        self.db.process_storage_events();
+
+        if !self.settings_loaded_from_storage {
+            let settings = self.gui_storage.get_all_settings();
+            if !settings.is_empty() {
+                self.state.settings = Settings::from_kv_map(&settings);
+                self.settings_loaded_from_storage = true;
+            } else if self.gui_storage.is_ready() {
+                self.settings_loaded_from_storage = true;
+            }
+        }
+
+        if !self.sessions_loaded_from_storage {
+            if let Some(loaded_sessions) = self.session_storage.take_loaded_sessions() {
+                if !loaded_sessions.is_empty() {
+                    self.state.sessions = loaded_sessions;
+                    if self.state.current_index >= self.state.sessions.len() {
+                        self.state.current_index = 0;
+                    }
+                    if let Some(max_id) = self
+                        .state
+                        .sessions
+                        .iter()
+                        .filter_map(|session| session.id.parse::<u64>().ok())
+                        .max()
+                    {
+                        self.state.next_session_id = max_id + 1;
+                    }
                 }
-            });
+                self.sessions_loaded_from_storage = true;
+            }
+        }
+
+        if self.db.active_db_config_id.is_none()
+            && let Some(default_cfg) = self.gui_storage.get_default_db_config()
+        {
+            self.db.active_db_config_id = Some(default_cfg.id.clone());
+            tracing::info!("Loaded default database config: {}", default_cfg.id);
         }
     }
 
@@ -335,6 +311,7 @@ impl eframe::App for AppFrame {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let mut reset_dock_layout = false;
+        self.apply_storage_updates();
 
         // Menu bar
         skeletons::menu_bar::show_menu_bar(
@@ -494,22 +471,7 @@ pub fn run() -> anyhow::Result<()> {
                 }
             }
 
-            // Load settings from database
-            let mut db_manager = components::DbManager::default();
-            db_manager.ensure_storage();
-
-            let settings = if let Some(ref storage) = db_manager.storage {
-                if let Ok(kv_map) =
-                    futures::block_on_async(async { storage.get_all_settings().await })
-                {
-                    Settings::from_kv_map(&kv_map)
-                } else {
-                    Settings::default()
-                }
-            } else {
-                Settings::default()
-            };
-
+            let settings = Settings::default();
             tracing::debug!("settings: {:?}", settings);
 
             // Set default font family based on settings
@@ -556,7 +518,7 @@ pub fn run() -> anyhow::Result<()> {
             SettingsPanel::apply_theme(&cc.egui_ctx, settings.theme);
 
             cc.egui_ctx.set_fonts(fonts);
-            Ok(Box::new(AppFrame::new()))
+            Ok(Box::new(AppFrame::new(cc.egui_ctx.clone(), settings)))
         }),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {}", e))

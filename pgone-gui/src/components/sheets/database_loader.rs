@@ -12,25 +12,8 @@ impl ResultsTable {
             return; // Already loading
         }
 
-        let db_id = ctxs.db.active_db_config_id.clone();
-        let Some(db_id) = db_id else {
-            return;
-        };
-
-        ctxs.db.ensure_storage();
-        let dsn = if let Some(ref storage) = ctxs.db.storage {
-            match futures::block_on_async(async { storage.get_db_config(&db_id).await }) {
-                Ok(Some(cfg)) => cfg.dsn,
-                Ok(None) => {
-                    debug!("Database config not found: {}", db_id);
-                    return;
-                }
-                Err(e) => {
-                    debug!("Failed to load database config: {}", e);
-                    return;
-                }
-            }
-        } else {
+        let Some(dsn) = ctxs.db.active_dsn() else {
+            debug!("Database config not found");
             return;
         };
 

@@ -1,12 +1,11 @@
 use crate::components::DbManager;
-use crate::futures;
 use crate::models::Settings;
 use eframe::egui::{Context, Panel};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sqlx::Row;
 use sqlx::postgres::PgPoolOptions;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -20,6 +19,8 @@ static LAST_REFRESH: Lazy<Arc<Mutex<Option<Instant>>>> = Lazy::new(|| Arc::new(M
 // 缓存数据库版本信息（按连接ID）
 static DB_VERSION_CACHE: Lazy<Arc<Mutex<HashMap<String, (String, Instant)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+static DB_VERSION_PENDING: Lazy<Arc<Mutex<HashSet<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
 // 刷新间隔：1秒
 const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -31,52 +32,44 @@ pub fn show_status_bar(ctx: &Context, db: &mut DbManager, settings: &Settings) {
         ui.horizontal(|ui| {
             // Database selection button and display
             ui.horizontal(|ui| {
-                let active_id = db.active_db_config_id.clone();
-
-                if active_id.is_some() {
+                if db.active_db_config_id.is_some() {
                     ui.separator();
-                    db.ensure_storage();
-                    if let Some(ref storage) = db.storage {
-                        if let Ok(Some(cfg)) = futures::block_on_async(async {
-                            storage.get_db_config(&active_id.as_ref().unwrap()).await
-                        }) {
-                            // Parse DSN to get connection details
-                            if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn)
-                            {
-                                ui.horizontal(|ui| {
-                                    ui.label(egui_phosphor::regular::DATABASE);
-                                    ui.label(egui::RichText::new(&cfg.id).strong());
+                    if let Some(cfg) = db.active_db_config() {
+                        // Parse DSN to get connection details
+                        if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
+                            ui.horizontal(|ui| {
+                                ui.label(egui_phosphor::regular::DATABASE);
+                                ui.label(egui::RichText::new(&cfg.id).strong());
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(egui_phosphor::regular::GEAR);
+                                ui.label("Engine:");
+                                ui.label(&cfg.engine);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(egui_phosphor::regular::GLOBE);
+                                ui.label("Host:");
+                                ui.label(&parsed.host);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(egui_phosphor::regular::DATABASE);
+                                ui.label("Database:");
+                                ui.label(if parsed.database.is_empty() {
+                                    "<default>"
+                                } else {
+                                    &parsed.database
                                 });
-                                ui.horizontal(|ui| {
-                                    ui.label(egui_phosphor::regular::GEAR);
-                                    ui.label("Engine:");
-                                    ui.label(&cfg.engine);
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label(egui_phosphor::regular::GLOBE);
-                                    ui.label("Host:");
-                                    ui.label(&parsed.host);
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label(egui_phosphor::regular::DATABASE);
-                                    ui.label("Database:");
-                                    ui.label(if parsed.database.is_empty() {
-                                        "<default>"
-                                    } else {
-                                        &parsed.database
-                                    });
-                                });
+                            });
 
-                                // 获取并显示数据库版本信息
-                                let db_version = get_db_version(&cfg.dsn, &cfg.id);
-                                if let Some(version) = db_version {
-                                    let short_version = extract_version_info(&version);
-                                    ui.horizontal(|ui| {
-                                        ui.label(egui_phosphor::regular::TAG);
-                                        ui.label("Version:");
-                                        ui.label(egui::RichText::new(short_version));
-                                    });
-                                }
+                            // 获取并显示数据库版本信息
+                            let db_version = get_db_version(ctx, &cfg.dsn, &cfg.id);
+                            if let Some(version) = db_version {
+                                let short_version = extract_version_info(&version);
+                                ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::TAG);
+                                    ui.label("Version:");
+                                    ui.label(egui::RichText::new(short_version));
+                                });
                             }
                         }
                     }
@@ -178,7 +171,7 @@ fn extract_version_info(full_version: &str) -> String {
 }
 
 /// 获取数据库版本信息，使用缓存机制避免频繁查询
-fn get_db_version(dsn: &str, db_id: &str) -> Option<String> {
+fn get_db_version(ctx: &Context, dsn: &str, db_id: &str) -> Option<String> {
     let mut cache = DB_VERSION_CACHE.lock().unwrap();
     let now = Instant::now();
 
@@ -189,29 +182,39 @@ fn get_db_version(dsn: &str, db_id: &str) -> Option<String> {
         }
     }
 
-    // 缓存过期或不存在，查询数据库版本
-    let version_result = futures::block_on_async(async {
-        // 创建临时连接池查询版本
-        let pool = PgPoolOptions::new().max_connections(1).connect(dsn).await?;
+    let stale_value = cache.get(db_id).map(|(version, _)| version.clone());
+    drop(cache);
 
-        // 执行 version() 函数查询
-        let row = sqlx::query("SELECT version() as version")
-            .fetch_one(&pool)
-            .await?;
+    let should_spawn = DB_VERSION_PENDING
+        .lock()
+        .map(|mut pending| pending.insert(db_id.to_string()))
+        .unwrap_or(false);
 
-        let version: String = row.get("version");
-        Ok::<String, sqlx::Error>(version)
-    });
+    if should_spawn {
+        let dsn = dsn.to_string();
+        let db_id = db_id.to_string();
+        let ctx = ctx.clone();
+        crate::futures::spawn(async move {
+            let version_result = async {
+                let pool = PgPoolOptions::new().max_connections(1).connect(&dsn).await?;
+                let row = sqlx::query("SELECT version() as version")
+                    .fetch_one(&pool)
+                    .await?;
+                Ok::<String, sqlx::Error>(row.get("version"))
+            }
+            .await;
 
-    match version_result {
-        Ok(version) => {
-            // 更新缓存
-            cache.insert(db_id.to_string(), (version.clone(), now));
-            Some(version)
-        }
-        Err(_) => {
-            // 查询失败，如果有旧缓存则返回旧值
-            cache.get(db_id).map(|(v, _)| v.clone())
-        }
+            if let Ok(version) = version_result
+                && let Ok(mut cache) = DB_VERSION_CACHE.lock()
+            {
+                cache.insert(db_id.clone(), (version, Instant::now()));
+            }
+            if let Ok(mut pending) = DB_VERSION_PENDING.lock() {
+                pending.remove(&db_id);
+            }
+            ctx.request_repaint();
+        });
     }
+
+    stale_value
 }

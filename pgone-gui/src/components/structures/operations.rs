@@ -4,52 +4,36 @@ use super::utils;
 use crate::futures;
 use pgone_sql::Session;
 
+fn spawn_operation(operation: impl std::future::Future<Output = Result<(), String>> + Send + 'static) {
+    futures::spawn(async move {
+        if let Err(error) = operation.await {
+            tracing::error!(error, "Database structure operation failed");
+        }
+    });
+}
+
 pub(super) fn create_database(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
     name: &str,
 ) {
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(dsn) = db_manager.active_dsn() else {
         return;
     };
+    let name = name.to_string();
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            cfg.dsn
-        } else {
-            return;
-        }
-    } else {
-        return;
-    };
-
-    let dsn_clone = dsn.clone();
-    let name_clone = name.to_string();
-
-    let result = futures::block_on_async(async {
-        let session = Session::connect_to_postgres(&dsn_clone)
+    spawn_operation(async move {
+        let session = Session::connect_to_postgres(&dsn)
             .await
             .map_err(|e| format!("Failed to connect: {}", e))?;
-
         session
-            .create_database(&name_clone, None, None, None)
+            .create_database(&name, None, None, None)
             .await
             .map_err(|e| format!("Failed to create database: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload databases
-            tree.loaded_databases = false;
-            loading::load_databases(tree, db_manager);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    tree.loaded_databases = false;
+    loading::load_databases(tree, db_manager);
 }
 
 pub(super) fn create_schema(
@@ -58,32 +42,24 @@ pub(super) fn create_schema(
     database: &str,
     name: &str,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let name = name.to_string();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
-            .create_schema(name, None)
+            .create_schema(&name, None)
             .await
             .map_err(|e| format!("Failed to create schema: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload schemas
-            tree.loaded_schemas.insert(database.to_string(), false);
-            loading::load_schemas(tree, db_manager, database);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    tree.loaded_schemas.insert(database.clone(), false);
+    loading::load_schemas(tree, db_manager, &database);
 }
 
 pub(super) fn create_table(
@@ -93,33 +69,26 @@ pub(super) fn create_table(
     schema: &str,
     ddl: &str,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let schema = schema.to_string();
+    let ddl = ddl.to_string();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
-            .create_table(ddl)
+            .create_table(&ddl)
             .await
             .map_err(|e| format!("Failed to create table: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload tables
-            let key = format!("{}.{}", database, schema);
-            tree.loaded_tables.insert(key.clone(), false);
-            loading::load_tables(tree, db_manager, database, schema);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_tables.insert(key, false);
+    loading::load_tables(tree, db_manager, &database, &schema);
 }
 
 pub(super) fn create_view(
@@ -129,33 +98,26 @@ pub(super) fn create_view(
     schema: &str,
     ddl: &str,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let schema = schema.to_string();
+    let ddl = ddl.to_string();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
-            .create_view(ddl)
+            .create_view(&ddl)
             .await
             .map_err(|e| format!("Failed to create view: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload views
-            let key = format!("{}.{}", database, schema);
-            tree.loaded_views.insert(key.clone(), false);
-            loading::load_views(tree, db_manager, database, schema);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_views.insert(key, false);
+    loading::load_views(tree, db_manager, &database, &schema);
 }
 
 pub(super) fn create_materialized_view(
@@ -165,34 +127,26 @@ pub(super) fn create_materialized_view(
     schema: &str,
     ddl: &str,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let schema = schema.to_string();
+    let ddl = ddl.to_string();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
-        // Materialized views use the same create_view method but with CREATE MATERIALIZED VIEW DDL
         session
-            .create_view(ddl)
+            .create_view(&ddl)
             .await
             .map_err(|e| format!("Failed to create materialized view: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload materialized views
-            let key = format!("{}.{}", database, schema);
-            tree.loaded_materialized_views.insert(key.clone(), false);
-            loading::load_materialized_views(tree, db_manager, database, schema);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_materialized_views.insert(key, false);
+    loading::load_materialized_views(tree, db_manager, &database, &schema);
 }
 
 pub(super) fn create_function(
@@ -202,33 +156,26 @@ pub(super) fn create_function(
     schema: &str,
     ddl: &str,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let schema = schema.to_string();
+    let ddl = ddl.to_string();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
-            .create_function(ddl)
+            .create_function(&ddl)
             .await
             .map_err(|e| format!("Failed to create function: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload functions
-            let key = format!("{}.{}", database, schema);
-            tree.loaded_functions.insert(key.clone(), false);
-            loading::load_functions(tree, db_manager, database, schema);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_functions.insert(key, false);
+    loading::load_functions(tree, db_manager, &database, &schema);
 }
 
 pub(super) fn delete_database(
@@ -237,47 +184,23 @@ pub(super) fn delete_database(
     name: &str,
     _cascade: bool,
 ) {
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(dsn) = db_manager.active_dsn() else {
         return;
     };
+    let name = name.to_string();
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            cfg.dsn
-        } else {
-            return;
-        }
-    } else {
-        return;
-    };
-
-    let dsn_clone = dsn.clone();
-    let name_clone = name.to_string();
-
-    let result = futures::block_on_async(async {
-        let session = Session::connect_to_postgres(&dsn_clone)
+    spawn_operation(async move {
+        let session = Session::connect_to_postgres(&dsn)
             .await
             .map_err(|e| format!("Failed to connect: {}", e))?;
-
         session
-            .drop_database(&name_clone, false)
+            .drop_database(&name, false)
             .await
             .map_err(|e| format!("Failed to delete database: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload databases
-            tree.loaded_databases = false;
-            loading::load_databases(tree, db_manager);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    tree.loaded_databases = false;
+    loading::load_databases(tree, db_manager);
 }
 
 pub(super) fn delete_schema(
@@ -287,32 +210,24 @@ pub(super) fn delete_schema(
     name: &str,
     cascade: bool,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let name = name.to_string();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
-            .drop_schema(name, false, cascade)
+            .drop_schema(&name, false, cascade)
             .await
             .map_err(|e| format!("Failed to delete schema: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload schemas
-            tree.loaded_schemas.insert(database.to_string(), false);
-            loading::load_schemas(tree, db_manager, database);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    tree.loaded_schemas.insert(database.clone(), false);
+    loading::load_schemas(tree, db_manager, &database);
 }
 
 pub(super) fn delete_table(
@@ -323,33 +238,27 @@ pub(super) fn delete_table(
     name: &str,
     cascade: bool,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let schema = schema.to_string();
+    let name = name.to_string();
+    let schema_for_task = schema.clone();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
-            .drop_table(schema, name, false, cascade)
+            .drop_table(&schema_for_task, &name, false, cascade)
             .await
             .map_err(|e| format!("Failed to delete table: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload tables
-            let key = format!("{}.{}", database, schema);
-            tree.loaded_tables.insert(key.clone(), false);
-            loading::load_tables(tree, db_manager, database, schema);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_tables.insert(key, false);
+    loading::load_tables(tree, db_manager, &database, &schema);
 }
 
 pub(super) fn rename_database(
@@ -358,48 +267,24 @@ pub(super) fn rename_database(
     old_name: &str,
     new_name: &str,
 ) {
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(dsn) = db_manager.active_dsn() else {
         return;
     };
+    let old_name = old_name.to_string();
+    let new_name = new_name.to_string();
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            cfg.dsn
-        } else {
-            return;
-        }
-    } else {
-        return;
-    };
-
-    let dsn_clone = dsn.clone();
-    let old_name_clone = old_name.to_string();
-    let new_name_clone = new_name.to_string();
-
-    let result = futures::block_on_async(async {
-        let session = Session::connect_to_postgres(&dsn_clone)
+    spawn_operation(async move {
+        let session = Session::connect_to_postgres(&dsn)
             .await
             .map_err(|e| format!("Failed to connect: {}", e))?;
-
         session
-            .alter_database(&old_name_clone, Some(&new_name_clone), None, None)
+            .alter_database(&old_name, Some(&new_name), None, None)
             .await
             .map_err(|e| format!("Failed to rename database: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload databases
-            tree.loaded_databases = false;
-            loading::load_databases(tree, db_manager);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    tree.loaded_databases = false;
+    loading::load_databases(tree, db_manager);
 }
 
 pub(super) fn rename_schema(
@@ -409,32 +294,25 @@ pub(super) fn rename_schema(
     old_name: &str,
     new_name: &str,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let old_name = old_name.to_string();
+    let new_name = new_name.to_string();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
-            .alter_schema(old_name, Some(new_name), None)
+            .alter_schema(&old_name, Some(&new_name), None)
             .await
             .map_err(|e| format!("Failed to rename schema: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload schemas
-            tree.loaded_schemas.insert(database.to_string(), false);
-            loading::load_schemas(tree, db_manager, database);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    tree.loaded_schemas.insert(database.clone(), false);
+    loading::load_schemas(tree, db_manager, &database);
 }
 
 pub(super) fn rename_table(
@@ -445,37 +323,32 @@ pub(super) fn rename_table(
     old_name: &str,
     new_name: &str,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let schema = schema.to_string();
+    let old_name = old_name.to_string();
+    let new_name = new_name.to_string();
+    let schema_for_task = schema.clone();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
             .alter_table(
-                schema,
-                old_name,
-                &format!("RENAME TO {}", utils::quote_ident(new_name)),
+                &schema_for_task,
+                &old_name,
+                &format!("RENAME TO {}", utils::quote_ident(&new_name)),
             )
             .await
             .map_err(|e| format!("Failed to rename table: {}", e))
     });
 
-    match result {
-        Ok(_) => {
-            // Reload tables
-            let key = format!("{}.{}", database, schema);
-            tree.loaded_tables.insert(key.clone(), false);
-            loading::load_tables(tree, db_manager, database, schema);
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_tables.insert(key, false);
+    loading::load_tables(tree, db_manager, &database, &schema);
 }
 
 /// 执行表设计变更，使用事务确保原子性
@@ -487,99 +360,73 @@ pub(super) fn design_table(
     _table_name: &str,
     statements: &[String],
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let database = database.to_string();
+    let schema = schema.to_string();
+    let statements = statements.to_vec();
 
-    let dsn_clone = dsn.clone();
-    let statements_clone = statements.to_vec();
-
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         use tokio_postgres::NoTls;
 
-        // 直接连接数据库以支持事务
-        let (mut client, connection) = tokio_postgres::connect(&dsn_clone, NoTls)
+        let (mut client, connection) = tokio_postgres::connect(&dsn, NoTls)
             .await
             .map_err(|e| format!("Failed to connect: {}", e))?;
 
-        // 在后台运行连接任务
         tokio::spawn(async move {
             if let Err(e) = connection.await {
                 tracing::error!(error = ?e, "Database connection error");
             }
         });
 
-        // 开始事务
         let transaction = client
             .transaction()
             .await
             .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
-        // 执行所有 SQL 语句
-        for sql in &statements_clone {
+        for sql in &statements {
             transaction
                 .execute(sql, &[])
                 .await
                 .map_err(|e| format!("Failed to execute SQL: {} - Error: {}", sql, e))?;
         }
 
-        // 提交事务
         transaction
             .commit()
             .await
             .map_err(|e| format!("Failed to commit transaction: {}", e))?;
 
-        Ok::<(), String>(())
+        Ok(())
     });
 
-    match result {
-        Ok(_) => {
-            // 重新加载表结构
-            let key = format!("{}.{}", database, schema);
-            tree.loaded_tables.insert(key.clone(), false);
-            loading::load_tables(tree, db_manager, database, schema);
-
-            // 清除设计状态
-            tree.design_table_detail = None;
-            tree.design_table_columns.clear();
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_tables.insert(key, false);
+    loading::load_tables(tree, db_manager, &database, &schema);
+    tree.design_table_detail = None;
+    tree.design_table_columns.clear();
 }
 
 pub(super) fn drop_table(
-    tree: &mut DbTree,
+    _tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
     database: &str,
     schema: &str,
     name: &str,
 ) {
-    let dsn = loading::get_dsn_for_database(tree, db_manager, database);
-    let Some(dsn) = dsn else {
+    let Some(dsn) = db_manager.dsn_for_database(database) else {
         return;
     };
+    let schema = schema.to_string();
+    let name = name.to_string();
 
-    let result = futures::block_on_async(async {
+    spawn_operation(async move {
         let session = Session::new(&dsn)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
-
         session
-            .truncate_table(schema, name)
+            .truncate_table(&schema, &name)
             .await
             .map_err(|e| format!("Failed to truncate table: {}", e))
     });
-
-    match result {
-        Ok(_) => {
-            // TRUNCATE 不改变表结构，所以不需要重新加载表列表
-            // 但可以显示成功消息或更新错误状态
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
 }

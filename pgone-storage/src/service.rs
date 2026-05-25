@@ -2,11 +2,16 @@ use crate::Storage;
 use crate::models::*;
 use anyhow::Result;
 
-pub struct StorageBlocking {
+/// Async storage facade that opens a short-lived connection per operation.
+///
+/// This type does not run SQLite work on a blocking thread pool. GUI callers
+/// should use a background task bridge instead of waiting for these futures on
+/// the render thread.
+pub struct StorageService {
     inner: Storage,
 }
 
-impl StorageBlocking {
+impl StorageService {
     pub async fn open_default() -> Result<Self> {
         let inner = Storage::open_default().await?;
         Ok(Self { inner })

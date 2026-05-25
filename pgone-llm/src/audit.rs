@@ -1,5 +1,5 @@
 use crate::LLMProvider;
-use pgone_storage::blocking::StorageBlocking;
+use pgone_storage::service::StorageService;
 use pgone_storage::models::LlmAuditLog;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use tracing::warn;
 
 /// 审计日志记录器
 pub struct AuditLogger {
-    storage: Option<Arc<RwLock<StorageBlocking>>>,
+    storage: Option<Arc<RwLock<StorageService>>>,
 }
 
 impl AuditLogger {
@@ -19,7 +19,7 @@ impl AuditLogger {
 
     /// 使用存储路径初始化审计日志记录器
     pub async fn with_storage_path(path: PathBuf) -> anyhow::Result<Self> {
-        let storage = StorageBlocking::open_local(path.to_str().unwrap()).await?;
+        let storage = StorageService::open_local(path.to_str().unwrap()).await?;
         Ok(Self {
             storage: Some(Arc::new(RwLock::new(storage))),
         })

@@ -192,6 +192,7 @@ pub struct DbTree {
 
     // DDL state
     pub(super) ddl_promise: Option<Promise<Result<String, String>>>, // 异步加载DDL的 Promise
+    pub(super) results_promise: Option<Promise<Result<(Vec<String>, Vec<Vec<String>>), String>>>,
 
     // Pending actions (to avoid borrow checker issues in context menus)
     pub(super) pending_query_table: Option<(String, String, String)>, // (database, schema, table)

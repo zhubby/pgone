@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "backend-turso")]
 use turso::{Builder, Connection, Database};
 
-pub mod blocking;
 pub mod file_sys;
 pub mod models;
 pub mod query;
 pub mod schema;
+pub mod service;
 pub mod storage;
 
 pub const APP_DIR_NAME: &str = ".pgone";

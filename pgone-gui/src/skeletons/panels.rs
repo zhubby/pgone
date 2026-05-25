@@ -67,18 +67,9 @@ pub fn show_center_panel(
             db.ensure_storage();
             let mut sql_ctx = SqlCtx {
                 state: state.clone(),
-                db: crate::components::DbManager {
-                    active_db_config_id: db.active_db_config_id.clone(),
-                    pools: db.pools.clone(),
-                    storage: None, // Will be initialized in run_sql via ensure_storage()
-                    ..Default::default()
-                },
+                db: db.sql_context_copy(),
             };
-            // Initialize storage in SqlCtx by ensuring it's available
-            if db.storage.is_some() {
-                sql_ctx.db.ensure_storage();
-            }
-            results_table.ui(ui, Some(&mut sql_ctx));
+        results_table.ui(ui, Some(&mut sql_ctx));
             // Update pools back if they were modified
             db.pools = sql_ctx.db.pools;
         });

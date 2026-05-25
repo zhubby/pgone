@@ -99,17 +99,8 @@ impl DockTabViewer<'_> {
         self.db.ensure_storage();
         let mut sql_ctx = SqlCtx {
             state: self.state.clone(),
-            db: DbManager {
-                active_db_config_id: self.db.active_db_config_id.clone(),
-                pools: self.db.pools.clone(),
-                storage: None,
-                ..Default::default()
-            },
+            db: self.db.sql_context_copy(),
         };
-
-        if self.db.storage.is_some() {
-            sql_ctx.db.ensure_storage();
-        }
 
         sql_ctx
     }

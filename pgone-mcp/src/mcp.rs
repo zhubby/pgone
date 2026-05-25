@@ -2,7 +2,7 @@ use crate::adapter::SqlSessionIntrospector;
 use crate::core::models::{IntrospectOptions, RoutineKind, TypeKind};
 use crate::formatters::{dbml, markdown, mermaid};
 use pgone_sql::Session;
-use pgone_storage::blocking::StorageBlocking;
+use pgone_storage::service::StorageService;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::ErrorData as McpError;
 use rmcp::model::{CallToolRequestParam, CallToolResult, ListToolsResult, Tool};
@@ -55,12 +55,12 @@ async fn wait_for_shutdown_signal() {
 /// MCP 服务器上下文
 #[derive(Clone)]
 pub struct McpContext {
-    storage: Arc<RwLock<StorageBlocking>>,
+    storage: Arc<RwLock<StorageService>>,
 }
 
 impl McpContext {
     pub async fn new(storage_path: PathBuf) -> anyhow::Result<Self> {
-        let storage = StorageBlocking::open_local(storage_path.to_str().unwrap()).await?;
+        let storage = StorageService::open_local(storage_path.to_str().unwrap()).await?;
         Ok(Self {
             storage: Arc::new(RwLock::new(storage)),
         })

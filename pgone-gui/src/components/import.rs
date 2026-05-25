@@ -1,5 +1,4 @@
 use crate::components::DbManager;
-use crate::components::structures;
 use crate::futures;
 use pgone_sql::{DatabaseInfo, SchemaInfo, Session};
 use poll_promise::Promise;
@@ -274,17 +273,11 @@ impl ImportWindow {
             return;
         }
 
-        let Some(db_id) = db_manager.active_db_config_id.clone() else {
+        let Some(_db_id) = db_manager.active_db_config_id.clone() else {
             return;
         };
 
-        db_manager.ensure_storage();
-        let dsn = if let Some(ref storage) = db_manager.storage {
-            match futures::block_on_async(async { storage.get_db_config(&db_id).await }) {
-                Ok(Some(cfg)) => cfg.dsn,
-                _ => return,
-            }
-        } else {
+        let Some(dsn) = db_manager.active_dsn() else {
             return;
         };
 
@@ -314,18 +307,11 @@ impl ImportWindow {
             return;
         }
 
-        let Some(db_id) = db_manager.active_db_config_id.clone() else {
+        let Some(_db_id) = db_manager.active_db_config_id.clone() else {
             return;
         };
 
-        db_manager.ensure_storage();
-        let dsn = if let Some(ref storage) = db_manager.storage {
-            match futures::block_on_async(async { storage.get_db_config(&db_id).await }) {
-                Ok(Some(cfg)) => structures::utils::replace_database_in_dsn(&cfg.dsn, database)
-                    .unwrap_or_else(|| cfg.dsn.clone()),
-                _ => return,
-            }
-        } else {
+        let Some(dsn) = db_manager.dsn_for_database(database) else {
             return;
         };
 
@@ -505,18 +491,11 @@ impl ImportWindow {
             return;
         };
 
-        let Some(db_id) = db_manager.active_db_config_id.clone() else {
+        let Some(_db_id) = db_manager.active_db_config_id.clone() else {
             return;
         };
 
-        db_manager.ensure_storage();
-        let dsn = if let Some(ref storage) = db_manager.storage {
-            match futures::block_on_async(async { storage.get_db_config(&db_id).await }) {
-                Ok(Some(cfg)) => structures::utils::replace_database_in_dsn(&cfg.dsn, &db_name)
-                    .unwrap_or_else(|| cfg.dsn.clone()),
-                _ => return,
-            }
-        } else {
+        let Some(dsn) = db_manager.dsn_for_database(&db_name) else {
             return;
         };
 

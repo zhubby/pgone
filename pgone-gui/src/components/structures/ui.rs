@@ -48,6 +48,7 @@ impl DbTree {
 
         // Check for async load results
         loading::check_promises(self);
+        loading::check_result_promises(self, results_table);
 
         // Handle pending query table action
         if let Some((database, schema, table)) = self.pending_query_table.take() {

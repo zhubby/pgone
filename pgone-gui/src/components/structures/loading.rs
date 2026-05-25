@@ -206,23 +206,32 @@ pub(super) fn check_promises(tree: &mut DbTree) {
     }
 }
 
+pub(super) fn check_result_promises(tree: &mut DbTree, results_table: &mut ResultsTable) {
+    if let Some(ref promise) = tree.results_promise {
+        if let Some(result) = promise.ready() {
+            match result {
+                Ok((columns, rows)) => {
+                    results_table.query_columns = columns.clone();
+                    results_table.query_rows = rows.clone();
+                }
+                Err(error) => {
+                    tree.error = Some(error.clone());
+                }
+            }
+            tree.results_promise = None;
+        }
+    }
+}
+
 pub(super) fn load_databases(tree: &mut DbTree, db_manager: &mut crate::components::DbManager) {
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
         return;
     };
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            cfg.dsn
-        } else {
-            tree.error = Some("Failed to get database config".to_string());
-            return;
-        }
+    let dsn = if let Some(dsn) = db_manager.active_dsn() {
+        dsn
     } else {
-        tree.error = Some("Storage not available".to_string());
+        tree.error = Some("Database config not available".to_string());
         return;
     };
 
@@ -256,31 +265,11 @@ pub(super) fn load_schemas(
         return; // Already loading
     }
 
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
         return;
     };
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            // Replace database name in DSN while preserving password
-            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
-                // Fallback to manual construction if URL parsing fails
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                    format!(
-                        "{}://{}@{}:{}/{}",
-                        parsed.engine, parsed.user, parsed.host, parsed.port, database
-                    )
-                } else {
-                    cfg.dsn.clone()
-                }
-            })
-        } else {
-            return;
-        }
-    } else {
+    let Some(dsn) = db_manager.dsn_for_database(database) else {
         return;
     };
 
@@ -316,31 +305,11 @@ pub(super) fn load_tables(
         return; // Already loading
     }
 
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
         return;
     };
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            // Replace database name in DSN while preserving password
-            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
-                // Fallback to manual construction if URL parsing fails
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                    format!(
-                        "{}://{}@{}:{}/{}",
-                        parsed.engine, parsed.user, parsed.host, parsed.port, database
-                    )
-                } else {
-                    cfg.dsn.clone()
-                }
-            })
-        } else {
-            return;
-        }
-    } else {
+    let Some(dsn) = db_manager.dsn_for_database(database) else {
         return;
     };
 
@@ -377,29 +346,11 @@ pub(super) fn load_views(
         return; // Already loading
     }
 
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
         return;
     };
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                    format!(
-                        "{}://{}@{}:{}/{}",
-                        parsed.engine, parsed.user, parsed.host, parsed.port, database
-                    )
-                } else {
-                    cfg.dsn.clone()
-                }
-            })
-        } else {
-            return;
-        }
-    } else {
+    let Some(dsn) = db_manager.dsn_for_database(database) else {
         return;
     };
 
@@ -436,29 +387,11 @@ pub(super) fn load_materialized_views(
         return; // Already loading
     }
 
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
         return;
     };
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                    format!(
-                        "{}://{}@{}:{}/{}",
-                        parsed.engine, parsed.user, parsed.host, parsed.port, database
-                    )
-                } else {
-                    cfg.dsn.clone()
-                }
-            })
-        } else {
-            return;
-        }
-    } else {
+    let Some(dsn) = db_manager.dsn_for_database(database) else {
         return;
     };
 
@@ -496,29 +429,11 @@ pub(super) fn load_functions(
         return; // Already loading
     }
 
-    let Some(db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
         return;
     };
 
-    db_manager.ensure_storage();
-    let dsn = if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            utils::replace_database_in_dsn(&cfg.dsn, database).unwrap_or_else(|| {
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                    format!(
-                        "{}://{}@{}:{}/{}",
-                        parsed.engine, parsed.user, parsed.host, parsed.port, database
-                    )
-                } else {
-                    cfg.dsn.clone()
-                }
-            })
-        } else {
-            return;
-        }
-    } else {
+    let Some(dsn) = db_manager.dsn_for_database(database) else {
         return;
     };
 
@@ -688,27 +603,8 @@ pub(super) fn get_dsn_for_database(
     db_manager: &mut crate::components::DbManager,
     database: &str,
 ) -> Option<String> {
-    let db_id = db_manager.active_db_config_id.clone()?;
-    db_manager.ensure_storage();
-    if let Some(ref storage) = db_manager.storage {
-        if let Ok(Some(cfg)) =
-            futures::block_on_async(async { storage.get_db_config(&db_id).await })
-        {
-            // Replace database name in DSN while preserving password
-            return utils::replace_database_in_dsn(&cfg.dsn, database).or_else(|| {
-                // Fallback to manual construction if URL parsing fails
-                if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                    Some(format!(
-                        "{}://{}@{}:{}/{}",
-                        parsed.engine, parsed.user, parsed.host, parsed.port, database
-                    ))
-                } else {
-                    Some(cfg.dsn.clone())
-                }
-            });
-        }
-    }
-    None
+    let _db_id = db_manager.active_db_config_id.clone()?;
+    db_manager.dsn_for_database(database)
 }
 
 pub(super) fn load_indexes(
@@ -842,7 +738,7 @@ pub(super) fn load_triggers(
 pub(super) fn query_index_detail(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
-    results_table: &mut ResultsTable,
+    _results_table: &mut ResultsTable,
     database: &str,
     schema: &str,
     table: &str,
@@ -858,53 +754,46 @@ pub(super) fn query_index_detail(
     let table_clone = table.to_string();
     let index_clone = index.to_string();
 
-    let result = futures::block_on_async(async {
-        let session = Session::new(&dsn_clone)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+    let (sender, promise) = Promise::new();
+    tree.results_promise = Some(promise);
+    futures::spawn(async move {
+        let result = async {
+            let session = Session::new(&dsn_clone)
+                .await
+                .map_err(|e| format!("Failed to create session: {}", e))?;
 
-        let indexes = session
-            .list_table_indexes(&schema_clone, &table_clone)
-            .await
-            .map_err(|e| format!("Failed to list indexes: {}", e))?;
+            let indexes = session
+                .list_table_indexes(&schema_clone, &table_clone)
+                .await
+                .map_err(|e| format!("Failed to list indexes: {}", e))?;
 
-        let index_info = indexes
-            .into_iter()
-            .find(|idx| idx.name == index_clone)
-            .ok_or_else(|| format!("Index '{}' not found", index))?;
+            let index_info = indexes
+                .into_iter()
+                .find(|idx| idx.name == index_clone)
+                .ok_or_else(|| format!("Index '{}' not found", index_clone))?;
 
-        // Convert to table format
-        let columns = vec!["Property".to_string(), "Value".to_string()];
-        let mut rows = Vec::new();
-
-        rows.push(vec!["Name".to_string(), index_info.name.clone()]);
-        rows.push(vec!["Unique".to_string(), index_info.unique.to_string()]);
-        rows.push(vec!["Columns".to_string(), index_info.columns.join(", ")]);
-        if let Some(ref def) = index_info.definition {
-            rows.push(vec!["Definition".to_string(), def.clone()]);
+            let columns = vec!["Property".to_string(), "Value".to_string()];
+            let mut rows = Vec::new();
+            rows.push(vec!["Name".to_string(), index_info.name.clone()]);
+            rows.push(vec!["Unique".to_string(), index_info.unique.to_string()]);
+            rows.push(vec!["Columns".to_string(), index_info.columns.join(", ")]);
+            if let Some(ref def) = index_info.definition {
+                rows.push(vec!["Definition".to_string(), def.clone()]);
+            }
+            if let Some(ref desc) = index_info.description {
+                rows.push(vec!["Description".to_string(), desc.clone()]);
+            }
+            Ok((columns, rows))
         }
-        if let Some(ref desc) = index_info.description {
-            rows.push(vec!["Description".to_string(), desc.clone()]);
-        }
-
-        Ok((columns, rows))
+        .await;
+        sender.send(result);
     });
-
-    match result {
-        Ok((columns, rows)) => {
-            results_table.query_columns = columns;
-            results_table.query_rows = rows;
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
-    }
 }
 
 pub(super) fn query_foreign_key_detail(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
-    results_table: &mut ResultsTable,
+    _results_table: &mut ResultsTable,
     database: &str,
     schema: &str,
     table: &str,
@@ -921,7 +810,7 @@ pub(super) fn query_foreign_key_detail(
         tree.error = Some("Invalid foreign key info format".to_string());
         return;
     }
-    let fk_columns: Vec<&str> = parts[0].split(',').collect();
+    let fk_columns: Vec<String> = parts[0].split(',').map(str::to_string).collect();
     let ref_table_part = parts[1];
     // Extract schema and table from ref_table (format: "schema.table" or just "table")
     let (ref_schema, ref_table_name) = if let Some(dot_pos) = ref_table_part.rfind('.') {
@@ -936,7 +825,10 @@ pub(super) fn query_foreign_key_detail(
     let ref_schema_clone = ref_schema.to_string();
     let ref_table_name_clone = ref_table_name.to_string();
 
-    let result = futures::block_on_async(async {
+    let (sender, promise) = Promise::new();
+    tree.results_promise = Some(promise);
+    futures::spawn(async move {
+        let result = async {
         let session = Session::new(&dsn_clone)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
@@ -999,7 +891,7 @@ pub(super) fn query_foreign_key_detail(
                 && constraint_cols
                     .iter()
                     .zip(fk_columns.iter())
-                    .all(|(a, b)| a == *b)
+                    .all(|(a, b)| a == b)
             {
                 matching_constraint = Some(constraint_name);
                 break;
@@ -1098,23 +990,16 @@ pub(super) fn query_foreign_key_detail(
         rows.push(vec!["Referenced Columns".to_string(), ref_cols.join(", ")]);
 
         Ok((columns, rows))
-    });
-
-    match result {
-        Ok((columns, rows)) => {
-            results_table.query_columns = columns;
-            results_table.query_rows = rows;
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
     }
+        .await;
+        sender.send(result);
+    });
 }
 
 pub(super) fn query_trigger_detail(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
-    results_table: &mut ResultsTable,
+    _results_table: &mut ResultsTable,
     database: &str,
     schema: &str,
     table: &str,
@@ -1128,8 +1013,12 @@ pub(super) fn query_trigger_detail(
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let trigger_clone = trigger.to_string();
+    let table_clone = table.to_string();
 
-    let result = futures::block_on_async(async {
+    let (sender, promise) = Promise::new();
+    tree.results_promise = Some(promise);
+    futures::spawn(async move {
+        let result = async {
         let session = Session::new(&dsn_clone)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
@@ -1141,8 +1030,8 @@ pub(super) fn query_trigger_detail(
 
         let trigger_info = triggers
             .into_iter()
-            .find(|t| t.name == trigger_clone && t.table_name == table)
-            .ok_or_else(|| format!("Trigger '{}' not found", trigger))?;
+            .find(|t| t.name == trigger_clone && t.table_name == table_clone)
+            .ok_or_else(|| format!("Trigger '{}' not found", trigger_clone))?;
 
         // Convert to table format
         let columns = vec!["Property".to_string(), "Value".to_string()];
@@ -1167,23 +1056,16 @@ pub(super) fn query_trigger_detail(
         }
 
         Ok((columns, rows))
-    });
-
-    match result {
-        Ok((columns, rows)) => {
-            results_table.query_columns = columns;
-            results_table.query_rows = rows;
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
     }
+        .await;
+        sender.send(result);
+    });
 }
 
 pub(super) fn query_view_detail(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
-    results_table: &mut ResultsTable,
+    _results_table: &mut ResultsTable,
     database: &str,
     schema: &str,
     view: &str,
@@ -1197,7 +1079,10 @@ pub(super) fn query_view_detail(
     let schema_clone = schema.to_string();
     let view_clone = view.to_string();
 
-    let result = futures::block_on_async(async {
+    let (sender, promise) = Promise::new();
+    tree.results_promise = Some(promise);
+    futures::spawn(async move {
+        let result = async {
         let session = Session::new(&dsn_clone)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
@@ -1222,23 +1107,16 @@ pub(super) fn query_view_detail(
         }
 
         Ok((columns, rows))
-    });
-
-    match result {
-        Ok((columns, rows)) => {
-            results_table.query_columns = columns;
-            results_table.query_rows = rows;
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
     }
+        .await;
+        sender.send(result);
+    });
 }
 
 pub(super) fn query_materialized_view_detail(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
-    results_table: &mut ResultsTable,
+    _results_table: &mut ResultsTable,
     database: &str,
     schema: &str,
     materialized_view: &str,
@@ -1252,7 +1130,10 @@ pub(super) fn query_materialized_view_detail(
     let schema_clone = schema.to_string();
     let matview_clone = materialized_view.to_string();
 
-    let result = futures::block_on_async(async {
+    let (sender, promise) = Promise::new();
+    tree.results_promise = Some(promise);
+    futures::spawn(async move {
+        let result = async {
         let session = Session::new(&dsn_clone)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
@@ -1277,23 +1158,16 @@ pub(super) fn query_materialized_view_detail(
         }
 
         Ok((columns, rows))
-    });
-
-    match result {
-        Ok((columns, rows)) => {
-            results_table.query_columns = columns;
-            results_table.query_rows = rows;
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
     }
+        .await;
+        sender.send(result);
+    });
 }
 
 pub(super) fn query_function_detail(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
-    results_table: &mut ResultsTable,
+    _results_table: &mut ResultsTable,
     database: &str,
     schema: &str,
     function: &str,
@@ -1307,7 +1181,10 @@ pub(super) fn query_function_detail(
     let schema_clone = schema.to_string();
     let function_clone = function.to_string();
 
-    let result = futures::block_on_async(async {
+    let (sender, promise) = Promise::new();
+    tree.results_promise = Some(promise);
+    futures::spawn(async move {
+        let result = async {
         let session = Session::new(&dsn_clone)
             .await
             .map_err(|e| format!("Failed to create session: {}", e))?;
@@ -1320,7 +1197,7 @@ pub(super) fn query_function_detail(
         // Use the first function if multiple overloads exist
         let function_info = functions
             .first()
-            .ok_or_else(|| format!("Function '{}' not found", function))?;
+            .ok_or_else(|| format!("Function '{}' not found", function_clone))?;
 
         // Convert to table format
         let columns = vec!["Property".to_string(), "Value".to_string()];
@@ -1349,15 +1226,8 @@ pub(super) fn query_function_detail(
         }
 
         Ok((columns, rows))
-    });
-
-    match result {
-        Ok((columns, rows)) => {
-            results_table.query_columns = columns;
-            results_table.query_rows = rows;
-        }
-        Err(e) => {
-            tree.error = Some(e);
-        }
     }
+        .await;
+        sender.send(result);
+    });
 }

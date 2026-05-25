@@ -20,6 +20,14 @@ pub struct ExplainInfo {
     pub rows: String,
 }
 
+pub struct QueryResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub primary_key_columns: HashSet<String>,
+    pub explain_info: Option<ExplainInfo>,
+    pub explain_error: Option<String>,
+}
+
 #[derive(Default)]
 pub struct ResultsTable {
     // Refresh control
@@ -35,6 +43,7 @@ pub struct ResultsTable {
     pub query_columns: Vec<String>,
     pub query_rows: Vec<Vec<String>>,
     pub primary_key_columns: HashSet<String>,
+    pub query_promise: Option<Promise<Result<QueryResult, String>>>,
 
     // SQL execution flag
     pub execute_sql_requested: bool,
@@ -72,6 +81,7 @@ impl ResultsTable {
             query_columns: Vec::new(),
             query_rows: Vec::new(),
             primary_key_columns: HashSet::new(),
+            query_promise: None,
             execute_sql_requested: false,
             explain_info: None,
             explain_error: None,
