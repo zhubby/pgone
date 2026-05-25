@@ -1,10 +1,8 @@
 use std::env;
-use std::str::FromStr;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use pgone_apiserver::ApiServerConfig;
-use pgone_util::log::{self, LogConfig, LogLevel};
+use pgone_util::log;
 use tracing::info;
 
 #[derive(Parser, Debug)]
@@ -25,10 +23,6 @@ pub enum Command {
     Gui,
     /// Run the PostgreSQL introspection MCP server.
     McpServer(McpServerArgs),
-    /// Run the HTTP/gRPC API server.
-    Apiserver(ApiServerArgs),
-    /// Run the PostgreSQL proxy server.
-    Proxy(ServiceLogArgs),
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,52 +48,6 @@ pub struct McpServerArgs {
     pub dbconfig_id: String,
 }
 
-#[derive(Parser, Debug)]
-pub struct ApiServerArgs {
-    /// Enable OpenTelemetry tracing.
-    #[arg(long)]
-    pub enable_otel: bool,
-
-    /// Use JSON formatted logs.
-    #[arg(long)]
-    pub json_log: bool,
-
-    /// Service name used for OpenTelemetry.
-    #[arg(long, default_value = "pgone-apiserver")]
-    pub service_name: String,
-
-    /// HTTP server bind address.
-    #[arg(long, default_value = "127.0.0.1")]
-    pub http_bind: String,
-
-    /// HTTP server port.
-    #[arg(long, default_value = "8765")]
-    pub http_port: u16,
-
-    /// gRPC server bind address.
-    #[arg(long, default_value = "127.0.0.1")]
-    pub grpc_bind: String,
-
-    /// gRPC server port.
-    #[arg(long, default_value = "50051")]
-    pub grpc_port: u16,
-}
-
-#[derive(Parser, Debug)]
-pub struct ServiceLogArgs {
-    /// Enable OpenTelemetry tracing.
-    #[arg(long)]
-    pub enable_otel: bool,
-
-    /// Use JSON formatted logs.
-    #[arg(long)]
-    pub json_log: bool,
-
-    /// Service name used for OpenTelemetry.
-    #[arg(long, default_value = "pgone-proxy")]
-    pub service_name: String,
-}
-
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     run_cli(cli).await
@@ -111,8 +59,6 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     match cli.command.unwrap_or(Command::Gui) {
         Command::Gui => run_gui(log_level.as_deref()),
         Command::McpServer(args) => run_mcp_server(args, log_level.as_deref()).await,
-        Command::Apiserver(args) => run_apiserver(args, log_level).await,
-        Command::Proxy(args) => run_proxy(args, log_level.as_deref()).await,
     }
 }
 
@@ -134,37 +80,6 @@ async fn run_mcp_server(args: McpServerArgs, log_level: Option<&str>) -> Result<
         Protocol::Stdio => pgone_mcp::mcp::run_stdio(args.dbconfig_id).await,
         Protocol::Streamable => pgone_mcp::mcp::run_streamable(&args.addr, args.dbconfig_id).await,
     }
-}
-
-async fn run_apiserver(args: ApiServerArgs, log_level: Option<String>) -> Result<()> {
-    pgone_apiserver::run(ApiServerConfig {
-        log_level: log_level.unwrap_or_else(|| "info".to_string()),
-        enable_otel: args.enable_otel,
-        json_log: args.json_log,
-        service_name: args.service_name,
-        http_bind: args.http_bind,
-        http_port: args.http_port,
-        grpc_bind: args.grpc_bind,
-        grpc_port: args.grpc_port,
-    })
-    .await
-}
-
-async fn run_proxy(args: ServiceLogArgs, log_level: Option<&str>) -> Result<()> {
-    log::init_log(LogConfig {
-        level: LogLevel::from_str(log_level.unwrap_or("info"))?,
-        enable_otel: args.enable_otel,
-        json_format: args.json_log,
-        service_name: Some(args.service_name.clone()),
-    })?;
-
-    pgone_proxy::server::start().await;
-
-    if args.enable_otel {
-        log::shutdown_otel();
-    }
-
-    Ok(())
 }
 
 fn resolve_protocol(protocol: Option<Protocol>) -> Protocol {
@@ -209,9 +124,9 @@ mod tests {
 
     #[test]
     fn parses_global_log_level_after_subcommand() {
-        let cli = Cli::parse_from(["pgone", "proxy", "--log-level", "warn"]);
+        let cli = Cli::parse_from(["pgone", "gui", "--log-level", "warn"]);
         assert_eq!(cli.log_level.as_deref(), Some("warn"));
-        assert!(matches!(cli.command, Some(Command::Proxy(_))));
+        assert!(matches!(cli.command, Some(Command::Gui)));
     }
 
     #[test]
@@ -230,17 +145,6 @@ mod tests {
         };
         assert_eq!(args.dbconfig_id, "local");
         assert_eq!(args.protocol, Some(Protocol::Stdio));
-    }
-
-    #[test]
-    fn apiserver_defaults_to_existing_ports() {
-        let cli = Cli::parse_from(["pgone", "apiserver"]);
-
-        let Some(Command::Apiserver(args)) = cli.command else {
-            panic!("expected apiserver command");
-        };
-        assert_eq!(args.http_port, 8765);
-        assert_eq!(args.grpc_port, 50051);
     }
 
     #[test]

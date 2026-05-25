@@ -18,10 +18,8 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
-pgone-apiserver = { workspace = true }
 pgone-gui = { workspace = true }
 pgone-mcp = { workspace = true }
-pgone-proxy = { workspace = true }
 pgone-util = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
