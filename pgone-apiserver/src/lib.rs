@@ -159,7 +159,7 @@ pub async fn serve(
     let metrics_layer = MetricsLayer;
 
     // set storage
-    let storage = StorageBlocking::open_local(pgone_storage::DATABASE_PATH).await?;
+    let storage = StorageBlocking::open_default().await?;
     let _ = STORAGE.set(Arc::new(storage));
 
     // init oauth state map

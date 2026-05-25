@@ -1,4 +1,4 @@
-use crate::models::FileIndex;
+use crate::{data_dir, data_file_path, models::FileIndex};
 use anyhow::{Context, Result};
 #[cfg(feature = "backend-libsql")]
 use libsql::{Connection, params};
@@ -8,8 +8,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use turso::{Connection, params};
 use uuid::Uuid;
 
-const DATA_DIR: &str = "./data";
-
 fn now_ts() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -17,9 +15,9 @@ fn now_ts() -> i64 {
         .as_secs() as i64
 }
 
-/// 确保 ./data 目录存在，不存在则创建
+/// 确保用户本地 data 目录存在，不存在则创建
 pub async fn ensure_data_dir() -> Result<()> {
-    let data_path = Path::new(DATA_DIR);
+    let data_path = data_dir();
     if !data_path.exists() {
         tokio::fs::create_dir_all(data_path)
             .await
@@ -34,7 +32,7 @@ fn get_date_folder() -> String {
     Local::now().format("%Y-%m-%d").to_string()
 }
 
-/// 生成文件路径：./data/YYYY-MM-DD/{uuid}.{ext}
+/// 生成文件路径：~/.pgone/data/YYYY-MM-DD/{uuid}.{ext}
 fn generate_file_path(uuid: &str, extension: &str) -> PathBuf {
     let date_folder = get_date_folder();
     let filename = if extension.is_empty() {
@@ -42,7 +40,7 @@ fn generate_file_path(uuid: &str, extension: &str) -> PathBuf {
     } else {
         format!("{}.{}", uuid, extension)
     };
-    PathBuf::from(DATA_DIR).join(date_folder).join(filename)
+    data_file_path(Path::new(&date_folder).join(filename))
 }
 
 /// 获取文件扩展名
@@ -124,9 +122,9 @@ pub async fn copy_file_to_index(conn: &mut Connection, source_path: &str) -> Res
         .await
         .context("Failed to copy file")?;
 
-    // 获取相对路径（相对于 ./data）
+    // 获取相对路径（相对于 ~/.pgone/data）
     let current_path = dest_path
-        .strip_prefix(DATA_DIR)
+        .strip_prefix(data_dir())
         .context("Failed to get relative path")?
         .to_string_lossy()
         .to_string();
@@ -167,7 +165,7 @@ pub async fn delete_file(conn: &mut Connection, id: &str) -> Result<()> {
     let file_index = get_file(conn, id).await?;
     if let Some(file) = file_index {
         // 删除实际文件
-        let file_path = Path::new(DATA_DIR).join(&file.current_path);
+        let file_path = data_file_path(&file.current_path);
         if file_path.exists() {
             tokio::fs::remove_file(&file_path)
                 .await
@@ -215,7 +213,7 @@ pub async fn update_file(
     // 如果扩展名不同，需要更新文件名
     let current_path = if new_extension != old_extension {
         // 删除旧文件
-        let old_path = Path::new(DATA_DIR).join(&file_index.current_path);
+        let old_path = data_file_path(&file_index.current_path);
         if old_path.exists() {
             tokio::fs::remove_file(&old_path)
                 .await
@@ -237,13 +235,13 @@ pub async fn update_file(
 
         // 获取相对路径
         new_path
-            .strip_prefix(DATA_DIR)
+            .strip_prefix(data_dir())
             .context("Failed to get relative path")?
             .to_string_lossy()
             .to_string()
     } else {
         // 扩展名相同，直接覆盖
-        let dest_path = Path::new(DATA_DIR).join(&file_index.current_path);
+        let dest_path = data_file_path(&file_index.current_path);
         tokio::fs::copy(new_source, &dest_path)
             .await
             .context("Failed to copy new file")?;

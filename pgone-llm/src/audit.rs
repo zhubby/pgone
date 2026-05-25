@@ -27,7 +27,7 @@ impl AuditLogger {
 
     /// 使用默认存储路径初始化审计日志记录器
     pub async fn with_default_path() -> anyhow::Result<Self> {
-        let path = PathBuf::from(pgone_storage::DATABASE_PATH);
+        let path = pgone_storage::database_path();
         Self::with_storage_path(path).await
     }
 

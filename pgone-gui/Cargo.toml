@@ -91,4 +91,4 @@ version = "0.1.0"
 copyright = "Copyright 2025 zhubby"
 category = "Developer Tool"
 short_description = "PGone is a suite of tools for PostgreSQL"
-resources = ["assets/icon.icns", "assets/fonts/*.ttf", "pgone.db"]
+resources = ["assets/icon.icns", "assets/fonts/*.ttf"]

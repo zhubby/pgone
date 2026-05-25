@@ -48,7 +48,7 @@ pub struct PgoneMcpServer {
 
 impl PgoneMcpServer {
     pub async fn new(dbconfig_id: String) -> anyhow::Result<Self> {
-        let storage_path = std::path::PathBuf::from(pgone_storage::DATABASE_PATH);
+        let storage_path = pgone_storage::database_path();
         Self::with_path(storage_path, dbconfig_id).await
     }
 

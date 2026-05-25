@@ -171,7 +171,9 @@ impl DbManager {
                     if let Ok(Some(file)) =
                         futures::block_on_async(async { storage.get_file(cert_id).await })
                     {
-                        let cert_path = format!("./data/{}", file.current_path);
+                        let cert_path = pgone_storage::data_file_path(&file.current_path)
+                            .to_string_lossy()
+                            .to_string();
                         params.push(format!("sslcert={}", urlencoding::encode(&cert_path)));
                     }
                 }
@@ -180,7 +182,9 @@ impl DbManager {
                     if let Ok(Some(file)) =
                         futures::block_on_async(async { storage.get_file(key_id).await })
                     {
-                        let key_path = format!("./data/{}", file.current_path);
+                        let key_path = pgone_storage::data_file_path(&file.current_path)
+                            .to_string_lossy()
+                            .to_string();
                         params.push(format!("sslkey={}", urlencoding::encode(&key_path)));
                     }
                 }
@@ -189,7 +193,9 @@ impl DbManager {
                     if let Ok(Some(file)) =
                         futures::block_on_async(async { storage.get_file(rootcert_id).await })
                     {
-                        let rootcert_path = format!("./data/{}", file.current_path);
+                        let rootcert_path = pgone_storage::data_file_path(&file.current_path)
+                            .to_string_lossy()
+                            .to_string();
                         params.push(format!(
                             "sslrootcert={}",
                             urlencoding::encode(&rootcert_path)
@@ -260,9 +266,9 @@ impl DbManager {
         if self.storage.is_some() {
             return;
         }
-        if let Ok(storage) = futures::block_on_async(async {
-            StorageBlocking::open_local(pgone_storage::DATABASE_PATH).await
-        }) {
+        if let Ok(storage) =
+            futures::block_on_async(async { StorageBlocking::open_default().await })
+        {
             self.storage = Some(storage);
         }
     }
@@ -1397,10 +1403,14 @@ impl DbManager {
         None
     }
 
-    /// Find file ID by path (supports both ./data/xxx and xxx formats)
+    /// Find file ID by path (supports current data-dir paths, ./data/xxx, and xxx formats)
     fn find_file_id_by_path(storage: &StorageBlocking, path: &str) -> Option<String> {
-        // Remove ./data/ prefix if present
-        let normalized_path = path.strip_prefix("./data/").unwrap_or(path);
+        let normalized_path = std::path::Path::new(path)
+            .strip_prefix(pgone_storage::data_dir())
+            .ok()
+            .and_then(|path| path.to_str())
+            .or_else(|| path.strip_prefix("./data/"))
+            .unwrap_or(path);
 
         // List all files and search by path
         if let Ok(files) = futures::block_on_async(async { storage.list_files().await }) {

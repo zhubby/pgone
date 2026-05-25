@@ -1,7 +1,4 @@
-use std::path::PathBuf;
-
 use pgone_mcp::mcp::run_stdio;
-use pgone_storage::DATABASE_PATH;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -13,8 +10,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .try_init();
 
-    // 使用 pgone_storage::DATABASE_PATH
-    let storage_path = PathBuf::from(DATABASE_PATH);
+    let storage_path = pgone_storage::database_path();
 
     tracing::info!("PGone MCP Server 启动（stdio 模式）");
     tracing::info!("Storage 路径: {}", storage_path.display());

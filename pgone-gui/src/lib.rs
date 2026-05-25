@@ -147,8 +147,8 @@ impl AppFrame {
         // 不需要初始化额外的进程来提供tools
         // 初始化 MCP client
         // let mcp_client = if db_manager.storage.is_some() {
-        //     // 使用 pgone_storage::DATABASE_PATH
-        //     let storage_path = std::path::PathBuf::from(pgone_storage::DATABASE_PATH);
+        //     // 使用 pgone_storage::database_path()
+        //     let storage_path = pgone_storage::database_path();
 
         //     // 启动 MCP server 并创建客户端
         //     match futures::block_on_async(async {

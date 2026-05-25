@@ -7,6 +7,11 @@ pub struct StorageBlocking {
 }
 
 impl StorageBlocking {
+    pub async fn open_default() -> Result<Self> {
+        let inner = Storage::open_default().await?;
+        Ok(Self { inner })
+    }
+
     pub async fn open_local(path: &str) -> Result<Self> {
         let inner = Storage::open_local(path).await?;
         Ok(Self { inner })

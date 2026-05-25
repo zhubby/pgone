@@ -105,13 +105,13 @@ For MCP tools and agent-facing APIs, make metadata planner-friendly:
 - Add regression tests for bug fixes and protocol/database edge cases.
 - PostgreSQL-backed tests must use explicit environment variables such as `PGONE_TEST_DSN`; never depend on a developer's default database.
 - For MCP/server changes, test request validation, transport selection, registry behavior, and formatted results.
-- For storage changes, test migrations, persistence round trips, and compatibility with existing `pgone.db` records where practical.
+- For storage changes, test migrations, persistence round trips, and compatibility with existing `~/.pgone/pgone.db` records where practical.
 
 ## Database, Storage, and Configuration Safety
 
 - Do not commit secrets. Keep DSNs in environment variables, local YAML, or local GUI storage.
 - Scrub credentials from logs, errors, screenshots, and generated examples.
-- Treat `pgone.db` as local state. Do not make migrations or tests depend on an unversioned developer database file.
+- Treat `~/.pgone/pgone.db` and `~/.pgone/data/` as local state. Do not make migrations or tests depend on unversioned developer storage files.
 - Avoid destructive SQL in examples and tests unless the target is a clearly isolated test database.
 - Prefer connection pools or shared storage handles over opening duplicate independent connections to the same local database for background writers.
 - When changing persisted schema or config formats, provide forward migrations and document any compatibility implications.

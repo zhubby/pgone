@@ -113,7 +113,7 @@ cargo run -p pgone-cli -- proxy
    export GITHUB_CLIENT_SECRET=<your_client_secret>
    export OAUTH_REDIRECT=http://127.0.0.1:8765/oauth/github/callback
    ```
-3. Launch GUI — authentication state is persisted in `pgone.db`
+3. Launch GUI — authentication state is persisted in `~/.pgone/pgone.db`
 
 ---
 
@@ -148,7 +148,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## Storage
 
-The GUI automatically initializes `pgone.db` (SQLite) in the project root on first launch. Legacy `sessions.json` files are automatically migrated and removed.
+The GUI automatically initializes `~/.pgone/pgone.db` (SQLite) on first launch. Indexed local files are copied under `~/.pgone/data/`. If legacy `./pgone.db` or `./data` storage exists and the new location is empty, it is copied into `~/.pgone`. Legacy `sessions.json` files are automatically migrated and removed.
 
 **Schema** (indexed, no foreign keys):
 - `db_configs` — Database connection configurations
