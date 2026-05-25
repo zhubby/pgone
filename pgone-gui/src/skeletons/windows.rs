@@ -19,7 +19,7 @@ pub fn show_settings_window(
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)
-        .default_size([500.0, 650.0])
+        .default_size([560.0, 500.0])
         .show(ctx, |ui| {
             // Initialize original settings on first show
             if !settings_panel.has_original_settings() {

@@ -27,6 +27,8 @@ use components::{
 };
 mod mcp;
 mod prompt;
+mod settings_store;
+use settings_store::SettingsStore;
 mod skeletons;
 mod styles;
 
@@ -106,7 +108,6 @@ pub struct AppFrame {
     last_saved_layout_json: Option<String>,
     session_storage: SessionStorage,
     gui_storage: GuiStorage,
-    settings_loaded_from_storage: bool,
     sessions_loaded_from_storage: bool,
     show_monitor: Option<skeletons::monitors::MonitorMetric>,
     show_export: bool,
@@ -178,7 +179,6 @@ impl AppFrame {
             last_saved_layout_json: None,
             session_storage,
             gui_storage,
-            settings_loaded_from_storage: false,
             sessions_loaded_from_storage: false,
             show_monitor: None,
             show_export: false,
@@ -192,17 +192,13 @@ impl AppFrame {
 
     #[allow(dead_code)]
     fn save_state(&mut self) {
-        let kv_map = self.state.settings.to_kv_map();
-        for (key, value) in kv_map {
-            self.gui_storage.upsert_setting(key, value);
-        }
+        self.save_settings();
     }
 
-    /// Save settings to database
+    /// Save settings to the local GUI settings file.
     pub fn save_settings(&mut self) {
-        let kv_map = self.state.settings.to_kv_map();
-        for (key, value) in kv_map {
-            self.gui_storage.upsert_setting(key, value);
+        if let Err(error) = SettingsStore::save_app_settings(&self.state.settings) {
+            tracing::warn!("Failed to save GUI app settings: {error:#}");
         }
     }
 
@@ -231,16 +227,6 @@ impl AppFrame {
 
     fn apply_storage_updates(&mut self) {
         self.db.process_storage_events();
-
-        if !self.settings_loaded_from_storage {
-            let settings = self.gui_storage.get_all_settings();
-            if !settings.is_empty() {
-                self.state.settings = Settings::from_kv_map(&settings);
-                self.settings_loaded_from_storage = true;
-            } else if self.gui_storage.is_ready() {
-                self.settings_loaded_from_storage = true;
-            }
-        }
 
         if !self.sessions_loaded_from_storage {
             if let Some(loaded_sessions) = self.session_storage.take_loaded_sessions() {
@@ -343,7 +329,7 @@ impl eframe::App for AppFrame {
 
         // Menu bar
         skeletons::menu_bar::show_menu_bar(
-            &ctx,
+            ui,
             &mut self.db,
             &mut reset_dock_layout,
             &mut self.show_settings,
@@ -359,7 +345,7 @@ impl eframe::App for AppFrame {
         }
 
         // Status bar
-        skeletons::status_bar::show_status_bar(&ctx, &mut self.db, &self.state.settings);
+        skeletons::status_bar::show_status_bar(ui, &ctx, &mut self.db, &self.state.settings);
 
         // Database management windows
         self.db.ui_add_db_window(&ctx);
@@ -460,7 +446,7 @@ pub fn run() -> anyhow::Result<()> {
             .with_app_id("com.github.zhubby.pgone")
             .with_maximized(true)
             .with_icon(icon)
-            .with_title_shown(false),
+            .with_decorations(false),
         ..Default::default()
     };
 
@@ -503,7 +489,7 @@ pub fn run() -> anyhow::Result<()> {
                 }
             }
 
-            let settings = Settings::default();
+            let settings = SettingsStore::load_app_settings();
             tracing::debug!("settings: {:?}", settings);
 
             // Set default font family based on settings
@@ -545,9 +531,6 @@ pub fn run() -> anyhow::Result<()> {
                 text_style.size = font_size;
             }
             cc.egui_ctx.set_style(style);
-
-            // Apply theme
-            SettingsPanel::apply_theme(&cc.egui_ctx, settings.theme);
 
             cc.egui_ctx.set_fonts(fonts);
             Ok(Box::new(AppFrame::new(cc.egui_ctx.clone(), settings)))

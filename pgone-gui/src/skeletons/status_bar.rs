@@ -1,6 +1,6 @@
 use crate::components::DbManager;
 use crate::models::Settings;
-use eframe::egui::{Context, Panel};
+use eframe::egui::{Context, Panel, Ui};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sqlx::Row;
@@ -27,116 +27,121 @@ const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 // 数据库版本缓存有效期：30秒
 const VERSION_CACHE_TTL: Duration = Duration::from_secs(30);
 
-pub fn show_status_bar(ctx: &Context, db: &mut DbManager, settings: &Settings) {
-    Panel::bottom("status_bar").show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            // Database selection button and display
+pub fn show_status_bar(root_ui: &mut Ui, ctx: &Context, db: &mut DbManager, settings: &Settings) {
+    Panel::bottom("status_bar")
+        .exact_size(26.0)
+        .show_inside(root_ui, |ui| {
             ui.horizontal(|ui| {
-                if db.active_db_config_id.is_some() {
-                    ui.separator();
-                    if let Some(cfg) = db.active_db_config() {
-                        // Parse DSN to get connection details
-                        if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
-                            ui.horizontal(|ui| {
-                                ui.label(egui_phosphor::regular::DATABASE);
-                                ui.label(egui::RichText::new(&cfg.id).strong());
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label(egui_phosphor::regular::GEAR);
-                                ui.label("Engine:");
-                                ui.label(&cfg.engine);
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label(egui_phosphor::regular::GLOBE);
-                                ui.label("Host:");
-                                ui.label(&parsed.host);
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label(egui_phosphor::regular::DATABASE);
-                                ui.label("Database:");
-                                ui.label(if parsed.database.is_empty() {
-                                    "<default>"
-                                } else {
-                                    &parsed.database
-                                });
-                            });
+                egui_theme_switch::global_theme_switch(ui);
 
-                            // 获取并显示数据库版本信息
-                            let db_version = get_db_version(ctx, &cfg.dsn, &cfg.id);
-                            if let Some(version) = db_version {
-                                let short_version = extract_version_info(&version);
+                ui.horizontal(|ui| {
+                    if db.active_db_config_id.is_some() {
+                        ui.separator();
+                        if let Some(cfg) = db.active_db_config() {
+                            // Parse DSN to get connection details
+                            if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn)
+                            {
                                 ui.horizontal(|ui| {
-                                    ui.label(egui_phosphor::regular::TAG);
-                                    ui.label("Version:");
-                                    ui.label(egui::RichText::new(short_version));
+                                    ui.label(egui_phosphor::regular::DATABASE);
+                                    ui.label(egui::RichText::new(&cfg.id).strong());
                                 });
+                                ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::GEAR);
+                                    ui.label("Engine:");
+                                    ui.label(&cfg.engine);
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::GLOBE);
+                                    ui.label("Host:");
+                                    ui.label(&parsed.host);
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label(egui_phosphor::regular::DATABASE);
+                                    ui.label("Database:");
+                                    ui.label(if parsed.database.is_empty() {
+                                        "<default>"
+                                    } else {
+                                        &parsed.database
+                                    });
+                                });
+
+                                // 获取并显示数据库版本信息
+                                let db_version = get_db_version(ctx, &cfg.dsn, &cfg.id);
+                                if let Some(version) = db_version {
+                                    let short_version = extract_version_info(&version);
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui_phosphor::regular::TAG);
+                                        ui.label("Version:");
+                                        ui.label(egui::RichText::new(short_version));
+                                    });
+                                }
                             }
                         }
                     }
+                });
+
+                // 如果启用了监控，显示系统监控信息
+                if settings.enable_monitor {
+                    // 检查是否需要刷新（每秒刷新一次）
+                    let should_refresh = {
+                        let mut last_refresh = LAST_REFRESH.lock().unwrap();
+                        let now = Instant::now();
+                        let should = last_refresh
+                            .map(|last| now.duration_since(last) >= REFRESH_INTERVAL)
+                            .unwrap_or(true);
+
+                        if should {
+                            *last_refresh = Some(now);
+                            // 请求在下次刷新间隔后重绘，确保持续更新
+                            ctx.request_repaint_after(REFRESH_INTERVAL);
+                        }
+                        should
+                    };
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Ok(mut system) = SYSTEM.lock() {
+                            // 只在需要时刷新系统信息
+                            if should_refresh {
+                                system.refresh_all();
+                            }
+
+                            let pid = std::process::id();
+                            if let Some(process) = system.process(sysinfo::Pid::from(pid as usize))
+                            {
+                                let process_name = process.name().to_string_lossy().to_string();
+                                let cpu_usage = process.cpu_usage();
+                                let memory_kb = process.memory() / 1024;
+                                let memory_mb = memory_kb as f64 / 1024.0;
+
+                                // 格式化内存显示
+                                let memory_str = if memory_mb >= 1.0 {
+                                    format!("{:.2} MB", memory_mb)
+                                } else {
+                                    format!("{} KB", memory_kb)
+                                };
+
+                                // 获取网络信息 - sysinfo 0.37 中网络信息获取方式可能不同
+                                // 暂时显示占位信息，后续可以根据实际 API 调整
+                                let network_info = "网络: 监控中".to_string();
+
+                                ui.label(egui_phosphor::regular::DESKTOP);
+                                ui.label(format!("Process: {}", process_name));
+                                ui.separator();
+                                ui.label(egui_phosphor::regular::CHART_PIE);
+                                ui.label(format!("CPU: {:.1}%", cpu_usage));
+                                ui.separator();
+                                ui.label(egui_phosphor::regular::HARD_DRIVE);
+                                ui.label(format!("Memory: {}", memory_str));
+                                ui.separator();
+                                ui.label(egui_phosphor::regular::NETWORK);
+                                ui.label(&network_info);
+                                ui.separator();
+                            }
+                        }
+                    });
                 }
             });
-
-            // 如果启用了监控，显示系统监控信息
-            if settings.enable_monitor {
-                // 检查是否需要刷新（每秒刷新一次）
-                let should_refresh = {
-                    let mut last_refresh = LAST_REFRESH.lock().unwrap();
-                    let now = Instant::now();
-                    let should = last_refresh
-                        .map(|last| now.duration_since(last) >= REFRESH_INTERVAL)
-                        .unwrap_or(true);
-
-                    if should {
-                        *last_refresh = Some(now);
-                        // 请求在下次刷新间隔后重绘，确保持续更新
-                        ctx.request_repaint_after(REFRESH_INTERVAL);
-                    }
-                    should
-                };
-
-                ui.separator();
-                if let Ok(mut system) = SYSTEM.lock() {
-                    // 只在需要时刷新系统信息
-                    if should_refresh {
-                        system.refresh_all();
-                    }
-
-                    let pid = std::process::id();
-                    if let Some(process) = system.process(sysinfo::Pid::from(pid as usize)) {
-                        let process_name = process.name().to_string_lossy().to_string();
-                        let cpu_usage = process.cpu_usage();
-                        let memory_kb = process.memory() / 1024;
-                        let memory_mb = memory_kb as f64 / 1024.0;
-
-                        // 格式化内存显示
-                        let memory_str = if memory_mb >= 1.0 {
-                            format!("{:.2} MB", memory_mb)
-                        } else {
-                            format!("{} KB", memory_kb)
-                        };
-
-                        // 获取网络信息 - sysinfo 0.37 中网络信息获取方式可能不同
-                        // 暂时显示占位信息，后续可以根据实际 API 调整
-                        let network_info = "网络: 监控中".to_string();
-
-                        ui.horizontal(|ui| {
-                            ui.label(egui_phosphor::regular::DESKTOP);
-                            ui.label(format!("Process: {}", process_name));
-                            ui.separator();
-                            ui.label(egui_phosphor::regular::CHART_PIE);
-                            ui.label(format!("CPU: {:.1}%", cpu_usage));
-                            ui.separator();
-                            ui.label(egui_phosphor::regular::HARD_DRIVE);
-                            ui.label(format!("Memory: {}", memory_str));
-                            ui.separator();
-                            ui.label(egui_phosphor::regular::NETWORK);
-                            ui.label(&network_info);
-                        });
-                    }
-                }
-            }
         });
-    });
 }
 
 // 静态正则表达式，用于提取版本信息

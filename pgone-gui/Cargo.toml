@@ -33,6 +33,7 @@ egui_table = { workspace = true }
 egui-phosphor = { workspace = true }
 egui-notify = { workspace = true }
 egui_dock = { workspace = true }
+egui-theme-switch = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -125,38 +125,6 @@ pub enum SendShortcut {
     CmdEnter,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Theme {
-    System,
-    Latte,
-    Frappe,
-    Macchiato,
-    Mocha,
-}
-
-impl Theme {
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Theme::System => "跟随系统",
-            Theme::Latte => "Catppuccin Latte",
-            Theme::Frappe => "Catppuccin Frappe",
-            Theme::Macchiato => "Catppuccin Macchiato",
-            Theme::Mocha => "Catppuccin Mocha",
-        }
-    }
-
-    pub fn all() -> &'static [Theme] {
-        &[
-            Theme::System,
-            Theme::Latte,
-            Theme::Frappe,
-            Theme::Macchiato,
-            Theme::Mocha,
-        ]
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub send_shortcut: SendShortcut,
@@ -165,8 +133,6 @@ pub struct Settings {
     pub openai_model: String,
     pub font_family: String,
     pub font_size: f32,
-    #[serde(default = "default_theme")]
-    pub theme: Theme,
     #[serde(default = "default_llm_provider")]
     pub llm_provider: LLMProvider,
     #[serde(default = "default_enable_monitor")]
@@ -177,10 +143,6 @@ pub struct Settings {
     pub proxy_port: Option<u16>,
     #[serde(default = "default_enable_stream_api")]
     pub enable_stream_api: bool,
-}
-
-fn default_theme() -> Theme {
-    Theme::System
 }
 
 fn default_llm_provider() -> LLMProvider {
@@ -208,7 +170,6 @@ impl Default for Settings {
             openai_model: "gpt-4o-mini".to_string(),
             font_family: "LXGWWenKai-Regular".to_string(),
             font_size: 12.0,
-            theme: Theme::System,
             llm_provider: LLMProvider::OpenAI,
             enable_monitor: false,
             proxy_enabled: false,
@@ -216,189 +177,5 @@ impl Default for Settings {
             proxy_port: None,
             enable_stream_api: false,
         }
-    }
-}
-
-impl Settings {
-    /// Convert Settings to key-value HashMap for storage
-    pub fn to_kv_map(&self) -> std::collections::HashMap<String, String> {
-        use std::collections::HashMap;
-        let mut map = HashMap::new();
-
-        // Serialize enum as JSON string
-        map.insert(
-            "send_shortcut".to_string(),
-            serde_json::to_string(&self.send_shortcut).unwrap_or_default(),
-        );
-        map.insert(
-            "theme".to_string(),
-            serde_json::to_string(&self.theme).unwrap_or_default(),
-        );
-        map.insert(
-            "llm_provider".to_string(),
-            serde_json::to_string(&self.llm_provider).unwrap_or_default(),
-        );
-
-        // Store Option<String> as JSON (null or string)
-        if let Some(ref key) = self.openai_api_key {
-            map.insert("openai_api_key".to_string(), key.clone());
-        } else {
-            map.insert("openai_api_key".to_string(), "".to_string());
-        }
-
-        if let Some(ref url) = self.openai_base_url {
-            map.insert("openai_base_url".to_string(), url.clone());
-        } else {
-            map.insert("openai_base_url".to_string(), "".to_string());
-        }
-
-        // Simple string values
-        map.insert("openai_model".to_string(), self.openai_model.clone());
-        map.insert("font_family".to_string(), self.font_family.clone());
-        map.insert("font_size".to_string(), self.font_size.to_string());
-        map.insert(
-            "enable_monitor".to_string(),
-            self.enable_monitor.to_string(),
-        );
-
-        // Proxy settings
-        map.insert("proxy_enabled".to_string(), self.proxy_enabled.to_string());
-        if let Some(ref host) = self.proxy_host {
-            map.insert("proxy_host".to_string(), host.clone());
-        } else {
-            map.insert("proxy_host".to_string(), "".to_string());
-        }
-        if let Some(port) = self.proxy_port {
-            map.insert("proxy_port".to_string(), port.to_string());
-        } else {
-            map.insert("proxy_port".to_string(), "".to_string());
-        }
-
-        // Stream API setting
-        map.insert(
-            "enable_stream_api".to_string(),
-            self.enable_stream_api.to_string(),
-        );
-
-        map
-    }
-
-    /// Create Settings from key-value HashMap
-    pub fn from_kv_map(map: &std::collections::HashMap<String, String>) -> Self {
-        let mut settings = Settings::default();
-
-        tracing::debug!("from_kv_map: input map = {:?}", map);
-
-        // Parse send_shortcut
-        if let Some(value) = map.get("send_shortcut") {
-            if let Ok(shortcut) = serde_json::from_str::<SendShortcut>(value) {
-                settings.send_shortcut = shortcut;
-            }
-        }
-
-        // Parse theme
-        if let Some(value) = map.get("theme") {
-            if let Ok(theme) = serde_json::from_str::<Theme>(value) {
-                settings.theme = theme;
-            }
-        }
-
-        // Parse llm_provider
-        if let Some(value) = map.get("llm_provider") {
-            if let Ok(provider) = serde_json::from_str::<LLMProvider>(value) {
-                settings.llm_provider = provider;
-            }
-        }
-
-        // Parse openai_api_key (empty string means None, but if key exists, use the value)
-        if let Some(value) = map.get("openai_api_key") {
-            tracing::debug!("Found openai_api_key in map: '{}'", value);
-            if !value.is_empty() {
-                settings.openai_api_key = Some(value.clone());
-            } else {
-                // Explicitly set to None if empty string
-                settings.openai_api_key = None;
-            }
-        } else {
-            tracing::debug!("openai_api_key not found in map");
-        }
-
-        // Parse openai_base_url (empty string means None, but if key exists, use the value)
-        if let Some(value) = map.get("openai_base_url") {
-            tracing::debug!("Found openai_base_url in map: '{}'", value);
-            if !value.is_empty() {
-                settings.openai_base_url = Some(value.clone());
-            } else {
-                // Explicitly set to None if empty string
-                settings.openai_base_url = None;
-            }
-        } else {
-            tracing::debug!("openai_base_url not found in map");
-        }
-
-        // Parse openai_model
-        if let Some(value) = map.get("openai_model") {
-            if !value.is_empty() {
-                settings.openai_model = value.clone();
-            }
-        }
-
-        // Parse font_family
-        if let Some(value) = map.get("font_family") {
-            if !value.is_empty() {
-                settings.font_family = value.clone();
-            }
-        }
-
-        // Parse font_size
-        if let Some(value) = map.get("font_size") {
-            if let Ok(size) = value.parse::<f32>() {
-                settings.font_size = size;
-            }
-        }
-
-        // Parse enable_monitor
-        if let Some(value) = map.get("enable_monitor") {
-            if let Ok(enabled) = value.parse::<bool>() {
-                settings.enable_monitor = enabled;
-            }
-        }
-
-        // Parse proxy_enabled
-        if let Some(value) = map.get("proxy_enabled") {
-            if let Ok(enabled) = value.parse::<bool>() {
-                settings.proxy_enabled = enabled;
-            }
-        }
-
-        // Parse proxy_host
-        if let Some(value) = map.get("proxy_host") {
-            if !value.is_empty() {
-                settings.proxy_host = Some(value.clone());
-            } else {
-                settings.proxy_host = None;
-            }
-        }
-
-        // Parse proxy_port
-        if let Some(value) = map.get("proxy_port") {
-            if !value.is_empty() {
-                if let Ok(port) = value.parse::<u16>() {
-                    settings.proxy_port = Some(port);
-                }
-            } else {
-                settings.proxy_port = None;
-            }
-        }
-
-        // Parse enable_stream_api
-        if let Some(value) = map.get("enable_stream_api") {
-            if let Ok(enabled) = value.parse::<bool>() {
-                settings.enable_stream_api = enabled;
-            }
-        }
-
-        tracing::debug!("from_kv_map: result settings = {:?}", settings);
-        settings
     }
 }
