@@ -4,7 +4,7 @@ use crate::styles::toggle::toggle;
 use egui::{ComboBox, Ui};
 use pgone_llm::LLMProvider;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 pub struct SettingsPanel {
@@ -47,22 +47,33 @@ impl SettingsPanel {
         }
     }
 
-    /// Get available font names from assets/fonts directory
+    fn asset_path(path: impl AsRef<Path>) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(path)
+    }
+
+    fn font_dirs() -> [PathBuf; 2] {
+        [Self::asset_path("fonts"), Self::asset_path("")]
+    }
+
+    /// Get available font names from crate assets directories.
     pub fn get_available_fonts() -> Vec<String> {
-        let fonts_dir = Path::new("assets/fonts");
         let mut fonts = Vec::new();
 
-        if let Ok(entries) = fs::read_dir(fonts_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                    if ext == "ttf" || ext == "otf" {
-                        if let Some(font_name) = path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .map(|s| s.to_string())
-                        {
-                            fonts.push(font_name);
+        for fonts_dir in Self::font_dirs() {
+            if let Ok(entries) = fs::read_dir(fonts_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                        if ext == "ttf" || ext == "otf" {
+                            if let Some(font_name) = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .map(|s| s.to_string())
+                            {
+                                fonts.push(font_name);
+                            }
                         }
                     }
                 }

@@ -6,7 +6,7 @@ use icns::{IconFamily, IconType};
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod futures;
@@ -26,6 +26,16 @@ mod mcp;
 mod prompt;
 mod skeletons;
 mod styles;
+
+fn asset_path(path: impl AsRef<Path>) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join(path)
+}
+
+fn font_dirs() -> [PathBuf; 2] {
+    [asset_path("fonts"), asset_path("")]
+}
 
 pub struct AppFrame {
     #[allow(dead_code)]
@@ -357,7 +367,7 @@ impl eframe::App for AppFrame {
 }
 
 pub fn run() -> anyhow::Result<()> {
-    let file = BufReader::new(File::open("assets/icon.icns").unwrap());
+    let file = BufReader::new(File::open(asset_path("icon.icns"))?);
     let icon_family = IconFamily::read(file).unwrap();
     let image = icon_family
         .get_icon_with_type(IconType::RGBA32_512x512_2x)
@@ -382,29 +392,30 @@ pub fn run() -> anyhow::Result<()> {
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, PhosphorVariant::Regular);
 
-            // Load all fonts from assets/fonts directory
-            let fonts_dir = Path::new("assets/fonts");
+            // Load all fonts from the crate assets directories.
             let mut loaded_fonts = Vec::new();
 
-            if let Ok(entries) = fs::read_dir(fonts_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                        if ext == "ttf" || ext == "otf" {
-                            if let Ok(font_data) = fs::read(&path) {
-                                // Extract font name from filename (without extension)
-                                let font_name = path
-                                    .file_stem()
-                                    .and_then(|s| s.to_str())
-                                    .unwrap_or("Unknown")
-                                    .to_string();
+            for fonts_dir in font_dirs() {
+                if let Ok(entries) = fs::read_dir(fonts_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                            if ext == "ttf" || ext == "otf" {
+                                if let Ok(font_data) = fs::read(&path) {
+                                    // Extract font name from filename (without extension)
+                                    let font_name = path
+                                        .file_stem()
+                                        .and_then(|s| s.to_str())
+                                        .unwrap_or("Unknown")
+                                        .to_string();
 
-                                fonts.font_data.insert(
-                                    font_name.clone(),
-                                    Arc::new(egui::FontData::from_owned(font_data)),
-                                );
+                                    fonts.font_data.insert(
+                                        font_name.clone(),
+                                        Arc::new(egui::FontData::from_owned(font_data)),
+                                    );
 
-                                loaded_fonts.push(font_name);
+                                    loaded_fonts.push(font_name);
+                                }
                             }
                         }
                     }

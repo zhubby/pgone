@@ -93,8 +93,7 @@ impl ResultsTable {
 
     pub fn watch_ui(&mut self, _ui: &mut egui::Ui, _pipe: &mut ()) {}
 
-    /// Main UI method - unified entry point with SQL editor and results table
-    pub fn ui(&mut self, ui: &mut egui::Ui, mut ctxs: Option<&mut SqlCtx>) {
+    pub fn sync_database_selection(&mut self, mut ctxs: Option<&mut SqlCtx>) {
         // Check if database config changed and load databases
         if let Some(ctxs) = ctxs.as_mut() {
             let current_db_id = ctxs.db.active_db_config_id.clone();
@@ -125,6 +124,11 @@ impl ResultsTable {
                 self.databases_promise = None;
             }
         }
+    }
+
+    /// Main UI method - unified entry point with SQL editor and results table
+    pub fn ui(&mut self, ui: &mut egui::Ui, mut ctxs: Option<&mut SqlCtx>) {
+        self.sync_database_selection(ctxs.as_deref_mut());
 
         // SQL 执行现在由表格组件内部处理
         // refresh_requested 和 execute_sql_requested 会在 ui_results_table 中处理

@@ -65,6 +65,12 @@ The explicit GUI command is also available:
 cargo run -p pgone-cli -- gui
 ```
 
+Set the log level for any CLI command with `--log-level`:
+
+```bash
+cargo run -p pgone-cli -- --log-level debug gui
+```
+
 ### MCP Server
 
 **STDIO mode** (for agent integrations):

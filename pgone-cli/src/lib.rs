@@ -11,6 +11,10 @@ use tracing::info;
 #[command(name = "pgone")]
 #[command(about = "PGone unified command-line entrypoint", long_about = None)]
 pub struct Cli {
+    /// Log level: trace, debug, info, warn, or error.
+    #[arg(short, long, global = true)]
+    pub log_level: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -45,10 +49,6 @@ pub struct McpServerArgs {
     #[arg(long, default_value = "127.0.0.1:3000")]
     pub addr: String,
 
-    /// Log level: trace, debug, info, warn, or error.
-    #[arg(long, default_value = "info")]
-    pub log_level: String,
-
     /// Database config ID.
     #[arg(long)]
     pub dbconfig_id: String,
@@ -56,10 +56,6 @@ pub struct McpServerArgs {
 
 #[derive(Parser, Debug)]
 pub struct ApiServerArgs {
-    /// Log level: trace, debug, info, warn, or error.
-    #[arg(short, long, default_value = "info")]
-    pub log_level: String,
-
     /// Enable OpenTelemetry tracing.
     #[arg(long)]
     pub enable_otel: bool,
@@ -91,10 +87,6 @@ pub struct ApiServerArgs {
 
 #[derive(Parser, Debug)]
 pub struct ServiceLogArgs {
-    /// Log level: trace, debug, info, warn, or error.
-    #[arg(short, long, default_value = "info")]
-    pub log_level: String,
-
     /// Enable OpenTelemetry tracing.
     #[arg(long)]
     pub enable_otel: bool,
@@ -114,22 +106,28 @@ pub async fn run() -> Result<()> {
 }
 
 pub async fn run_cli(cli: Cli) -> Result<()> {
+    let log_level = cli.log_level;
+
     match cli.command.unwrap_or(Command::Gui) {
-        Command::Gui => run_gui(),
-        Command::McpServer(args) => run_mcp_server(args).await,
-        Command::Apiserver(args) => run_apiserver(args).await,
-        Command::Proxy(args) => run_proxy(args).await,
+        Command::Gui => run_gui(log_level.as_deref()),
+        Command::McpServer(args) => run_mcp_server(args, log_level.as_deref()).await,
+        Command::Apiserver(args) => run_apiserver(args, log_level).await,
+        Command::Proxy(args) => run_proxy(args, log_level.as_deref()).await,
     }
 }
 
-fn run_gui() -> Result<()> {
-    log::init_log_from_env()?;
+fn run_gui(log_level: Option<&str>) -> Result<()> {
+    match log_level {
+        Some(log_level) => log::init_log_simple(log_level)?,
+        None => log::init_log_from_env()?,
+    }
+
     pgone_gui::run()
 }
 
-async fn run_mcp_server(args: McpServerArgs) -> Result<()> {
+async fn run_mcp_server(args: McpServerArgs, log_level: Option<&str>) -> Result<()> {
     let protocol = resolve_protocol(args.protocol);
-    log::init_log_simple(&args.log_level)?;
+    log::init_log_simple(log_level.unwrap_or("info"))?;
 
     info!("pgone mcp-server starting");
     match protocol {
@@ -138,9 +136,9 @@ async fn run_mcp_server(args: McpServerArgs) -> Result<()> {
     }
 }
 
-async fn run_apiserver(args: ApiServerArgs) -> Result<()> {
+async fn run_apiserver(args: ApiServerArgs, log_level: Option<String>) -> Result<()> {
     pgone_apiserver::run(ApiServerConfig {
-        log_level: args.log_level,
+        log_level: log_level.unwrap_or_else(|| "info".to_string()),
         enable_otel: args.enable_otel,
         json_log: args.json_log,
         service_name: args.service_name,
@@ -152,9 +150,9 @@ async fn run_apiserver(args: ApiServerArgs) -> Result<()> {
     .await
 }
 
-async fn run_proxy(args: ServiceLogArgs) -> Result<()> {
+async fn run_proxy(args: ServiceLogArgs, log_level: Option<&str>) -> Result<()> {
     log::init_log(LogConfig {
-        level: LogLevel::from_str(&args.log_level)?,
+        level: LogLevel::from_str(log_level.unwrap_or("info"))?,
         enable_otel: args.enable_otel,
         json_format: args.json_log,
         service_name: Some(args.service_name.clone()),
@@ -200,6 +198,20 @@ mod tests {
     fn parses_gui_command() {
         let cli = Cli::parse_from(["pgone", "gui"]);
         assert!(matches!(cli.command, Some(Command::Gui)));
+    }
+
+    #[test]
+    fn parses_global_log_level_before_subcommand() {
+        let cli = Cli::parse_from(["pgone", "--log-level", "debug", "gui"]);
+        assert_eq!(cli.log_level.as_deref(), Some("debug"));
+        assert!(matches!(cli.command, Some(Command::Gui)));
+    }
+
+    #[test]
+    fn parses_global_log_level_after_subcommand() {
+        let cli = Cli::parse_from(["pgone", "proxy", "--log-level", "warn"]);
+        assert_eq!(cli.log_level.as_deref(), Some("warn"));
+        assert!(matches!(cli.command, Some(Command::Proxy(_))));
     }
 
     #[test]

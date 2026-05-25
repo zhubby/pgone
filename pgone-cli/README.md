@@ -24,5 +24,12 @@ cargo run -p pgone-cli -- apiserver
 cargo run -p pgone-cli -- proxy
 ```
 
+Set the log level for any command with `--log-level`:
+
+```bash
+cargo run -p pgone-cli -- --log-level debug gui
+cargo run -p pgone-cli -- proxy --log-level warn
+```
+
 The package name is `pgone-cli`, and the installed binary name is `pgone`.
 Existing service-specific binaries remain available for compatibility, including `pgone-mcp-server` from the `pgone-mcp` crate.

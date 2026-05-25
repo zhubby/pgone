@@ -9,7 +9,8 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DockTab {
     DatabaseStructure,
-    SqlWorkspace,
+    SqlEditor,
+    Results,
     Chat,
 }
 
@@ -17,7 +18,8 @@ impl DockTab {
     fn title(&self) -> &'static str {
         match self {
             Self::DatabaseStructure => "Database Structure",
-            Self::SqlWorkspace => "SQL Workspace",
+            Self::SqlEditor => "SQL Editor",
+            Self::Results => "Results",
             Self::Chat => "Chat",
         }
     }
@@ -63,15 +65,17 @@ impl DockLayout {
 
         DockArea::new(&mut self.state)
             .style(Style::from_egui(ui.style().as_ref()))
+            .show_leaf_collapse_buttons(false)
             .show_inside(ui, &mut viewer);
     }
 
     fn default_state() -> DockState<DockTab> {
-        let mut state = DockState::new(vec![DockTab::SqlWorkspace]);
+        let mut state = DockState::new(vec![DockTab::SqlEditor]);
         let surface = state.main_surface_mut();
-        let [sql_node, _database_node] =
+        surface.split_below(NodeIndex::root(), 0.45, vec![DockTab::Results]);
+        let [center_node, _database_node] =
             surface.split_left(NodeIndex::root(), 0.78, vec![DockTab::DatabaseStructure]);
-        surface.split_right(sql_node, 0.70, vec![DockTab::Chat]);
+        surface.split_right(center_node, 0.70, vec![DockTab::Chat]);
         state
     }
 }
@@ -91,7 +95,7 @@ impl DockTabViewer<'_> {
         self.db_tree.ui(ui, self.db, self.results_table);
     }
 
-    fn show_sql_workspace(&mut self, ui: &mut Ui) {
+    fn make_sql_ctx(&mut self) -> SqlCtx {
         self.db.ensure_storage();
         let mut sql_ctx = SqlCtx {
             state: self.state.clone(),
@@ -107,7 +111,29 @@ impl DockTabViewer<'_> {
             sql_ctx.db.ensure_storage();
         }
 
-        self.results_table.ui(ui, Some(&mut sql_ctx));
+        sql_ctx
+    }
+
+    fn show_sql_editor(&mut self, ui: &mut Ui) {
+        let mut sql_ctx = self.make_sql_ctx();
+        self.results_table
+            .sync_database_selection(Some(&mut sql_ctx));
+        self.results_table.ui_sql_editor(ui, true);
+        self.db.pools = sql_ctx.db.pools;
+    }
+
+    fn show_results(&mut self, ui: &mut Ui) {
+        let mut sql_ctx = self.make_sql_ctx();
+        self.results_table
+            .sync_database_selection(Some(&mut sql_ctx));
+        let sql = if self.results_table.sql_input.trim().is_empty() {
+            None
+        } else {
+            Some(self.results_table.sql_input.clone())
+        };
+
+        self.results_table
+            .ui_results_table(ui, sql.as_deref(), Some(&mut sql_ctx), true);
         self.db.pools = sql_ctx.db.pools;
     }
 
@@ -137,7 +163,8 @@ impl TabViewer for DockTabViewer<'_> {
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
         match tab {
             DockTab::DatabaseStructure => self.show_database_structure(ui),
-            DockTab::SqlWorkspace => self.show_sql_workspace(ui),
+            DockTab::SqlEditor => self.show_sql_editor(ui),
+            DockTab::Results => self.show_results(ui),
             DockTab::Chat => self.show_chat(ui),
         }
     }
@@ -152,7 +179,7 @@ impl TabViewer for DockTabViewer<'_> {
 
     fn scroll_bars(&self, tab: &Self::Tab) -> [bool; 2] {
         match tab {
-            DockTab::SqlWorkspace => [false, false],
+            DockTab::SqlEditor | DockTab::Results => [false, false],
             DockTab::DatabaseStructure | DockTab::Chat => [true, true],
         }
     }
