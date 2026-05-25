@@ -150,18 +150,14 @@ impl McpClientManager {
 
 impl Drop for McpClientManager {
     fn drop(&mut self) {
+        // 先释放 MCP client，让 stdio 管道关闭并给子进程一个正常退出机会。
+        self.client.take();
+
         // 关闭子进程
         if let Some(mut child) = self.child.take() {
             info!("正在关闭 MCP server 子进程...");
-            // 尝试优雅关闭
             let _ = futures::block_on_async(async {
-                if let Err(e) = child.kill().await {
-                    warn!("关闭 MCP server 子进程失败: {}", e);
-                }
-            });
-            // 等待进程退出
-            let _ = futures::block_on_async(async {
-                match tokio::time::timeout(std::time::Duration::from_secs(2), child.wait()).await {
+                match tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await {
                     Ok(Ok(status)) => {
                         info!("MCP server 子进程已退出，状态: {:?}", status);
                     }
@@ -169,7 +165,25 @@ impl Drop for McpClientManager {
                         warn!("等待 MCP server 子进程退出时出错: {}", e);
                     }
                     Err(_) => {
-                        warn!("等待 MCP server 子进程退出超时");
+                        warn!("等待 MCP server 子进程优雅退出超时，开始强制关闭");
+                        if let Err(e) = child.kill().await {
+                            warn!("关闭 MCP server 子进程失败: {}", e);
+                            return;
+                        }
+
+                        match tokio::time::timeout(std::time::Duration::from_secs(2), child.wait())
+                            .await
+                        {
+                            Ok(Ok(status)) => {
+                                info!("MCP server 子进程已强制退出，状态: {:?}", status);
+                            }
+                            Ok(Err(e)) => {
+                                warn!("等待 MCP server 子进程强制退出时出错: {}", e);
+                            }
+                            Err(_) => {
+                                warn!("等待 MCP server 子进程强制退出超时");
+                            }
+                        }
                     }
                 }
             });

@@ -13,6 +13,45 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        let mut sigterm = match signal(SignalKind::terminate()) {
+            Ok(sigterm) => Some(sigterm),
+            Err(e) => {
+                tracing::warn!("注册 SIGTERM 关闭信号失败: {}", e);
+                None
+            }
+        };
+
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                if let Err(e) = result {
+                    tracing::warn!("监听 Ctrl+C 关闭信号失败: {}", e);
+                }
+            }
+            _ = async {
+                if let Some(sigterm) = sigterm.as_mut() {
+                    sigterm.recv().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!("监听 Ctrl+C 关闭信号失败: {}", e);
+        }
+    }
+
+    tracing::info!("收到关闭信号");
+}
+
 /// MCP 服务器上下文
 #[derive(Clone)]
 pub struct McpContext {
@@ -619,9 +658,17 @@ pub async fn run_stdio(dbconfig_id: String) -> anyhow::Result<()> {
     let transport = AsyncRwTransport::new_server(io::stdin(), io::stdout());
 
     tracing::info!("MCP 服务器启动（STDIO 模式）");
-    let _running = serve_server(service, transport).await?;
+    tokio::select! {
+        result = serve_server(service, transport) => {
+            result?;
+            tracing::info!("MCP STDIO 服务已结束");
+        }
+        _ = wait_for_shutdown_signal() => {
+            tracing::info!("开始关闭 MCP STDIO 服务");
+        }
+    }
 
-    // 等待服务运行（通常不会返回，除非出错）
+    tracing::info!("MCP STDIO 服务已关闭");
     Ok(())
 }
 
@@ -631,7 +678,6 @@ pub async fn run_streamable(addr: &str, dbconfig_id: String) -> anyhow::Result<(
         StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     };
     use std::sync::Arc;
-    use tokio_util::sync::CancellationToken;
 
     // 先创建 handler（async 初始化）
     let handler = PgoneMcpServer::new(dbconfig_id).await?;
@@ -644,9 +690,6 @@ pub async fn run_streamable(addr: &str, dbconfig_id: String) -> anyhow::Result<(
 
     // 创建 session manager 并包装在 Arc 中
     let session_manager = Arc::new(LocalSessionManager::default());
-
-    // 创建 cancellation token
-    let ct = CancellationToken::new();
 
     // 创建 StreamableHttpService
     let service = StreamableHttpService::new(
@@ -669,11 +712,9 @@ pub async fn run_streamable(addr: &str, dbconfig_id: String) -> anyhow::Result<(
 
     // 启动服务器
     let _ = axum::serve(tcp_listener, router)
-        .with_graceful_shutdown(async move {
-            tokio::signal::ctrl_c().await.unwrap();
-            ct.cancel();
-        })
+        .with_graceful_shutdown(wait_for_shutdown_signal())
         .await;
 
+    tracing::info!("MCP Streamable HTTP 服务已关闭");
     Ok(())
 }

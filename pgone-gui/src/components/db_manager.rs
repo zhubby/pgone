@@ -126,6 +126,33 @@ impl Default for DbManager {
 }
 
 impl DbManager {
+    pub fn shutdown(&mut self) {
+        let pools = std::mem::take(&mut self.pools);
+        if pools.is_empty() {
+            return;
+        }
+
+        tracing::info!("正在关闭 {} 个 GUI 数据库连接池", pools.len());
+        futures::block_on_async(async move {
+            let close_futures = pools
+                .into_values()
+                .map(|pool| async move {
+                    pool.close().await;
+                })
+                .collect::<Vec<_>>();
+
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                ::futures::future::join_all(close_futures),
+            )
+            .await
+            {
+                Ok(_) => tracing::info!("GUI 数据库连接池已关闭"),
+                Err(_) => tracing::warn!("关闭 GUI 数据库连接池超时"),
+            }
+        });
+    }
+
     /// Build DSN with SSL parameters if enabled
     fn build_dsn(
         engine: &str,

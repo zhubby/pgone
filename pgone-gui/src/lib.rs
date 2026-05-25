@@ -37,6 +37,54 @@ fn font_dirs() -> [PathBuf; 2] {
     [asset_path("fonts"), asset_path("")]
 }
 
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        let mut sigterm = match signal(SignalKind::terminate()) {
+            Ok(sigterm) => Some(sigterm),
+            Err(e) => {
+                tracing::warn!("注册 SIGTERM 关闭信号失败: {}", e);
+                None
+            }
+        };
+
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                if let Err(e) = result {
+                    tracing::warn!("监听 Ctrl+C 关闭信号失败: {}", e);
+                }
+            }
+            _ = async {
+                if let Some(sigterm) = sigterm.as_mut() {
+                    sigterm.recv().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!("监听 Ctrl+C 关闭信号失败: {}", e);
+        }
+    }
+
+    tracing::info!("收到关闭信号");
+}
+
+fn install_shutdown_signal_handler(ctx: Context) {
+    futures::spawn(async move {
+        wait_for_shutdown_signal().await;
+        tracing::info!("开始关闭 GUI");
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        ctx.request_repaint();
+    });
+}
+
 pub struct AppFrame {
     #[allow(dead_code)]
     state: PersistedState,
@@ -58,6 +106,7 @@ pub struct AppFrame {
     export_window: ExportWindow,
     show_import: bool,
     import_window: ImportWindow,
+    shutdown_complete: bool,
     // mcp_client: Option<McpClientManager>,
 }
 
@@ -188,6 +237,7 @@ impl AppFrame {
             export_window: ExportWindow::default(),
             show_import: false,
             import_window: ImportWindow::default(),
+            shutdown_complete: false,
             // mcp_client,
         }
     }
@@ -267,6 +317,17 @@ impl AppFrame {
                 self.import_window = ImportWindow::default();
             }
         }
+    }
+
+    pub fn shutdown(&mut self) {
+        if self.shutdown_complete {
+            return;
+        }
+
+        self.shutdown_complete = true;
+        tracing::info!("开始清理 GUI 资源");
+        self.db.shutdown();
+        tracing::info!("GUI 资源清理完成");
     }
 }
 
@@ -364,6 +425,16 @@ impl eframe::App for AppFrame {
         // 显示通知
         notify::show(&ctx);
     }
+
+    fn on_exit(&mut self) {
+        self.shutdown();
+    }
+}
+
+impl Drop for AppFrame {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -391,6 +462,7 @@ pub fn run() -> anyhow::Result<()> {
             // Inject phosphor font once at creation to avoid runtime deadlocks
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, PhosphorVariant::Regular);
+            install_shutdown_signal_handler(cc.egui_ctx.clone());
 
             // Load all fonts from the crate assets directories.
             let mut loaded_fonts = Vec::new();
