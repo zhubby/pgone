@@ -37,7 +37,7 @@ impl Default for SettingsPanel {
 impl SettingsPanel {
     /// Get available font sizes
     pub fn get_available_font_sizes() -> Vec<f32> {
-        vec![10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 24.0]
+        (10..=24).map(|size| size as f32).collect()
     }
 
     /// Initialize original settings (call when opening settings window)
@@ -408,11 +408,11 @@ impl SettingsTabViewer<'_> {
         });
 
         if size_changed || self.panel.previous_font_size != Some(self.settings.font_size) {
-            let mut style = (*self.ctx.style()).clone();
-            for text_style in style.text_styles.values_mut() {
-                text_style.size = self.settings.font_size;
-            }
-            self.ctx.set_style(style);
+            self.ctx.all_styles_mut(|style| {
+                for text_style in style.text_styles.values_mut() {
+                    text_style.size = self.settings.font_size;
+                }
+            });
             self.panel.previous_font_size = Some(self.settings.font_size);
         }
     }

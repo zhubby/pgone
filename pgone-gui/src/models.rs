@@ -173,7 +173,7 @@ impl Default for Settings {
             openai_base_url: None,
             openai_model: "gpt-4o-mini".to_string(),
             font_family: "LXGWWenKai-Regular".to_string(),
-            font_size: 12.0,
+            font_size: 13.0,
             llm_provider: LlmProviderKind::OpenAI,
             enable_monitor: false,
             proxy_enabled: false,

@@ -1,6 +1,6 @@
 #![allow(clippy::all, dead_code, deprecated, unused_mut)]
 
-use eframe::egui::{self, Context};
+use eframe::egui::{self, Context, ThemePreference};
 use egui_phosphor::Variant as PhosphorVariant;
 use icns::{IconFamily, IconType};
 use std::fs;
@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 mod futures;
 mod layout_settings;
@@ -31,6 +32,8 @@ mod settings_store;
 use settings_store::SettingsStore;
 mod skeletons;
 mod styles;
+
+const DOCK_LAYOUT_SAVE_INTERVAL: Duration = Duration::from_millis(750);
 
 fn asset_path(path: impl AsRef<Path>) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -106,6 +109,8 @@ pub struct AppFrame {
     settings_panel: SettingsPanel,
     dock_layout: skeletons::dock::DockLayout,
     last_saved_layout_json: Option<String>,
+    last_layout_save_check: Instant,
+    pending_theme_preference: Option<ThemePreference>,
     session_storage: SessionStorage,
     gui_storage: GuiStorage,
     sessions_loaded_from_storage: bool,
@@ -177,6 +182,8 @@ impl AppFrame {
             settings_panel: Default::default(),
             dock_layout: layout_settings::load_dock_layout(),
             last_saved_layout_json: None,
+            last_layout_save_check: Instant::now(),
+            pending_theme_preference: None,
             session_storage,
             gui_storage,
             sessions_loaded_from_storage: false,
@@ -203,6 +210,12 @@ impl AppFrame {
     }
 
     fn save_dock_layout_if_changed(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_layout_save_check) < DOCK_LAYOUT_SAVE_INTERVAL {
+            return;
+        }
+        self.last_layout_save_check = now;
+
         let current_json = match layout_settings::dock_layout_json(&self.dock_layout) {
             Ok(json) => json,
             Err(error) => {
@@ -247,6 +260,14 @@ impl AppFrame {
                 }
                 self.sessions_loaded_from_storage = true;
             }
+        }
+    }
+
+    fn apply_pending_theme_preference(&mut self, ui: &mut egui::Ui, ctx: &Context) {
+        if let Some(theme_preference) = self.pending_theme_preference.take() {
+            ctx.set_theme(theme_preference);
+            ui.set_style(ctx.style());
+            ctx.request_repaint();
         }
     }
 
@@ -318,6 +339,7 @@ impl eframe::App for AppFrame {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let mut reset_dock_layout = false;
+        self.apply_pending_theme_preference(ui, &ctx);
         self.apply_storage_updates();
 
         // Menu bar
@@ -335,10 +357,15 @@ impl eframe::App for AppFrame {
         if reset_dock_layout {
             self.dock_layout.reset();
             self.last_saved_layout_json = None;
+            self.last_layout_save_check = Instant::now() - DOCK_LAYOUT_SAVE_INTERVAL;
         }
 
         // Status bar
-        skeletons::status_bar::show_status_bar(ui, &ctx, &mut self.db, &self.state.settings);
+        if let Some(theme_preference) =
+            skeletons::status_bar::show_status_bar(ui, &ctx, &mut self.db, &self.state.settings)
+        {
+            self.pending_theme_preference = Some(theme_preference);
+        }
 
         // Database management windows
         self.db.ui_add_db_window(&ctx);
@@ -519,11 +546,11 @@ pub fn run() -> anyhow::Result<()> {
 
             // Apply default font size to text styles
             let font_size = settings.font_size;
-            let mut style = (*cc.egui_ctx.style()).clone();
-            for text_style in style.text_styles.values_mut() {
-                text_style.size = font_size;
-            }
-            cc.egui_ctx.set_style(style);
+            cc.egui_ctx.all_styles_mut(|style| {
+                for text_style in style.text_styles.values_mut() {
+                    text_style.size = font_size;
+                }
+            });
 
             cc.egui_ctx.set_fonts(fonts);
             Ok(Box::new(AppFrame::new(cc.egui_ctx.clone(), settings)))

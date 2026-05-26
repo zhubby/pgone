@@ -1,6 +1,6 @@
 use crate::components::DbManager;
 use crate::models::Settings;
-use eframe::egui::{Context, Panel, Ui};
+use eframe::egui::{Context, Panel, ThemePreference, Ui};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sqlx::Row;
@@ -8,10 +8,11 @@ use sqlx::postgres::PgPoolOptions;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
 
-// 缓存 System 实例以提高性能
+// 缓存 System 实例以提高性能，仅按需刷新当前进程信息。
 static SYSTEM: Lazy<Arc<Mutex<sysinfo::System>>> =
-    Lazy::new(|| Arc::new(Mutex::new(sysinfo::System::new_all())));
+    Lazy::new(|| Arc::new(Mutex::new(sysinfo::System::new())));
 
 // 记录上次刷新时间，用于控制刷新频率（每秒一次）
 static LAST_REFRESH: Lazy<Arc<Mutex<Option<Instant>>>> = Lazy::new(|| Arc::new(Mutex::new(None)));
@@ -27,10 +28,24 @@ const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 // 数据库版本缓存有效期：30秒
 const VERSION_CACHE_TTL: Duration = Duration::from_secs(30);
 
-pub fn show_status_bar(root_ui: &mut Ui, ctx: &Context, db: &mut DbManager, settings: &Settings) {
+pub fn show_status_bar(
+    root_ui: &mut Ui,
+    ctx: &Context,
+    db: &mut DbManager,
+    settings: &Settings,
+) -> Option<ThemePreference> {
+    let mut requested_theme = None;
+
     Panel::bottom("status_bar").show_inside(root_ui, |ui| {
         ui.horizontal(|ui| {
-            egui_theme_switch::global_theme_switch(ui);
+            let mut preference = ui.ctx().options(|opt| opt.theme_preference);
+            if ui
+                .add(egui_theme_switch::ThemeSwitch::new(&mut preference))
+                .changed()
+            {
+                requested_theme = Some(preference);
+                ctx.request_repaint();
+            }
 
             ui.horizontal(|ui| {
                 if db.active_db_config_id.is_some() {
@@ -97,13 +112,21 @@ pub fn show_status_bar(root_ui: &mut Ui, ctx: &Context, db: &mut DbManager, sett
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Ok(mut system) = SYSTEM.lock() {
-                        // 只在需要时刷新系统信息
+                        let pid = sysinfo::Pid::from(std::process::id() as usize);
+
+                        // 只在需要时刷新当前进程的 CPU/内存，避免 UI 线程扫描全系统。
                         if should_refresh {
-                            system.refresh_all();
+                            system.refresh_processes_specifics(
+                                ProcessesToUpdate::Some(&[pid]),
+                                true,
+                                ProcessRefreshKind::nothing()
+                                    .with_cpu()
+                                    .with_memory()
+                                    .without_tasks(),
+                            );
                         }
 
-                        let pid = std::process::id();
-                        if let Some(process) = system.process(sysinfo::Pid::from(pid as usize)) {
+                        if let Some(process) = system.process(pid) {
                             let process_name = process.name().to_string_lossy().to_string();
                             let cpu_usage = process.cpu_usage();
                             let memory_kb = process.memory() / 1024;
@@ -138,6 +161,8 @@ pub fn show_status_bar(root_ui: &mut Ui, ctx: &Context, db: &mut DbManager, sett
             }
         });
     });
+
+    requested_theme
 }
 
 // 静态正则表达式，用于提取版本信息
