@@ -50,7 +50,7 @@ async fn wait_for_shutdown_signal() {
         let mut sigterm = match signal(SignalKind::terminate()) {
             Ok(sigterm) => Some(sigterm),
             Err(e) => {
-                tracing::warn!("注册 SIGTERM 关闭信号失败: {}", e);
+                tracing::warn!("Failed to register SIGTERM shutdown signal: {}", e);
                 None
             }
         };
@@ -58,7 +58,7 @@ async fn wait_for_shutdown_signal() {
         tokio::select! {
             result = tokio::signal::ctrl_c() => {
                 if let Err(e) = result {
-                    tracing::warn!("监听 Ctrl+C 关闭信号失败: {}", e);
+                    tracing::warn!("Failed to listen for Ctrl+C shutdown signal: {}", e);
                 }
             }
             _ = async {
@@ -74,17 +74,17 @@ async fn wait_for_shutdown_signal() {
     #[cfg(not(unix))]
     {
         if let Err(e) = tokio::signal::ctrl_c().await {
-            tracing::warn!("监听 Ctrl+C 关闭信号失败: {}", e);
+            tracing::warn!("Failed to listen for Ctrl+C shutdown signal: {}", e);
         }
     }
 
-    tracing::info!("收到关闭信号");
+    tracing::info!("Shutdown signal received");
 }
 
 fn install_shutdown_signal_handler(ctx: Context) {
     futures::spawn(async move {
         wait_for_shutdown_signal().await;
-        tracing::info!("开始关闭 GUI");
+        tracing::info!("Starting GUI shutdown");
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         ctx.request_repaint();
     });
@@ -138,27 +138,27 @@ impl AppFrame {
 
         state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
 
-        // 不需要初始化额外的进程来提供tools
-        // 初始化 MCP client
+        // No need to initialize extra processes to provide tools
+        // Initialize MCP client
         // let mcp_client = if db_manager.storage.is_some() {
-        //     // 使用 pgone_storage::database_path()
+        //     // Use pgone_storage::database_path()
         //     let storage_path = pgone_storage::database_path();
 
-        //     // 启动 MCP server 并创建客户端
+        //     // Start MCP server and create client
         //     match futures::block_on_async(async {
         //         McpClientManager::new(storage_path).await
         //     }) {
         //         Ok(client) => {
-        //             tracing::info!("MCP client 初始化成功");
+        //             tracing::info!("MCP client initialized successfully");
         //             Some(client)
         //         }
         //         Err(e) => {
-        //             tracing::warn!("MCP client 初始化失败: {}", e);
+        //             tracing::warn!("MCP client initialization failed: {}", e);
         //             None
         //         }
         //     }
         // } else {
-        //     tracing::warn!("Storage 不可用，跳过 MCP client 初始化");
+        //     tracing::warn!("Storage unavailable, skipping MCP client initialization");
         //     None
         // };
 
@@ -263,7 +263,7 @@ impl AppFrame {
         }
 
         let mut open = true;
-        egui::Window::new("导出数据")
+        egui::Window::new("Export Data")
             .id(egui::Id::new("export_window"))
             .open(&mut open)
             .default_pos(ctx.content_rect().center())
@@ -276,7 +276,7 @@ impl AppFrame {
 
         if !open {
             self.show_export = false;
-            // 如果导出完成，重置窗口状态
+            // If export completed, reset window state
             if !self.export_window.is_exporting() {
                 self.export_window = ExportWindow::default();
             }
@@ -289,7 +289,7 @@ impl AppFrame {
         }
 
         let mut open = true;
-        egui::Window::new("导入数据")
+        egui::Window::new("Import Data")
             .id(egui::Id::new("import_window"))
             .open(&mut open)
             .default_pos(ctx.content_rect().center())
@@ -302,7 +302,7 @@ impl AppFrame {
 
         if !open {
             self.show_import = false;
-            // 如果导入完成，重置窗口状态
+            // If import completed, reset window state
             if !self.import_window.is_importing() {
                 self.import_window = ImportWindow::default();
             }
@@ -315,9 +315,9 @@ impl AppFrame {
         }
 
         self.shutdown_complete = true;
-        tracing::info!("开始清理 GUI 资源");
+        tracing::info!("Shutting down GUI resources");
         self.db.shutdown();
-        tracing::info!("GUI 资源清理完成");
+        tracing::info!("GUI resources shut down successfully");
     }
 }
 
@@ -416,7 +416,7 @@ impl eframe::App for AppFrame {
         // Image preview window
         self.preview.ui_window(&ctx);
 
-        // 显示通知
+        // Show notifications
         notify::show(&ctx);
     }
 

@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 
 use super::model_loader::ModelLoader;
 
-const AGENT_COMPOSER_OUTER_HEIGHT: f32 = 172.0;
+const AGENT_COMPOSER_OUTER_HEIGHT: f32 = 132.0;
 const AGENT_MESSAGE_FRAME_VERTICAL_INSET: f32 = 16.0;
 const AGENT_SECTION_SPACING: f32 = 8.0;
 const DEFAULT_OPENAI_CHAT_COMPLETIONS_URL: &str = "https://api.openai.com/v1/chat/completions";
@@ -222,11 +222,11 @@ impl ChatPanel {
             .corner_radius(egui::CornerRadius::same(6))
             .inner_margin(egui::Margin::symmetric(8, 8))
             .show(ui, |ui| {
-                ui.set_min_height(148.0);
+                ui.set_min_height(108.0);
                 self.show_pending_resources(ctxs, ui);
                 let input_response = ui.add(
                     egui::TextEdit::multiline(&mut self.input)
-                        .desired_rows(5)
+                        .desired_rows(3)
                         .desired_width(ui.available_width())
                         .return_key(egui::KeyboardShortcut::new(
                             egui::Modifiers::SHIFT,

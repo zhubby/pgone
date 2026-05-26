@@ -241,7 +241,8 @@ fn model_client(config: &LlmConfig) -> Result<reqwest::Client> {
     let builder = reqwest::Client::builder().timeout(Duration::from_secs(60));
     let builder = if let Some(proxy_url) = config.proxy_url() {
         builder.proxy(
-            reqwest::Proxy::http(proxy_url).map_err(|error| AgentError::Config(error.to_string()))?,
+            reqwest::Proxy::http(proxy_url)
+                .map_err(|error| AgentError::Config(error.to_string()))?,
         )
     } else {
         builder.no_proxy()
@@ -259,10 +260,7 @@ fn now_epoch_seconds() -> u64 {
 }
 
 async fn list_openai_compatible_models(config: &LlmConfig) -> Result<Vec<ModelInfo>> {
-    let base_url = required_setting(
-        config.base_url.clone().unwrap_or_default(),
-        "llm.base_url",
-    )?;
+    let base_url = required_setting(config.base_url.clone().unwrap_or_default(), "llm.base_url")?;
     let api_key = required_setting(config.api_key.clone(), "llm.api_key")?;
     let url = models_endpoint(&base_url);
     let response = model_client(config)?
