@@ -88,7 +88,6 @@ pub struct DbManager {
     pub active_db_config_id: Option<String>,
     pub show_add_db: bool,
     pub add_db_form: DbFormData,
-    pub show_manage_db: bool,
     pub show_edit_db: bool,
     pub edit_db_id: Option<String>,
     pub edit_db_form: DbFormData,
@@ -134,7 +133,6 @@ impl Default for DbManager {
             active_db_config_id: None,
             show_add_db: false,
             add_db_form: DbFormData::default(),
-            show_manage_db: false,
             show_edit_db: false,
             edit_db_id: None,
             edit_db_form: DbFormData::default(),
@@ -356,6 +354,22 @@ impl DbManager {
     pub fn active_db_config(&self) -> Option<pgone_storage::models::DbConfig> {
         let id = self.active_db_config_id.as_ref()?;
         self.storage.as_ref()?.get_db_config(id)
+    }
+
+    pub fn select_db_config(&mut self, id: &str) {
+        self.active_db_config_id = Some(id.to_string());
+        notify::info(format!("Selected database: {}", id));
+    }
+
+    pub fn open_edit_db_config(&mut self, id: &str) -> Result<(), String> {
+        self.load_db_config(id)?;
+        self.show_edit_db = true;
+        Ok(())
+    }
+
+    pub fn request_delete_db_config(&mut self, id: &str) {
+        self.delete_confirm_id = Some(id.to_string());
+        self.show_delete_confirm = true;
     }
 
     pub fn sql_context_copy(&self) -> Self {
@@ -927,203 +941,53 @@ impl DbManager {
         }
     }
 
-    pub fn ui_manage_db_window(&mut self, ctx: &egui::Context) {
-        if self.show_manage_db {
-            let mut open = true;
-            let center = ctx.content_rect().center();
-            egui::Window::new("Databases")
-                .id(egui::Id::new("databases_window"))
-                .open(&mut open)
-                .default_size(egui::vec2(600.0, 400.0))
-                .default_pos(center)
-                .pivot(egui::Align2::CENTER_CENTER)
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    self.ensure_storage();
-                    if let Some(storage) = &self.storage {
-                        let list = storage.list_db_configs();
-
-                        if list.is_empty() {
-                            ui.label("No databases configured");
-                        } else {
-                            let mut to_select: Option<String> = None;
-                            let mut to_edit: Option<String> = None;
-                            let mut to_set_default: Option<String> = None;
-                            let active_id = self.active_db_config_id.clone();
-
-                            egui::ScrollArea::vertical()
-                                .auto_shrink([false; 2])
-                                .show(ui, |ui| {
-                                    for cfg in &list {
-                                        ui.group(|ui| {
-                                            // Parse DSN to show details
-                                            let parsed = Self::parse_dsn(&cfg.dsn);
-
-                                            // Database name and engine
-                                            ui.horizontal(|ui| {
-                                                ui.heading(format!(
-                                                    "{} {}",
-                                                    egui_phosphor::regular::DATABASE,
-                                                    cfg.id
-                                                ));
-                                                ui.label(format!("[{}]", cfg.engine));
-                                                if Some(cfg.id.clone()) == active_id {
-                                                    ui.colored_label(
-                                                        egui::Color32::GREEN,
-                                                        "(Active)",
-                                                    );
-                                                }
-                                                if cfg.default_config == Some(true) {
-                                                    ui.colored_label(egui::Color32::BLUE, "(默认)");
-                                                }
-                                            });
-
-                                            // Connection details
-                                            if let Some(p) = parsed {
-                                                ui.columns(2, |columns| {
-                                                    // 左列
-                                                    columns[0].horizontal(|ui| {
-                                                        ui.label(format!(
-                                                            "{} Host:",
-                                                            egui_phosphor::regular::GLOBE
-                                                        ));
-                                                        ui.label(&p.host);
-                                                    });
-                                                    columns[0].horizontal(|ui| {
-                                                        ui.label(format!(
-                                                            "{} Database:",
-                                                            egui_phosphor::regular::DATABASE
-                                                        ));
-                                                        ui.label(if p.database.is_empty() {
-                                                            "<default>"
-                                                        } else {
-                                                            &p.database
-                                                        });
-                                                    });
-
-                                                    // 右列
-                                                    columns[1].horizontal(|ui| {
-                                                        ui.label(format!(
-                                                            "{} Port:",
-                                                            egui_phosphor::regular::PLUG
-                                                        ));
-                                                        ui.label(&p.port);
-                                                    });
-                                                    columns[1].horizontal(|ui| {
-                                                        ui.label(format!(
-                                                            "{} User:",
-                                                            egui_phosphor::regular::USER
-                                                        ));
-                                                        ui.label(&p.user);
-                                                    });
-                                                });
-                                            }
-
-                                            ui.separator();
-
-                                            // Action buttons
-                                            ui.horizontal(|ui| {
-                                                if ui.button("选择").clicked() {
-                                                    to_select = Some(cfg.id.clone());
-                                                }
-                                                if ui.button("编辑").clicked() {
-                                                    to_edit = Some(cfg.id.clone());
-                                                }
-                                                if cfg.default_config != Some(true) {
-                                                    if ui.button("设为默认").clicked() {
-                                                        to_set_default = Some(cfg.id.clone());
-                                                    }
-                                                }
-                                                if ui
-                                                    .button(
-                                                        egui::RichText::new("删除")
-                                                            .color(egui::Color32::RED),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    self.delete_confirm_id = Some(cfg.id.clone());
-                                                    self.show_delete_confirm = true;
-                                                }
-                                            });
-                                        });
-                                    }
-                                });
-
-                            // Execute actions outside the closure
-                            if let Some(id) = to_select {
-                                self.active_db_config_id = Some(id.clone());
-                                notify::info(format!("Selected database: {}", id));
-                            }
-                            if let Some(id) = to_edit {
-                                if let Err(e) = self.load_db_config(&id) {
-                                    notify::error(format!("Failed to load: {}", e));
-                                } else {
-                                    self.show_edit_db = true;
-                                }
-                            }
-                            if let Some(id) = to_set_default {
-                                if let Err(e) = self.set_default_db_config(&id) {
-                                    notify::error(format!("设置默认配置失败: {}", e));
-                                } else {
-                                    notify::info(format!("已将 '{}' 设为默认配置", id));
-                                }
-                            }
-                        }
-                    } else {
-                        ui.label("Storage not ready");
-                    }
-                });
-            if !open {
-                self.show_manage_db = false;
-            }
+    pub fn ui_delete_confirm_window(&mut self, ctx: &egui::Context) {
+        if !self.show_delete_confirm {
+            return;
         }
 
-        // Show delete confirmation dialog
-        if self.show_delete_confirm {
-            let mut open = true;
-            let id_to_delete = self.delete_confirm_id.clone();
-            let center = ctx.content_rect().center();
+        let mut open = true;
+        let id_to_delete = self.delete_confirm_id.clone();
+        let center = ctx.content_rect().center();
 
-            egui::Window::new("确认删除")
-                .id(egui::Id::new("confirm_delete_database_window"))
-                .open(&mut open)
-                .default_pos(center)
-                .pivot(egui::Align2::CENTER_CENTER)
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    if let Some(ref id) = id_to_delete {
-                        ui.label(format!("确定要删除数据库配置 '{}' 吗？", id));
-                        ui.label("此操作不可撤销。");
-                        ui.add_space(10.0);
+        egui::Window::new("确认删除")
+            .id(egui::Id::new("confirm_delete_database_window"))
+            .open(&mut open)
+            .default_pos(center)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                if let Some(ref id) = id_to_delete {
+                    ui.label(format!("确定要删除数据库配置 '{}' 吗？", id));
+                    ui.label("此操作不可撤销。");
+                    ui.add_space(10.0);
 
-                        ui.horizontal(|ui| {
-                            if ui.button("取消").clicked() {
-                                self.show_delete_confirm = false;
-                                self.delete_confirm_id = None;
-                            }
-                            if ui
-                                .button(egui::RichText::new("确认删除").color(egui::Color32::RED))
-                                .clicked()
-                            {
-                                if let Some(ref storage) = self.storage {
-                                    storage.delete_db_config(id);
-                                    // Clear active if deleted
-                                    if self.active_db_config_id.as_ref() == Some(id) {
-                                        self.active_db_config_id = None;
-                                    }
-                                    notify::info(format!("Deleted database: {}", id));
+                    ui.horizontal(|ui| {
+                        if ui.button("取消").clicked() {
+                            self.show_delete_confirm = false;
+                            self.delete_confirm_id = None;
+                        }
+                        if ui
+                            .button(egui::RichText::new("确认删除").color(egui::Color32::RED))
+                            .clicked()
+                        {
+                            if let Some(ref storage) = self.storage {
+                                storage.delete_db_config(id);
+                                if self.active_db_config_id.as_ref() == Some(id) {
+                                    self.active_db_config_id = None;
                                 }
-                                self.show_delete_confirm = false;
-                                self.delete_confirm_id = None;
+                                notify::info(format!("Deleted database: {}", id));
                             }
-                        });
-                    }
-                });
+                            self.show_delete_confirm = false;
+                            self.delete_confirm_id = None;
+                        }
+                    });
+                }
+            });
 
-            if !open {
-                self.show_delete_confirm = false;
-                self.delete_confirm_id = None;
-            }
+        if !open {
+            self.show_delete_confirm = false;
+            self.delete_confirm_id = None;
         }
     }
 
@@ -1598,38 +1462,5 @@ impl DbManager {
         self.edit_db_form.error = None;
         self.edit_db_form.test_status = None;
         self.edit_test_receiver = Some(spawn_connection_test(db_name, dsn));
-    }
-
-    /// Set a database config as default
-    /// This will set the specified config's default_config to true
-    /// and set all other configs' default_config to false
-    pub fn set_default_db_config(&mut self, id: &str) -> Result<(), String> {
-        self.ensure_storage();
-        let Some(storage) = self.storage.as_ref() else {
-            return Err("storage not ready".into());
-        };
-
-        // Get all configs
-        let all_configs = storage.list_db_configs();
-
-        let now = Self::now_ts();
-
-        // First, set all configs' default_config to false
-        for cfg in &all_configs {
-            let mut updated_cfg = cfg.clone();
-            updated_cfg.default_config = Some(false);
-            updated_cfg.updated_at = now;
-            storage.upsert_db_config(updated_cfg);
-        }
-
-        // Then, set the specified config's default_config to true
-        if let Some(mut target_cfg) = all_configs.iter().find(|c| c.id == id).cloned() {
-            target_cfg.default_config = Some(true);
-            target_cfg.updated_at = now;
-            storage.upsert_db_config(target_cfg);
-            Ok(())
-        } else {
-            Err(format!("Database config '{}' not found", id))
-        }
     }
 }

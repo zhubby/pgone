@@ -21,15 +21,6 @@ impl DbTree {
             }
         }
 
-        if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
-            if ui.button("Retry").clicked() {
-                self.reset();
-                loading::load_databases(self, db_manager);
-            }
-            return;
-        }
-
         // Check for async load results
         loading::check_promises(self);
         loading::check_result_promises(self, results_table);
@@ -116,15 +107,71 @@ impl DbTree {
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-            // Database level
-            if !self.loaded_databases {
-                // let available_size = ui.available_size();
-                // ui.allocate_space(available_size);
-                ui.centered_and_justified(|ui| {
-                    ui.label("Please select a database to view the structure");
-                });
+            db_manager.ensure_storage();
+            let Some(storage) = db_manager.storage.as_ref() else {
+                let response = ui.allocate_response(ui.available_size_before_wrap(), egui::Sense::click());
+                ui.painter().text(
+                    response.rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Storage not ready",
+                    egui::FontId::proportional(14.0),
+                    ui.visuals().text_color(),
+                );
+                show_blank_area_context_menu(response, db_manager);
+                return;
+            };
+
+            let connection_configs = storage.list_db_configs();
+            if connection_configs.is_empty() {
+                let response = ui.allocate_response(ui.available_size_before_wrap(), egui::Sense::click());
+                ui.painter().text(
+                    response.rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "No connections configured",
+                    egui::FontId::proportional(14.0),
+                    ui.visuals().text_color(),
+                );
+                show_blank_area_context_menu(response, db_manager);
                 return;
             }
+
+            if let Some(active_id) = db_manager.active_db_config_id.clone()
+                && !connection_configs.iter().any(|cfg| cfg.id == active_id)
+            {
+                db_manager.active_db_config_id = None;
+                self.current_db_id = None;
+                self.reset();
+            }
+
+            for cfg in connection_configs {
+                let connection_id = cfg.id.clone();
+                let is_active = db_manager.active_db_config_id.as_deref() == Some(connection_id.as_str());
+
+                let connection_response = egui::CollapsingHeader::new(format!(
+                    "{} {}",
+                    egui_phosphor::regular::PLUG,
+                    connection_id
+                ))
+                .open(Some(is_active))
+                .show(ui, |ui| {
+                    if let Some(err) = &self.error {
+                        ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+                        if ui.button("Retry").clicked() {
+                            self.reset();
+                            self.current_db_id = Some(connection_id.clone());
+                            loading::load_databases(self, db_manager);
+                        }
+                        return;
+                    }
+
+                    if self.databases_promise.is_none() {
+                        loading::load_databases(self, db_manager);
+                    }
+
+                    if !self.loaded_databases {
+                        ui.label("Loading databases...");
+                        return;
+                    }
 
             // Pre-load schemas and tables for all databases (before rendering to avoid borrow issues)
             let databases_clone = self.databases.clone();
@@ -213,19 +260,6 @@ impl DbTree {
                 }
             }
 
-            let connection_name = db_manager
-                .active_db_config()
-                .map(|cfg| cfg.id)
-                .or_else(|| db_manager.active_db_config_id.clone())
-                .unwrap_or_else(|| "Connection".to_string());
-
-            egui::CollapsingHeader::new(format!(
-                "{} {}",
-                egui_phosphor::regular::PLUG,
-                connection_name
-            ))
-            .default_open(true)
-            .show(ui, |ui| {
             // 收集需要加载表结构详情的表
             let mut pending_design_loads = Vec::new();
 
@@ -869,7 +903,33 @@ impl DbTree {
             for (db, schema, table) in items_to_load_triggers {
                 loading::load_triggers(self, db_manager, &db, &schema, &table);
             }
-            });
+                });
+
+                if connection_response.header_response.clicked() && !is_active {
+                    db_manager.select_db_config(&connection_id);
+                    self.current_db_id = Some(connection_id.clone());
+                    self.reset();
+                    loading::load_databases(self, db_manager);
+                }
+
+                connection_response.header_response.context_menu(|ui| {
+                    if ui.button("Edit Connection").clicked() {
+                        if let Err(error) = db_manager.open_edit_db_config(&connection_id) {
+                            crate::notify::error(format!("Failed to load: {}", error));
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Delete Connection").clicked() {
+                        db_manager.request_delete_db_config(&connection_id);
+                        ui.close();
+                    }
+                });
+            }
+
+            show_blank_area_context_menu(
+                ui.allocate_response(ui.available_size_before_wrap(), egui::Sense::click()),
+                db_manager,
+            );
         });
 
         // Show dialogs
@@ -915,4 +975,16 @@ impl DbTree {
         self.dialog_ddl_content.clear();
         self.pending_load_ddl = None;
     }
+}
+
+fn show_blank_area_context_menu(
+    response: egui::Response,
+    db_manager: &mut crate::components::DbManager,
+) {
+    response.context_menu(|ui| {
+        if ui.button("New Connection").clicked() {
+            db_manager.show_add_db = true;
+            ui.close();
+        }
+    });
 }

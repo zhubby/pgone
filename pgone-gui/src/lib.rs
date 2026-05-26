@@ -248,13 +248,6 @@ impl AppFrame {
                 self.sessions_loaded_from_storage = true;
             }
         }
-
-        if self.db.active_db_config_id.is_none()
-            && let Some(default_cfg) = self.gui_storage.get_default_db_config()
-        {
-            self.db.active_db_config_id = Some(default_cfg.id.clone());
-            tracing::info!("Loaded default database config: {}", default_cfg.id);
-        }
     }
 
     fn show_export_window(&mut self, ctx: &Context) {
@@ -349,7 +342,7 @@ impl eframe::App for AppFrame {
 
         // Database management windows
         self.db.ui_add_db_window(&ctx);
-        self.db.ui_manage_db_window(&ctx);
+        self.db.ui_delete_confirm_window(&ctx);
         self.db.ui_edit_db_window(&ctx);
 
         // Settings window

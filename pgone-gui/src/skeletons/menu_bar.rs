@@ -22,10 +22,6 @@ pub fn show_menu_bar(
                     db.show_add_db = true;
                     ui.close();
                 }
-                if ui.button("Manage Connections").clicked() {
-                    db.show_manage_db = true;
-                    ui.close();
-                }
                 ui.separator();
                 if ui.button("Export").clicked() {
                     *show_export = true;

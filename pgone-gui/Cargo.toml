@@ -29,7 +29,6 @@ egui_commonmark = { workspace = true, features = [
     "embedded_image",
 ] }
 epaint_default_fonts = { workspace = true }
-egui_table = { workspace = true }
 egui-phosphor = { workspace = true }
 egui-notify = { workspace = true }
 egui_dock = { workspace = true }
@@ -65,7 +64,6 @@ tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
 poll-promise = { workspace = true }
 once_cell = { workspace = true }
-etl = { workspace = true }
 sea-query = { workspace = true }
 sysinfo = { workspace = true }
 regex = { workspace = true }
