@@ -14,7 +14,7 @@ mod layout_settings;
 mod models;
 use models::*;
 mod notify;
-mod sql;
+pub mod sql;
 mod storage;
 use storage::SessionStorage;
 mod storage_handle;

@@ -8,7 +8,7 @@ use chrono::Utc;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use egui_file_dialog::FileDialog;
 use pgone_agent::{
-    AgentContext, AgentEvent, AgentMessage, AgentRole, AgentTurnRequest, AgentTurnResponse,
+    AgentContext, AgentEvent, AgentMessage, AgentRole, AgentStreamEvent, AgentTurnRequest,
     OpenAiCompatibleProvider, PgOneAgentService, ProviderConfig, StorageBackedAgentToolServices,
 };
 use tokio::sync::mpsc;
@@ -28,7 +28,7 @@ fn image_file_dialog() -> FileDialog {
 
 struct AgentTurnResult {
     request_id: u64,
-    response: Result<AgentTurnResponse, String>,
+    event: AgentStreamEvent,
 }
 
 pub struct ChatPanel {
@@ -36,6 +36,7 @@ pub struct ChatPanel {
     pending_resources: Vec<PathBuf>,
     markdown_cache: CommonMarkCache,
     events: Vec<AgentEvent>,
+    partial_response: String,
     response_receiver: Option<mpsc::Receiver<AgentTurnResult>>,
     model_loader: ModelLoader,
     image_file_dialog: FileDialog,
@@ -53,6 +54,7 @@ impl Default for ChatPanel {
             pending_resources: Vec::new(),
             markdown_cache: CommonMarkCache::default(),
             events: Vec::new(),
+            partial_response: String::new(),
             response_receiver: None,
             model_loader: ModelLoader::default(),
             image_file_dialog: image_file_dialog(),
@@ -72,6 +74,7 @@ impl Clone for ChatPanel {
             pending_resources: self.pending_resources.clone(),
             markdown_cache: CommonMarkCache::default(),
             events: self.events.clone(),
+            partial_response: self.partial_response.clone(),
             response_receiver: None,
             model_loader: ModelLoader {
                 available_models: self.model_loader.available_models.clone(),
@@ -108,45 +111,65 @@ impl ChatPanel {
             return;
         };
 
-        match receiver.try_recv() {
-            Ok(result) => {
-                if self.in_flight != Some(result.request_id) {
-                    return;
-                }
-                self.in_flight = None;
-                self.response_receiver = None;
+        loop {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    if self.in_flight != Some(result.request_id) {
+                        continue;
+                    }
 
-                match result.response {
-                    Ok(response) => {
-                        self.events = response.events;
-                        self.error = None;
-                        if let Some(sess) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
-                            sess.messages.push(Message {
-                                role: Role::Assistant,
-                                timestamp: Utc::now(),
-                                content: MessageContent::Markdown(response.message.content),
-                            });
-                            sess.updated_at = Utc::now();
-                            if let Err(error) = ctxs.storage.save_session(sess) {
-                                tracing::error!("保存 Agent 响应失败: {error}");
-                            }
+                    match result.event {
+                        AgentStreamEvent::AssistantDelta { content } => {
+                            self.partial_response.push_str(&content);
                             ctxs.should_scroll_to_bottom = true;
                         }
-                    }
-                    Err(error) => {
-                        self.error = Some(error.clone());
-                        crate::notify::error(&error);
-                        tracing::error!("Agent turn failed: {error}");
+                        AgentStreamEvent::Event { event } => {
+                            self.events.push(event);
+                            ctxs.should_scroll_to_bottom = true;
+                        }
+                        AgentStreamEvent::Completed { response } => {
+                            self.in_flight = None;
+                            self.response_receiver = None;
+                            self.events = response.events;
+                            self.error = None;
+                            self.partial_response.clear();
+                            if let Some(sess) =
+                                ctxs.state.sessions.get_mut(ctxs.state.current_index)
+                            {
+                                sess.messages.push(Message {
+                                    role: Role::Assistant,
+                                    timestamp: Utc::now(),
+                                    content: MessageContent::Markdown(response.message.content),
+                                });
+                                sess.updated_at = Utc::now();
+                                if let Err(error) = ctxs.storage.save_session(sess) {
+                                    tracing::error!("保存 Agent 响应失败: {error}");
+                                }
+                                ctxs.should_scroll_to_bottom = true;
+                            }
+                            return;
+                        }
+                        AgentStreamEvent::Failed { error } => {
+                            self.in_flight = None;
+                            self.response_receiver = None;
+                            self.partial_response.clear();
+                            self.error = Some(error.clone());
+                            crate::notify::error(&error);
+                            tracing::error!("Agent turn failed: {error}");
+                            return;
+                        }
                     }
                 }
-            }
-            Err(mpsc::error::TryRecvError::Empty) => {}
-            Err(mpsc::error::TryRecvError::Disconnected) => {
-                self.in_flight = None;
-                self.response_receiver = None;
-                let error = "Agent request channel disconnected".to_owned();
-                self.error = Some(error.clone());
-                tracing::error!("{error}");
+                Err(mpsc::error::TryRecvError::Empty) => return,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    self.in_flight = None;
+                    self.response_receiver = None;
+                    self.partial_response.clear();
+                    let error = "Agent request channel disconnected".to_owned();
+                    self.error = Some(error.clone());
+                    tracing::error!("{error}");
+                    return;
+                }
             }
         }
     }
@@ -204,6 +227,16 @@ impl ChatPanel {
                             show_agent_error(ui, error);
                         }
 
+                        if !self.partial_response.is_empty() {
+                            let message = Message {
+                                role: Role::Assistant,
+                                timestamp: Utc::now(),
+                                content: MessageContent::Markdown(self.partial_response.clone()),
+                            };
+                            show_assistant_message(ui, &message, &mut self.markdown_cache);
+                            ui.add_space(8.0);
+                        }
+
                         if self.in_flight.is_some() {
                             show_agent_thinking(ui);
                         }
@@ -250,6 +283,21 @@ impl ChatPanel {
                     show_agent_conversation_menu(ui, self, ctxs);
                     show_agent_context_bar(ui, ctxs);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.in_flight.is_some()
+                            && ui
+                                .button(egui_phosphor::regular::STOP)
+                                .on_hover_text("Stop")
+                                .clicked()
+                        {
+                            self.in_flight = None;
+                            self.response_receiver = None;
+                            self.partial_response.clear();
+                            self.events.push(AgentEvent::Completed {
+                                status: pgone_agent::AgentTurnStatus::Partial,
+                                summary: "Agent turn stopped.".to_owned(),
+                            });
+                        }
+
                         let send_text = egui::RichText::new(
                             egui_phosphor::regular::PAPER_PLANE_TILT,
                         )
@@ -415,10 +463,13 @@ impl ChatPanel {
             .iter()
             .filter_map(message_to_agent_history)
             .collect::<Vec<_>>();
+        let attachment_context = build_attachment_context(&self.pending_resources);
+        let agent_message = combine_prompt_and_attachments(&prompt, &attachment_context);
 
         self.send_resources(ctxs);
 
         if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+            session.config_id = Some(dbconfig_id.clone());
             if should_replace_default_title(&session.title) {
                 session.title = conversation_title(&prompt);
             }
@@ -437,6 +488,7 @@ impl ChatPanel {
         self.input.clear();
         self.error = None;
         self.events.clear();
+        self.partial_response.clear();
         let request_id = self.next_request_id;
         self.next_request_id += 1;
         self.in_flight = Some(request_id);
@@ -452,12 +504,12 @@ impl ChatPanel {
 
         let request = AgentTurnRequest {
             session_id,
-            message: prompt,
+            message: agent_message,
             context: AgentContext {
                 dbconfig_id: Some(dbconfig_id),
                 database_name: selected_database,
-                selected_schema: None,
-                selected_table: None,
+                selected_schema: ctxs.selected_schema.clone(),
+                selected_table: ctxs.selected_table.clone(),
             },
             history,
         };
@@ -472,7 +524,9 @@ impl ChatPanel {
                     let _ = sender
                         .send(AgentTurnResult {
                             request_id,
-                            response: Err(error.to_string()),
+                            event: AgentStreamEvent::Failed {
+                                error: error.to_string(),
+                            },
                         })
                         .await;
                     return;
@@ -488,7 +542,9 @@ impl ChatPanel {
                     let _ = sender
                         .send(AgentTurnResult {
                             request_id,
-                            response: Err(error.to_string()),
+                            event: AgentStreamEvent::Failed {
+                                error: error.to_string(),
+                            },
                         })
                         .await;
                     return;
@@ -499,16 +555,14 @@ impl ChatPanel {
                 Arc::new(provider),
                 Arc::new(StorageBackedAgentToolServices::new()),
             );
-            let response = service
-                .run_agent_turn(request)
-                .await
-                .map_err(|error| error.to_string());
-            let _ = sender
-                .send(AgentTurnResult {
-                    request_id,
-                    response,
-                })
-                .await;
+            let (event_sender, mut event_receiver) = mpsc::channel(32);
+            let ui_sender = sender.clone();
+            futures::spawn(async move {
+                while let Some(event) = event_receiver.recv().await {
+                    let _ = ui_sender.send(AgentTurnResult { request_id, event }).await;
+                }
+            });
+            let _ = service.run_agent_turn_stream(request, event_sender).await;
         });
     }
 
@@ -518,10 +572,15 @@ impl ChatPanel {
             if is_image_path(&path) {
                 self.add_image_message(ctxs, path);
             } else if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
+                let label = if is_supported_text_attachment(&path) {
+                    format!("[文件已发送给 Agent] {}", path.display())
+                } else {
+                    format!("[文件未发送给 Agent] {}", path.display())
+                };
                 session.messages.push(Message {
                     role: Role::User,
                     timestamp: Utc::now(),
-                    content: MessageContent::Markdown(format!("[文件] {}", path.display())),
+                    content: MessageContent::Markdown(label),
                 });
                 session.updated_at = Utc::now();
                 if let Err(error) = ctxs.storage.save_session(session) {
@@ -546,6 +605,13 @@ impl ChatPanel {
                     width,
                     height,
                 },
+            });
+            session.messages.push(Message {
+                role: Role::System,
+                timestamp: Utc::now(),
+                content: MessageContent::Markdown(
+                    "Image attachment is shown locally and was not sent to the model.".to_owned(),
+                ),
             });
             session.updated_at = Utc::now();
 
@@ -1066,6 +1132,74 @@ fn normalize_chat_completions_url(base_url: Option<&str>) -> String {
     }
 }
 
+const MAX_ATTACHMENT_BYTES: u64 = 64 * 1024;
+
+fn build_attachment_context(paths: &[PathBuf]) -> Vec<String> {
+    paths
+        .iter()
+        .filter_map(|path| attachment_context_entry(path))
+        .collect()
+}
+
+fn attachment_context_entry(path: &Path) -> Option<String> {
+    if is_image_path(path) {
+        return Some(format!(
+            "Image attachment not sent to the model: {}",
+            path.display()
+        ));
+    }
+    if !is_supported_text_attachment(path) {
+        return Some(format!(
+            "Unsupported attachment not sent to the model: {}",
+            path.display()
+        ));
+    }
+
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return Some(format!(
+                "Attachment could not be read: {} ({error})",
+                path.display()
+            ));
+        }
+    };
+    if metadata.len() > MAX_ATTACHMENT_BYTES {
+        return Some(format!(
+            "Attachment too large and not sent to the model: {} ({} bytes)",
+            path.display(),
+            metadata.len()
+        ));
+    }
+
+    match std::fs::read_to_string(path) {
+        Ok(content) => Some(format!(
+            "Attachment: {}\n```text\n{}\n```",
+            path.display(),
+            content
+        )),
+        Err(error) => Some(format!(
+            "Attachment could not be decoded as UTF-8 text: {} ({error})",
+            path.display()
+        )),
+    }
+}
+
+fn combine_prompt_and_attachments(prompt: &str, attachments: &[String]) -> String {
+    if attachments.is_empty() {
+        return prompt.to_owned();
+    }
+
+    format!(
+        "{prompt}\n\nAttached context:\n{}",
+        attachments
+            .iter()
+            .map(|entry| format!("- {entry}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
 fn should_replace_default_title(title: &str) -> bool {
     title.starts_with("新会话-") || title == "New conversation"
 }
@@ -1085,6 +1219,18 @@ fn is_image_path(path: &Path) -> bool {
             matches!(
                 extension.to_lowercase().as_str(),
                 "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn is_supported_text_attachment(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_lowercase().as_str(),
+                "sql" | "md" | "txt" | "json" | "yaml" | "yml" | "toml" | "csv" | "log"
             )
         })
         .unwrap_or(false)
@@ -1118,5 +1264,38 @@ mod tests {
             normalize_chat_completions_url(Some("https://api.openai.com/v1/")),
             DEFAULT_OPENAI_CHAT_COMPLETIONS_URL
         );
+    }
+
+    #[test]
+    fn text_attachment_context_includes_supported_file_content() {
+        let path =
+            std::env::temp_dir().join(format!("pgone-agent-attachment-{}.sql", std::process::id()));
+        std::fs::write(&path, "SELECT 1;").unwrap();
+
+        let context = build_attachment_context(std::slice::from_ref(&path));
+
+        assert_eq!(context.len(), 1);
+        assert!(context[0].contains("SELECT 1;"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn image_attachment_context_marks_image_as_not_sent() {
+        let path = PathBuf::from("/tmp/example.png");
+
+        let context = build_attachment_context(&[path]);
+
+        assert_eq!(context.len(), 1);
+        assert!(context[0].contains("not sent to the model"));
+    }
+
+    #[test]
+    fn combines_prompt_and_attachment_context() {
+        let prompt =
+            combine_prompt_and_attachments("Explain this", &["Attachment: query.sql".to_owned()]);
+
+        assert!(prompt.contains("Explain this"));
+        assert!(prompt.contains("Attached context"));
+        assert!(prompt.contains("query.sql"));
     }
 }

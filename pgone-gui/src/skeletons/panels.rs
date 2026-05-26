@@ -51,6 +51,8 @@ pub fn show_right_panel(
                 active_db_config_id: db.active_db_config_id.clone(),
                 active_db_label: db.active_db_config_id.clone(),
                 selected_database: None,
+                selected_schema: None,
+                selected_table: None,
             };
             chat.ui(&mut chat_ctx, ui);
         });

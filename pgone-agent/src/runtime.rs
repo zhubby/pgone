@@ -1,14 +1,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::StreamExt;
 use serde_json::{Value, json};
 use tokio::time::timeout;
 
-use crate::provider::{ChatMessage, LlmProvider, ProviderChatRequest};
+use crate::provider::{
+    ChatMessage, LlmProvider, ProviderChatRequest, ProviderChatResponse, ProviderChatStreamEvent,
+};
 use crate::tools::{ToolExecutionRecord, ToolRegistry};
 use crate::{
-    AgentError, AgentEvent, AgentMessage, AgentRole, AgentToolCallSummary, AgentToolServices,
-    AgentTurnRequest, AgentTurnResponse, AgentTurnStatus, Result,
+    AgentError, AgentEvent, AgentMessage, AgentRole, AgentStreamEvent, AgentToolCallSummary,
+    AgentToolServices, AgentTurnRequest, AgentTurnResponse, AgentTurnStatus, Result,
 };
 
 #[derive(Clone, Debug)]
@@ -62,10 +65,58 @@ impl AgentRuntime {
     where
         S: AgentToolServices + 'static,
     {
-        let session_id = request.session_id.clone();
         let dbconfig_id = request.context.dbconfig_id.clone().ok_or_else(|| {
             AgentError::Config("agent context dbconfig_id is required".to_owned())
         })?;
+        self.run_turn_inner(request, services, dbconfig_id, None)
+            .await
+    }
+
+    pub async fn run_turn_stream<S>(
+        &self,
+        request: AgentTurnRequest,
+        services: Arc<S>,
+        mut sender: tokio::sync::mpsc::Sender<AgentStreamEvent>,
+    ) -> Result<AgentTurnResponse>
+    where
+        S: AgentToolServices + 'static,
+    {
+        let dbconfig_id = request.context.dbconfig_id.clone().ok_or_else(|| {
+            AgentError::Config("agent context dbconfig_id is required".to_owned())
+        })?;
+        let response = self
+            .run_turn_inner(request, services, dbconfig_id, Some(&mut sender))
+            .await;
+        match &response {
+            Ok(response) => {
+                let _ = sender
+                    .send(AgentStreamEvent::Completed {
+                        response: response.clone(),
+                    })
+                    .await;
+            }
+            Err(error) => {
+                let _ = sender
+                    .send(AgentStreamEvent::Failed {
+                        error: error.to_string(),
+                    })
+                    .await;
+            }
+        }
+        response
+    }
+
+    async fn run_turn_inner<S>(
+        &self,
+        request: AgentTurnRequest,
+        services: Arc<S>,
+        dbconfig_id: String,
+        mut stream_sender: Option<&mut tokio::sync::mpsc::Sender<AgentStreamEvent>>,
+    ) -> Result<AgentTurnResponse>
+    where
+        S: AgentToolServices + 'static,
+    {
+        let session_id = request.session_id.clone();
         let mut messages = self.build_messages(&request);
         let mut events = Vec::new();
         let mut tool_calls = Vec::new();
@@ -73,15 +124,21 @@ impl AgentRuntime {
         let services: Arc<dyn AgentToolServices> = services;
 
         for _ in 0..self.limits.max_tool_iterations {
-            let response = timeout(
-                self.limits.provider_timeout,
-                self.provider.chat(ProviderChatRequest {
-                    messages: messages.clone(),
-                    tools: self.tools.definitions(),
-                }),
-            )
-            .await
-            .map_err(|_| AgentError::Provider("agent provider timed out".to_owned()))??;
+            let request_for_provider = ProviderChatRequest {
+                messages: messages.clone(),
+                tools: self.tools.definitions(),
+            };
+            let response = if let Some(sender) = stream_sender.as_deref_mut() {
+                self.provider_response_streaming(request_for_provider, sender)
+                    .await?
+            } else {
+                timeout(
+                    self.limits.provider_timeout,
+                    self.provider.chat(request_for_provider),
+                )
+                .await
+                .map_err(|_| AgentError::Provider("agent provider timed out".to_owned()))??
+            };
 
             let assistant_message = response.message.clone();
             messages.push(assistant_message.clone());
@@ -120,16 +177,34 @@ impl AgentRuntime {
                     name: name.clone(),
                     arguments: arguments.clone(),
                 });
+                if let Some(sender) = stream_sender.as_deref_mut() {
+                    let _ = sender
+                        .send(AgentStreamEvent::Event {
+                            event: AgentEvent::ToolStarted {
+                                name: name.clone(),
+                                arguments: arguments.clone(),
+                            },
+                        })
+                        .await;
+                }
 
                 let record = self
                     .execute_tool(
                         name.clone(),
                         arguments.clone(),
+                        &request.context,
                         &dbconfig_id,
                         services.clone(),
                     )
                     .await;
                 events.push(record.event.clone());
+                if let Some(sender) = stream_sender.as_deref_mut() {
+                    let _ = sender
+                        .send(AgentStreamEvent::Event {
+                            event: record.event.clone(),
+                        })
+                        .await;
+                }
                 tool_calls.push(record.summary.clone());
 
                 match record.output {
@@ -140,6 +215,16 @@ impl AgentRuntime {
                                 status: completion.status.clone(),
                                 summary: completion.summary.clone(),
                             });
+                            if let Some(sender) = stream_sender.as_deref_mut() {
+                                let _ = sender
+                                    .send(AgentStreamEvent::Event {
+                                        event: AgentEvent::Completed {
+                                            status: completion.status.clone(),
+                                            summary: completion.summary.clone(),
+                                        },
+                                    })
+                                    .await;
+                            }
                             return Ok(AgentTurnResponse {
                                 session_id,
                                 message: AgentMessage::assistant(completion.summary),
@@ -179,6 +264,7 @@ impl AgentRuntime {
         &self,
         name: String,
         arguments: Value,
+        context: &crate::AgentContext,
         dbconfig_id: &str,
         services: Arc<dyn AgentToolServices>,
     ) -> ToolExecutionRecord {
@@ -192,7 +278,7 @@ impl AgentRuntime {
 
         match timeout(
             self.limits.tool_timeout,
-            tool.execute(arguments.clone(), dbconfig_id, services),
+            tool.execute(arguments.clone(), dbconfig_id, context, services),
         )
         .await
         {
@@ -203,6 +289,37 @@ impl AgentRuntime {
             Ok(Err(error)) => ToolExecutionRecord::failure(name, arguments, error.to_string()),
             Err(_) => ToolExecutionRecord::failure(name, arguments, "tool timed out".to_owned()),
         }
+    }
+
+    async fn provider_response_streaming(
+        &self,
+        request: ProviderChatRequest,
+        sender: &mut tokio::sync::mpsc::Sender<AgentStreamEvent>,
+    ) -> Result<ProviderChatResponse> {
+        let mut stream = timeout(
+            self.limits.provider_timeout,
+            self.provider.chat_stream(request),
+        )
+        .await
+        .map_err(|_| AgentError::Provider("agent provider timed out".to_owned()))??;
+        while let Some(event) = timeout(self.limits.provider_timeout, stream.next())
+            .await
+            .map_err(|_| AgentError::Provider("agent provider timed out".to_owned()))?
+        {
+            match event? {
+                ProviderChatStreamEvent::Delta(delta) => {
+                    if let Some(content) = delta.content {
+                        let _ = sender
+                            .send(AgentStreamEvent::AssistantDelta { content })
+                            .await;
+                    }
+                }
+                ProviderChatStreamEvent::Completed(response) => return Ok(response),
+            }
+        }
+        Err(AgentError::Provider(
+            "LLM stream ended before a completed response".to_owned(),
+        ))
     }
 }
 
@@ -279,7 +396,10 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::*;
-    use crate::provider::{ProviderChatResponse, ToolCall, ToolCallFunction, ToolDefinition};
+    use crate::provider::{
+        ChatMessageDelta, ProviderChatResponse, ProviderChatStream, ProviderChatStreamEvent,
+        ToolCall, ToolCallFunction, ToolDefinition,
+    };
     use crate::{RenderedDiagram, Result};
 
     struct MockProvider {
@@ -292,6 +412,22 @@ mod tests {
             Ok(ProviderChatResponse {
                 message: self.responses.lock().await.remove(0),
             })
+        }
+    }
+
+    struct MockStreamingProvider {
+        responses: Mutex<Vec<Vec<ProviderChatStreamEvent>>>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for MockStreamingProvider {
+        async fn chat(&self, _request: ProviderChatRequest) -> Result<ProviderChatResponse> {
+            unreachable!("streaming tests use chat_stream")
+        }
+
+        async fn chat_stream(&self, _request: ProviderChatRequest) -> Result<ProviderChatStream> {
+            let events = self.responses.lock().await.remove(0);
+            Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
         }
     }
 
@@ -366,6 +502,20 @@ mod tests {
                 content: "Table public.users {}".to_owned(),
             })
         }
+
+        async fn execute_readonly_sql(
+            &self,
+            _dbconfig_id: &str,
+            _request: crate::ReadonlySqlRequest,
+        ) -> Result<crate::ReadonlySqlResult> {
+            Ok(crate::ReadonlySqlResult {
+                columns: vec!["id".to_owned()],
+                rows: vec![vec!["1".to_owned()]],
+                row_count: 1,
+                truncated: false,
+                explain: Some("Result".to_owned()),
+            })
+        }
     }
 
     fn request() -> AgentTurnRequest {
@@ -384,6 +534,12 @@ mod tests {
 
     fn provider(responses: Vec<ChatMessage>) -> Arc<dyn LlmProvider> {
         Arc::new(MockProvider {
+            responses: Mutex::new(responses),
+        })
+    }
+
+    fn streaming_provider(responses: Vec<Vec<ProviderChatStreamEvent>>) -> Arc<dyn LlmProvider> {
+        Arc::new(MockStreamingProvider {
             responses: Mutex::new(responses),
         })
     }
@@ -569,5 +725,94 @@ mod tests {
         assert!(definitions.contains(&"introspect_database".to_owned()));
         assert!(definitions.contains(&"get_table".to_owned()));
         assert!(definitions.contains(&"complete_task".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn streams_assistant_deltas_and_completion() {
+        let runtime = AgentRuntime::new(streaming_provider(vec![vec![
+            ProviderChatStreamEvent::Delta(ChatMessageDelta {
+                role: Some("assistant".to_owned()),
+                content: Some("do".to_owned()),
+                tool_calls: Vec::new(),
+                finish_reason: None,
+            }),
+            ProviderChatStreamEvent::Delta(ChatMessageDelta {
+                role: None,
+                content: Some("ne".to_owned()),
+                tool_calls: Vec::new(),
+                finish_reason: None,
+            }),
+            ProviderChatStreamEvent::Completed(ProviderChatResponse {
+                message: ChatMessage::assistant("done"),
+            }),
+        ]]));
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+
+        let response = runtime
+            .run_turn_stream(request(), Arc::new(DummyServices), sender)
+            .await
+            .unwrap();
+
+        assert_eq!(response.message.content, "done");
+        assert!(matches!(
+            receiver.recv().await,
+            Some(AgentStreamEvent::AssistantDelta { content }) if content == "do"
+        ));
+        assert!(matches!(
+            receiver.recv().await,
+            Some(AgentStreamEvent::AssistantDelta { content }) if content == "ne"
+        ));
+        assert!(matches!(
+            receiver.recv().await,
+            Some(AgentStreamEvent::Completed { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn streams_tool_events_before_completion() {
+        let runtime = AgentRuntime::new(streaming_provider(vec![
+            vec![ProviderChatStreamEvent::Completed(ProviderChatResponse {
+                message: ChatMessage {
+                    role: "assistant".to_owned(),
+                    content: None,
+                    tool_call_id: None,
+                    tool_calls: vec![ToolCall {
+                        id: "call-1".to_owned(),
+                        r#type: "function".to_owned(),
+                        function: ToolCallFunction {
+                            name: "health_check".to_owned(),
+                            arguments: "{}".to_owned(),
+                        },
+                    }],
+                },
+            })],
+            vec![ProviderChatStreamEvent::Completed(ProviderChatResponse {
+                message: ChatMessage::assistant("checked"),
+            })],
+        ]));
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+
+        let response = runtime
+            .run_turn_stream(request(), Arc::new(DummyServices), sender)
+            .await
+            .unwrap();
+
+        assert_eq!(response.message.content, "checked");
+        assert!(matches!(
+            receiver.recv().await,
+            Some(AgentStreamEvent::Event {
+                event: AgentEvent::ToolStarted { name, .. }
+            }) if name == "health_check"
+        ));
+        assert!(matches!(
+            receiver.recv().await,
+            Some(AgentStreamEvent::Event {
+                event: AgentEvent::ToolFinished { name, .. }
+            }) if name == "health_check"
+        ));
+        assert!(matches!(
+            receiver.recv().await,
+            Some(AgentStreamEvent::Completed { .. })
+        ));
     }
 }

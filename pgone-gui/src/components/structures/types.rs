@@ -220,4 +220,21 @@ impl DbTree {
     pub fn take_pending_open_graph(&mut self) -> Option<(String, String)> {
         self.pending_open_graph.take()
     }
+
+    pub fn selected_schema_name(&self) -> Option<String> {
+        self.selected_schema
+            .as_ref()
+            .map(|(_, schema)| schema.clone())
+            .or_else(|| {
+                self.selected_table
+                    .as_ref()
+                    .map(|(_, schema, _)| schema.clone())
+            })
+    }
+
+    pub fn selected_table_name(&self) -> Option<String> {
+        self.selected_table
+            .as_ref()
+            .map(|(_, _, table)| table.clone())
+    }
 }

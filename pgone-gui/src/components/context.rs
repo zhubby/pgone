@@ -19,6 +19,8 @@ pub struct ChatCtx<'a> {
     pub active_db_config_id: Option<String>,
     pub active_db_label: Option<String>,
     pub selected_database: Option<String>,
+    pub selected_schema: Option<String>,
+    pub selected_table: Option<String>,
 }
 
 #[derive(Default)]

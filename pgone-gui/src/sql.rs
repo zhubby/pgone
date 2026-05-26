@@ -1357,8 +1357,11 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
 /// ```rust
 /// use pgone_gui::sql::sql_to_sea_query;
 ///
+/// # fn main() -> anyhow::Result<()> {
 /// let sql = "SELECT id, name FROM users WHERE id > 10";
 /// let query = sql_to_sea_query(sql)?;
+/// # Ok(())
+/// # }
 /// ```
 pub fn sql_to_sea_query(sql: &str) -> Result<SelectStatement> {
     use sqlparser::dialect::PostgreSqlDialect;

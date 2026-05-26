@@ -182,6 +182,11 @@ impl DockTabViewer<'_> {
 
     fn show_chat(&mut self, ui: &mut Ui) {
         let settings = self.state.settings.clone();
+        let active_db_label = self
+            .db
+            .active_db_config()
+            .map(|config| config.id)
+            .or_else(|| self.db.active_db_config_id.clone());
         let mut chat_ctx = ChatCtx {
             state: self.state,
             preview: self.preview,
@@ -191,8 +196,10 @@ impl DockTabViewer<'_> {
             storage: self.storage,
             should_scroll_to_bottom: false,
             active_db_config_id: self.db.active_db_config_id.clone(),
-            active_db_label: self.db.active_db_config_id.clone(),
+            active_db_label,
             selected_database: self.results_table.selected_database.clone(),
+            selected_schema: self.db_tree.selected_schema_name(),
+            selected_table: self.db_tree.selected_table_name(),
         };
         self.chat.ui(&mut chat_ctx, ui);
     }

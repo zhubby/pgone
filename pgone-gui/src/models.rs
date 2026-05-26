@@ -38,6 +38,8 @@ pub struct Message {
 pub struct ChatSession {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub config_id: Option<String>,
     pub messages: Vec<Message>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -49,6 +51,7 @@ impl ChatSession {
         Self {
             id,
             title,
+            config_id: None,
             messages: Vec::new(),
             created_at: now,
             updated_at: now,
@@ -60,6 +63,7 @@ impl ChatSession {
         Self {
             id,
             title: format!("新会话-{}", now.timestamp().to_string()),
+            config_id: None,
             messages: Vec::new(),
             created_at: now,
             updated_at: now,

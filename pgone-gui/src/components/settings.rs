@@ -40,32 +40,6 @@ impl SettingsPanel {
         vec![10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 24.0]
     }
 
-    /// Get all available LLM providers
-    pub fn all_llm_providers() -> &'static [LlmProviderKind] {
-        &[
-            LlmProviderKind::OpenAI,
-            LlmProviderKind::Gemini,
-            LlmProviderKind::Moonshot,
-            LlmProviderKind::DeepSeek,
-            LlmProviderKind::Ollama,
-            LlmProviderKind::BigModel,
-            LlmProviderKind::OpenRouter,
-        ]
-    }
-
-    /// Get display name for LLM provider
-    pub fn llm_provider_display_name(provider: &LlmProviderKind) -> &'static str {
-        match provider {
-            LlmProviderKind::OpenAI => "OpenAI",
-            LlmProviderKind::Gemini => "Google Gemini",
-            LlmProviderKind::Moonshot => "Moonshot",
-            LlmProviderKind::DeepSeek => "DeepSeek",
-            LlmProviderKind::Ollama => "Ollama",
-            LlmProviderKind::BigModel => "BigModel",
-            LlmProviderKind::OpenRouter => "OpenRouter",
-        }
-    }
-
     /// Initialize original settings (call when opening settings window)
     pub fn init_original_settings(&mut self, settings: &Settings) {
         self.original_settings = Some(settings.clone());
@@ -208,7 +182,6 @@ impl SettingsPanel {
             return;
         };
 
-        let provider = settings.llm_provider;
         let base_url = settings.openai_base_url.clone();
         let proxy_enabled = settings.proxy_enabled;
         let proxy_host = settings.proxy_host.clone();
@@ -225,7 +198,7 @@ impl SettingsPanel {
                 config = config.with_proxy(host, port);
             }
 
-            let result = match list_models(&config, provider).await {
+            let result = match list_models(&config, LlmProviderKind::OpenAI).await {
                 Ok(models) => Ok(models.into_iter().map(|m| m.id).collect()),
                 Err(e) => Err(e.to_string()),
             };
@@ -330,20 +303,8 @@ impl SettingsTabViewer<'_> {
         ui.separator();
 
         ui.horizontal(|ui| {
-            ui.label("模型供应商:");
-            ComboBox::from_id_salt("llm_provider")
-                .selected_text(SettingsPanel::llm_provider_display_name(
-                    &self.settings.llm_provider,
-                ))
-                .show_ui(ui, |ui| {
-                    for provider in SettingsPanel::all_llm_providers() {
-                        ui.selectable_value(
-                            &mut self.settings.llm_provider,
-                            *provider,
-                            SettingsPanel::llm_provider_display_name(provider),
-                        );
-                    }
-                });
+            ui.label("接口:");
+            ui.label("OpenAI-compatible Chat Completions");
         });
 
         ui.add_space(8.0);

@@ -1,6 +1,6 @@
 use crate::components::ChatCtx;
 use crate::futures;
-use pgone_agent::{LlmConfig, list_models};
+use pgone_agent::{LlmConfig, LlmProviderKind, list_models};
 use tokio::sync::mpsc;
 
 pub struct ModelLoader {
@@ -60,7 +60,6 @@ impl ModelLoader {
             return;
         };
         let base_url = ctxs.state.settings.openai_base_url.clone();
-        let provider = ctxs.state.settings.llm_provider;
         let proxy_enabled = ctxs.state.settings.proxy_enabled;
         let proxy_host = ctxs.state.settings.proxy_host.clone();
         let proxy_port = ctxs.state.settings.proxy_port;
@@ -78,7 +77,7 @@ impl ModelLoader {
                 }
             }
 
-            let result = match list_models(&config, provider).await {
+            let result = match list_models(&config, LlmProviderKind::OpenAI).await {
                 Ok(models) => {
                     let model_ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
                     Ok(model_ids)

@@ -4302,6 +4302,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bb8-postgres",
  "futures",
  "pgone-mcp",
  "pgone-sql",
@@ -4309,8 +4310,10 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sqlparser",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-postgres",
  "tracing",
 ]
 

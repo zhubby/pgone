@@ -1,4 +1,4 @@
-use egui_notify::Toasts;
+use egui_notify::{Anchor, Toasts};
 use std::sync::{Mutex, OnceLock};
 
 /// Global notification manager
@@ -6,7 +6,7 @@ static TOASTS: OnceLock<Mutex<Toasts>> = OnceLock::new();
 
 /// Initialize notification system
 fn get_toasts() -> &'static Mutex<Toasts> {
-    TOASTS.get_or_init(|| Mutex::new(Toasts::default()))
+    TOASTS.get_or_init(|| Mutex::new(Toasts::default().with_anchor(Anchor::BottomRight)))
 }
 
 /// Show notifications (must be called every frame)

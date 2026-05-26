@@ -156,6 +156,7 @@ async fn load_sessions_from_storage(storage: &StorageService) -> anyhow::Result<
         chat_sessions.push(ChatSession {
             id: storage_session.id,
             title: storage_session.title,
+            config_id: storage_session.config_id,
             messages: chat_messages,
             created_at: timestamp_to_datetime(storage_session.created_at),
             updated_at: timestamp_to_datetime(storage_session.updated_at),
@@ -173,7 +174,7 @@ async fn save_session_to_storage(
     let storage_session = StorageSession {
         id: session.id.clone(),
         title: session.title.clone(),
-        config_id: None,
+        config_id: session.config_id.clone(),
         created_at: datetime_to_timestamp(session.created_at),
         updated_at: datetime_to_timestamp(session.updated_at),
     };

@@ -4,10 +4,14 @@ use async_trait::async_trait;
 use pgone_mcp::core::models::{IntrospectOptions, RoutineKind, TypeKind};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sqlparser::ast::Statement;
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::parser::Parser;
 
 use crate::provider::ToolDefinition;
 use crate::{
-    AgentError, AgentEvent, AgentToolCallSummary, AgentToolServices, AgentTurnStatus, Result,
+    AgentContext, AgentError, AgentEvent, AgentToolCallSummary, AgentToolServices, AgentTurnStatus,
+    ReadonlySqlRequest, Result,
 };
 
 #[derive(Clone, Debug)]
@@ -32,6 +36,7 @@ pub trait Tool: Send + Sync {
         &self,
         args: Value,
         dbconfig_id: &str,
+        context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput>;
 
@@ -60,6 +65,7 @@ impl ToolRegistry {
                 Arc::new(ListTriggersTool),
                 Arc::new(ListRoutinesTool),
                 Arc::new(ListTypesTool),
+                Arc::new(ExecuteReadonlySqlTool),
                 Arc::new(RenderErTool),
                 Arc::new(RenderDbmlTool),
                 Arc::new(CompleteTaskTool),
@@ -132,6 +138,7 @@ impl Tool for HealthCheckTool {
         &self,
         _args: Value,
         dbconfig_id: &str,
+        _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         json_output(&services.health_check(dbconfig_id).await?)
@@ -193,6 +200,7 @@ impl Tool for IntrospectDatabaseTool {
         &self,
         args: Value,
         dbconfig_id: &str,
+        _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: IntrospectDatabaseArgs = parse_args(args)?;
@@ -243,6 +251,7 @@ impl Tool for GetTableTool {
         &self,
         args: Value,
         dbconfig_id: &str,
+        _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: GetTableArgs = parse_args(args)?;
@@ -278,6 +287,7 @@ impl Tool for ListTriggersTool {
         &self,
         args: Value,
         dbconfig_id: &str,
+        _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: SchemaFilterArgs = parse_args(args)?;
@@ -322,6 +332,7 @@ impl Tool for ListRoutinesTool {
         &self,
         args: Value,
         dbconfig_id: &str,
+        _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: ListRoutinesArgs = parse_args(args)?;
@@ -370,6 +381,7 @@ impl Tool for ListTypesTool {
         &self,
         args: Value,
         dbconfig_id: &str,
+        _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: ListTypesArgs = parse_args(args)?;
@@ -381,6 +393,55 @@ impl Tool for ListTypesTool {
             )
             .await?;
         json_output(&types)
+    }
+}
+
+struct ExecuteReadonlySqlTool;
+
+#[derive(Deserialize)]
+struct ExecuteReadonlySqlArgs {
+    sql: String,
+    max_rows: Option<u32>,
+}
+
+#[async_trait]
+impl Tool for ExecuteReadonlySqlTool {
+    fn name(&self) -> &'static str {
+        "execute_readonly_sql"
+    }
+
+    fn description(&self) -> &'static str {
+        "Execute one read-only PostgreSQL query such as SELECT, WITH, VALUES, or EXPLAIN and return bounded rows."
+    }
+
+    fn parameters(&self) -> Value {
+        object_schema(vec![
+            string_property("sql", "One read-only SQL statement to execute"),
+            integer_property("max_rows", "Maximum rows to return; defaults to 100").optional(),
+        ])
+    }
+
+    async fn execute(
+        &self,
+        args: Value,
+        dbconfig_id: &str,
+        context: &AgentContext,
+        services: Arc<dyn AgentToolServices>,
+    ) -> Result<ToolOutput> {
+        let args: ExecuteReadonlySqlArgs = parse_args(args)?;
+        validate_readonly_sql(&args.sql)?;
+        let result = services
+            .execute_readonly_sql(
+                dbconfig_id,
+                ReadonlySqlRequest {
+                    sql: args.sql,
+                    database_name: context.database_name.clone(),
+                    max_rows: args.max_rows.unwrap_or(100),
+                    timeout_ms: 20_000,
+                },
+            )
+            .await?;
+        json_output(&result)
     }
 }
 
@@ -415,6 +476,7 @@ impl Tool for RenderErTool {
         &self,
         args: Value,
         dbconfig_id: &str,
+        _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: RenderArgs = parse_args(args)?;
@@ -449,6 +511,7 @@ impl Tool for RenderDbmlTool {
         &self,
         args: Value,
         dbconfig_id: &str,
+        _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: RenderArgs = parse_args(args)?;
@@ -491,6 +554,7 @@ impl Tool for CompleteTaskTool {
         &self,
         args: Value,
         _dbconfig_id: &str,
+        _context: &AgentContext,
         _services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: CompleteTaskArgs = parse_args(args)?;
@@ -527,6 +591,40 @@ where
         content,
         completion: None,
     })
+}
+
+pub fn validate_readonly_sql(sql: &str) -> Result<()> {
+    let sql = sql.trim();
+    if sql.is_empty() {
+        return Err(AgentError::Tool("SQL is empty".to_owned()));
+    }
+
+    let dialect = PostgreSqlDialect {};
+    let statements = Parser::parse_sql(&dialect, sql)
+        .map_err(|error| AgentError::Tool(format!("invalid SQL: {error}")))?;
+    if statements.len() != 1 {
+        return Err(AgentError::Tool(
+            "only one read-only SQL statement is allowed".to_owned(),
+        ));
+    }
+
+    if statement_is_readonly(&statements[0]) {
+        Ok(())
+    } else {
+        Err(AgentError::Tool(
+            "only SELECT, WITH, VALUES, and EXPLAIN statements are allowed".to_owned(),
+        ))
+    }
+}
+
+fn statement_is_readonly(statement: &Statement) -> bool {
+    match statement {
+        Statement::Query(query) => query.locks.is_empty(),
+        Statement::Explain {
+            analyze, statement, ..
+        } => !*analyze && statement_is_readonly(statement),
+        _ => false,
+    }
 }
 
 fn default_true() -> bool {
@@ -725,6 +823,21 @@ mod tests {
                 content: "Table public.users {}".to_owned(),
             })
         }
+
+        async fn execute_readonly_sql(
+            &self,
+            _dbconfig_id: &str,
+            request: ReadonlySqlRequest,
+        ) -> Result<crate::ReadonlySqlResult> {
+            assert!(request.database_name.is_some());
+            Ok(crate::ReadonlySqlResult {
+                columns: vec!["id".to_owned()],
+                rows: vec![vec!["1".to_owned()]],
+                row_count: 1,
+                truncated: false,
+                explain: Some("Result".to_owned()),
+            })
+        }
     }
 
     fn table_detail() -> TableDetail {
@@ -748,6 +861,15 @@ mod tests {
             }),
             foreign_keys: Vec::<ForeignKey>::new(),
             indexes: Vec::<Index>::new(),
+        }
+    }
+
+    fn context() -> AgentContext {
+        AgentContext {
+            dbconfig_id: Some("local".to_owned()),
+            database_name: Some("app".to_owned()),
+            selected_schema: Some("public".to_owned()),
+            selected_table: Some("users".to_owned()),
         }
     }
 
@@ -790,6 +912,7 @@ mod tests {
             .execute(
                 json!({"schema": "public", "table": "users"}),
                 "local",
+                &context(),
                 Arc::new(MockServices),
             )
             .await
@@ -805,7 +928,7 @@ mod tests {
             .get("introspect_database")
             .unwrap();
         let output = tool
-            .execute(json!({}), "local", Arc::new(MockServices))
+            .execute(json!({}), "local", &context(), Arc::new(MockServices))
             .await
             .unwrap();
 
@@ -819,11 +942,63 @@ mod tests {
             .execute(
                 json!({"schemas": ["public"]}),
                 "local",
+                &context(),
                 Arc::new(MockServices),
             )
             .await
             .unwrap();
 
         assert!(output.content.contains("\"mermaid\": \"erDiagram\""));
+    }
+
+    #[test]
+    fn readonly_sql_validation_allows_safe_statements() {
+        for sql in [
+            "SELECT * FROM users",
+            "WITH recent AS (SELECT * FROM users) SELECT * FROM recent",
+            "VALUES (1), (2)",
+            "EXPLAIN SELECT * FROM users",
+        ] {
+            validate_readonly_sql(sql).unwrap();
+        }
+    }
+
+    #[test]
+    fn readonly_sql_validation_rejects_mutating_statements() {
+        for sql in [
+            "INSERT INTO users (id) VALUES (1)",
+            "UPDATE users SET id = 1",
+            "DELETE FROM users",
+            "CREATE TABLE users (id int)",
+            "DROP TABLE users",
+            "ALTER TABLE users ADD COLUMN name text",
+            "COPY users TO STDOUT",
+            "CALL refresh_users()",
+            "SET search_path TO public",
+            "SELECT 1; SELECT 2",
+            "SELECT * FROM users FOR UPDATE",
+            "EXPLAIN ANALYZE SELECT * FROM users",
+        ] {
+            assert!(validate_readonly_sql(sql).is_err(), "{sql}");
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_readonly_sql_executes_against_services_with_context_database() {
+        let tool = ToolRegistry::pgone_readonly()
+            .get("execute_readonly_sql")
+            .unwrap();
+        let output = tool
+            .execute(
+                json!({"sql": "SELECT 1", "max_rows": 1}),
+                "local",
+                &context(),
+                Arc::new(MockServices),
+            )
+            .await
+            .unwrap();
+
+        assert!(output.content.contains("\"columns\""));
+        assert!(output.content.contains("\"truncated\": false"));
     }
 }
