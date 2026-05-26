@@ -202,6 +202,10 @@ impl DbTree {
 
                     // Show schemas
                     if let Some(schemas) = schemas_clone {
+                        if schemas.is_empty() {
+                            empty_placeholder(ui, "No schemas");
+                        }
+
                         for schema in &schemas {
                             let schema_name = schema.name.clone();
                             let is_schema_expanded = self
@@ -250,6 +254,10 @@ impl DbTree {
                                     }
 
                                     if let Some(tables) = self.tables.get(&tables_key).cloned() {
+                                        if tables.is_empty() {
+                                            empty_placeholder(ui, "No tables");
+                                        }
+
                                         for table in tables {
                                             let table_name = table.name.clone();
                                             let table_expanded_key = format!("table_{}", table_name);
@@ -304,6 +312,10 @@ impl DbTree {
                                                 }
 
                                                 if let Some(indexes) = self.indexes.get(&item_key) {
+                                                    if indexes.is_empty() {
+                                                        empty_placeholder(ui, "No indexes");
+                                                    }
+
                                                     for index in indexes {
                                                         let index_name = index.name.clone();
                                                         if ui.selectable_label(false, &index_name).clicked() {
@@ -354,6 +366,10 @@ impl DbTree {
                                                 }
 
                                                 if let Some(foreign_keys) = self.foreign_keys.get(&item_key) {
+                                                    if foreign_keys.is_empty() {
+                                                        empty_placeholder(ui, "No foreign keys");
+                                                    }
+
                                                     for (idx, fk) in foreign_keys.iter().enumerate() {
                                                         // Generate a display name for the foreign key
                                                         let fk_display = format!("{} -> {}", fk.columns.join(", "), fk.ref_table);
@@ -408,6 +424,10 @@ impl DbTree {
                                                 }
 
                                                 if let Some(triggers) = self.triggers.get(&item_key) {
+                                                    if triggers.is_empty() {
+                                                        empty_placeholder(ui, "No triggers");
+                                                    }
+
                                                     for trigger in triggers {
                                                         let trigger_name = trigger.name.clone();
                                                         if ui.selectable_label(false, &trigger_name).clicked() {
@@ -457,6 +477,20 @@ impl DbTree {
                                                 .clicked()
                                             {
                                                 self.pending_open_sql_editor = true;
+                                                ui.close();
+                                            }
+                                            if menu_button(ui, egui_phosphor::regular::TABLE, "New Table")
+                                                .clicked()
+                                            {
+                                                use super::types::DialogType;
+                                                self.dialog = Some(DialogType::CreateTable {
+                                                    database: db_name_menu.clone(),
+                                                    schema: schema_name_menu.clone(),
+                                                });
+                                                self.dialog_ddl = format!(
+                                                    "CREATE TABLE {}.{} (\n    id SERIAL PRIMARY KEY\n);",
+                                                    schema_name_menu, "new_table"
+                                                );
                                                 ui.close();
                                             }
                                             if menu_button(ui, egui_phosphor::regular::CODE, "Show DDL")
@@ -539,15 +573,6 @@ impl DbTree {
                                         }
                                     }
 
-                                        // Add table button
-                                        if ui.button(format!("{} New Table", egui_phosphor::regular::PLUS)).clicked() {
-                                            use super::types::DialogType;
-                                            self.dialog = Some(DialogType::CreateTable {
-                                                database: db_name.clone(),
-                                                schema: schema_name.clone(),
-                                            });
-                                            self.dialog_ddl = format!("CREATE TABLE {}.{} (\n    id SERIAL PRIMARY KEY\n);", schema_name, "new_table");
-                                        }
                                     } else {
                                         ui.label("Loading tables...");
                                     }
@@ -586,6 +611,10 @@ impl DbTree {
                                     }
 
                                     if let Some(views) = self.views.get(&tables_key) {
+                                        if views.is_empty() {
+                                            empty_placeholder(ui, "No views");
+                                        }
+
                                         for view in views {
                                             let view_name = view.name.clone();
                                             let db_name_menu = db_name.clone();
@@ -617,15 +646,6 @@ impl DbTree {
                                             });
                                         }
 
-                                        // Add view button
-                                        if ui.button(format!("{} New View", egui_phosphor::regular::PLUS)).clicked() {
-                                            use super::types::DialogType;
-                                            self.dialog = Some(DialogType::CreateView {
-                                                database: db_name.clone(),
-                                                schema: schema_name.clone(),
-                                            });
-                                            self.dialog_ddl = format!("CREATE VIEW {}.{} AS\nSELECT * FROM {};", schema_name, "new_view", "table_name");
-                                        }
                                     } else {
                                         ui.label("Loading views...");
                                     }
@@ -673,6 +693,10 @@ impl DbTree {
                                     }
 
                                     if let Some(materialized_views) = self.materialized_views.get(&tables_key) {
+                                        if materialized_views.is_empty() {
+                                            empty_placeholder(ui, "No materialized views");
+                                        }
+
                                         for matview in materialized_views {
                                             let matview_name = matview.name.clone();
                                             let db_name_menu = db_name.clone();
@@ -704,15 +728,6 @@ impl DbTree {
                                             });
                                         }
 
-                                        // Add materialized view button
-                                        if ui.button(format!("{} New Materialized View", egui_phosphor::regular::PLUS)).clicked() {
-                                            use super::types::DialogType;
-                                            self.dialog = Some(DialogType::CreateMaterializedView {
-                                                database: db_name.clone(),
-                                                schema: schema_name.clone(),
-                                            });
-                                            self.dialog_ddl = format!("CREATE MATERIALIZED VIEW {}.{} AS\nSELECT * FROM {};", schema_name, "new_materialized_view", "table_name");
-                                        }
                                     } else {
                                         ui.label("Loading materialized views...");
                                     }
@@ -751,6 +766,10 @@ impl DbTree {
                                     }
 
                                     if let Some(functions) = self.functions.get(&tables_key) {
+                                        if functions.is_empty() {
+                                            empty_placeholder(ui, "No functions");
+                                        }
+
                                         for function in functions {
                                             let function_name = function.name.clone();
                                             let db_name_menu = db_name.clone();
@@ -782,15 +801,6 @@ impl DbTree {
                                             });
                                         }
 
-                                        // Add function button
-                                        if ui.button(format!("{} New Function", egui_phosphor::regular::PLUS)).clicked() {
-                                            use super::types::DialogType;
-                                            self.dialog = Some(DialogType::CreateFunction {
-                                                database: db_name.clone(),
-                                                schema: schema_name.clone(),
-                                            });
-                                            self.dialog_ddl = format!("CREATE OR REPLACE FUNCTION {}.{}()\nRETURNS INTEGER AS $$\nBEGIN\n    RETURN 1;\nEND;\n$$ LANGUAGE plpgsql;", schema_name, "new_function");
-                                        }
                                     } else {
                                         ui.label("Loading functions...");
                                     }
@@ -904,14 +914,6 @@ impl DbTree {
                             });
                         }
 
-                        // Add schema button
-                        if ui.button(format!("{} New Schema", egui_phosphor::regular::PLUS)).clicked() {
-                            use super::types::DialogType;
-                            self.dialog = Some(DialogType::CreateSchema {
-                                database: db_name.clone(),
-                            });
-                            self.dialog_input.clear();
-                        }
                     } else {
                         ui.label("Loading schemas...");
                     }
@@ -1055,4 +1057,8 @@ fn menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
 
 fn danger_menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
     ui.button(egui::RichText::new(format!("{} {}", icon, label)).color(ui.visuals().error_fg_color))
+}
+
+fn empty_placeholder(ui: &mut egui::Ui, label: &str) {
+    ui.label(egui::RichText::new(label).weak().small());
 }

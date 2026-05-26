@@ -14,9 +14,6 @@ pub fn show_menu_bar(
 ) {
     Panel::top("menu_top").show_inside(root_ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.label(egui::RichText::new("PGone").strong());
-            ui.separator();
-
             ui.menu_button("File", |ui| {
                 if ui.button("New Connection").clicked() {
                     db.show_add_db = true;
