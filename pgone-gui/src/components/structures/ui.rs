@@ -443,15 +443,25 @@ impl DbTree {
                                         let table_name_menu = table_name.clone();
 
                                         table_response.header_response.context_menu(|ui| {
-                                            if ui.button("Query Table").clicked() {
+                                            if menu_button(
+                                                ui,
+                                                egui_phosphor::regular::MAGNIFYING_GLASS,
+                                                "Query Table",
+                                            )
+                                            .clicked()
+                                            {
                                                 self.pending_query_table = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone()));
                                                 ui.close();
                                             }
-                                            if ui.button("New Query").clicked() {
+                                            if menu_button(ui, egui_phosphor::regular::FILE_SQL, "New Query")
+                                                .clicked()
+                                            {
                                                 self.pending_open_sql_editor = true;
                                                 ui.close();
                                             }
-                                            if ui.button("Show DDL").clicked() {
+                                            if menu_button(ui, egui_phosphor::regular::CODE, "Show DDL")
+                                                .clicked()
+                                            {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::ShowDdl {
                                                     database: db_name_menu.clone(),
@@ -462,7 +472,9 @@ impl DbTree {
                                                 self.pending_load_ddl = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone()));
                                                 ui.close();
                                             }
-                                            if ui.button("Design").clicked() {
+                                            if menu_button(ui, egui_phosphor::regular::WRENCH, "Design")
+                                                .clicked()
+                                            {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::DesignTable {
                                                     database: db_name_menu.clone(),
@@ -471,7 +483,9 @@ impl DbTree {
                                                 });
                                                 ui.close();
                                             }
-                                            if ui.button("Properties").clicked() {
+                                            if menu_button(ui, egui_phosphor::regular::GEAR, "Properties")
+                                                .clicked()
+                                            {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::PropertiesTable {
                                                     database: db_name_menu.clone(),
@@ -480,7 +494,9 @@ impl DbTree {
                                                 });
                                                 ui.close();
                                             }
-                                            if ui.button("Rename").clicked() {
+                                            if menu_button(ui, egui_phosphor::regular::PENCIL, "Rename")
+                                                .clicked()
+                                            {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::RenameTable {
                                                     database: db_name_menu.clone(),
@@ -490,7 +506,9 @@ impl DbTree {
                                                 self.dialog_input = table_name_menu.clone();
                                                 ui.close();
                                             }
-                                            if ui.button("Delete").clicked() {
+                                            if danger_menu_button(ui, egui_phosphor::regular::TRASH, "Delete")
+                                                .clicked()
+                                            {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::DeleteTable {
                                                     database: db_name_menu.clone(),
@@ -499,7 +517,9 @@ impl DbTree {
                                                 });
                                                 ui.close();
                                             }
-                                            if ui.button("Drop").clicked() {
+                                            if danger_menu_button(ui, egui_phosphor::regular::TRASH, "Drop")
+                                                .clicked()
+                                            {
                                                 use super::types::DialogType;
                                                 self.dialog = Some(DialogType::DropTable {
                                                     database: db_name_menu.clone(),
@@ -579,7 +599,13 @@ impl DbTree {
 
                                             // Context menu for view
                                             view_response.context_menu(|ui| {
-                                                if ui.button("Properties").clicked() {
+                                                if menu_button(
+                                                    ui,
+                                                    egui_phosphor::regular::GEAR,
+                                                    "Properties",
+                                                )
+                                                .clicked()
+                                                {
                                                     use super::types::DialogType;
                                                     self.dialog = Some(DialogType::PropertiesView {
                                                         database: db_name_menu.clone(),
@@ -660,7 +686,13 @@ impl DbTree {
 
                                             // Context menu for materialized view
                                             matview_response.context_menu(|ui| {
-                                                if ui.button("Properties").clicked() {
+                                                if menu_button(
+                                                    ui,
+                                                    egui_phosphor::regular::GEAR,
+                                                    "Properties",
+                                                )
+                                                .clicked()
+                                                {
                                                     use super::types::DialogType;
                                                     self.dialog = Some(DialogType::PropertiesMaterializedView {
                                                         database: db_name_menu.clone(),
@@ -732,7 +764,13 @@ impl DbTree {
 
                                             // Context menu for function
                                             function_response.context_menu(|ui| {
-                                                if ui.button("Properties").clicked() {
+                                                if menu_button(
+                                                    ui,
+                                                    egui_phosphor::regular::GEAR,
+                                                    "Properties",
+                                                )
+                                                .clicked()
+                                                {
                                                     use super::types::DialogType;
                                                     self.dialog = Some(DialogType::PropertiesFunction {
                                                         database: db_name_menu.clone(),
@@ -768,19 +806,73 @@ impl DbTree {
 
                             // Handle schema context menu
                             schema_response.header_response.context_menu(|ui| {
-                                if ui.button("Graph").clicked() {
+                                if menu_button(ui, egui_phosphor::regular::GRAPH, "Graph").clicked() {
                                     self.pending_open_graph = Some((db_name.clone(), schema_name.clone()));
                                     ui.close();
                                 }
-                                if ui.button("New Schema").clicked() {
+                                if menu_button(ui, egui_phosphor::regular::TABLE, "New Table")
+                                    .clicked()
+                                {
                                     use super::types::DialogType;
-                                    self.dialog = Some(DialogType::CreateSchema {
+                                    self.dialog = Some(DialogType::CreateTable {
                                         database: db_name.clone(),
+                                        schema: schema_name.clone(),
                                     });
-                                    self.dialog_input.clear();
+                                    self.dialog_ddl = format!(
+                                        "CREATE TABLE {}.{} (\n    id SERIAL PRIMARY KEY\n);",
+                                        schema_name, "new_table"
+                                    );
                                     ui.close();
                                 }
-                                if ui.button("Properties").clicked() {
+                                if menu_button(ui, egui_phosphor::regular::EYE, "New View")
+                                    .clicked()
+                                {
+                                    use super::types::DialogType;
+                                    self.dialog = Some(DialogType::CreateView {
+                                        database: db_name.clone(),
+                                        schema: schema_name.clone(),
+                                    });
+                                    self.dialog_ddl = format!(
+                                        "CREATE VIEW {}.{} AS\nSELECT * FROM {};",
+                                        schema_name, "new_view", "table_name"
+                                    );
+                                    ui.close();
+                                }
+                                if menu_button(
+                                    ui,
+                                    egui_phosphor::regular::STACK,
+                                    "New Materialized View",
+                                )
+                                .clicked()
+                                {
+                                    use super::types::DialogType;
+                                    self.dialog = Some(DialogType::CreateMaterializedView {
+                                        database: db_name.clone(),
+                                        schema: schema_name.clone(),
+                                    });
+                                    self.dialog_ddl = format!(
+                                        "CREATE MATERIALIZED VIEW {}.{} AS\nSELECT * FROM {};",
+                                        schema_name, "new_materialized_view", "table_name"
+                                    );
+                                    ui.close();
+                                }
+                                if menu_button(ui, egui_phosphor::regular::FUNCTION, "New Function")
+                                    .clicked()
+                                {
+                                    use super::types::DialogType;
+                                    self.dialog = Some(DialogType::CreateFunction {
+                                        database: db_name.clone(),
+                                        schema: schema_name.clone(),
+                                    });
+                                    self.dialog_ddl = format!(
+                                        "CREATE OR REPLACE FUNCTION {}.{}()\nRETURNS INTEGER AS $$\nBEGIN\n    RETURN 1;\nEND;\n$$ LANGUAGE plpgsql;",
+                                        schema_name, "new_function"
+                                    );
+                                    ui.close();
+                                }
+                                if menu_button(ui, egui_phosphor::regular::GEAR, "Properties")
+                                    .clicked()
+                                {
                                     use super::types::DialogType;
                                     self.dialog = Some(DialogType::PropertiesSchema {
                                         database: db_name.clone(),
@@ -788,7 +880,9 @@ impl DbTree {
                                     });
                                     ui.close();
                                 }
-                                if ui.button("Rename").clicked() {
+                                if menu_button(ui, egui_phosphor::regular::PENCIL, "Rename")
+                                    .clicked()
+                                {
                                     use super::types::DialogType;
                                     self.dialog = Some(DialogType::RenameSchema {
                                         database: db_name.clone(),
@@ -797,7 +891,9 @@ impl DbTree {
                                     self.dialog_input = schema_name.clone();
                                     ui.close();
                                 }
-                                if ui.button("Delete").clicked() {
+                                if danger_menu_button(ui, egui_phosphor::regular::TRASH, "Delete")
+                                    .clicked()
+                                {
                                     use super::types::DialogType;
                                     self.dialog = Some(DialogType::DeleteSchema {
                                         database: db_name.clone(),
@@ -823,20 +919,22 @@ impl DbTree {
 
                 // Handle database context menu
                 response.header_response.context_menu(|ui| {
-                    if ui.button("New Database").clicked() {
+                    if menu_button(ui, egui_phosphor::regular::FOLDER_PLUS, "New Schema").clicked() {
                         use super::types::DialogType;
-                        self.dialog = Some(DialogType::CreateDatabase);
+                        self.dialog = Some(DialogType::CreateSchema {
+                            database: db_name.clone(),
+                        });
                         self.dialog_input.clear();
                         ui.close();
                     }
-                    if ui.button("Properties").clicked() {
+                    if menu_button(ui, egui_phosphor::regular::GEAR, "Properties").clicked() {
                         use super::types::DialogType;
                         self.dialog = Some(DialogType::PropertiesDatabase {
                             name: db_name.clone(),
                         });
                         ui.close();
                     }
-                    if ui.button("Rename").clicked() {
+                    if menu_button(ui, egui_phosphor::regular::PENCIL, "Rename").clicked() {
                         use super::types::DialogType;
                         self.dialog = Some(DialogType::RenameDatabase {
                             old_name: db_name.clone(),
@@ -844,7 +942,7 @@ impl DbTree {
                         self.dialog_input = db_name.clone();
                         ui.close();
                     }
-                    if ui.button("Delete").clicked() {
+                    if danger_menu_button(ui, egui_phosphor::regular::TRASH, "Delete").clicked() {
                         use super::types::DialogType;
                         self.dialog = Some(DialogType::DeleteDatabase {
                             name: db_name.clone(),
@@ -869,13 +967,19 @@ impl DbTree {
                 }
 
                 connection_response.header_response.context_menu(|ui| {
-                    if ui.button("Edit Connection").clicked() {
+                    if menu_button(ui, egui_phosphor::regular::DATABASE, "New Database").clicked() {
+                        use super::types::DialogType;
+                        self.dialog = Some(DialogType::CreateDatabase);
+                        self.dialog_input.clear();
+                        ui.close();
+                    }
+                    if menu_button(ui, egui_phosphor::regular::PENCIL, "Edit Connection").clicked() {
                         if let Err(error) = db_manager.open_edit_db_config(&connection_id) {
                             crate::notify::error(format!("Failed to load: {}", error));
                         }
                         ui.close();
                     }
-                    if ui.button("Delete Connection").clicked() {
+                    if danger_menu_button(ui, egui_phosphor::regular::TRASH, "Delete").clicked() {
                         db_manager.request_delete_db_config(&connection_id);
                         ui.close();
                     }
@@ -938,9 +1042,17 @@ fn show_blank_area_context_menu(
     db_manager: &mut crate::components::DbManager,
 ) {
     response.context_menu(|ui| {
-        if ui.button("New Connection").clicked() {
+        if menu_button(ui, egui_phosphor::regular::PLUG, "New Connection").clicked() {
             db_manager.show_add_db = true;
             ui.close();
         }
     });
+}
+
+fn menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
+    ui.button(format!("{} {}", icon, label))
+}
+
+fn danger_menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
+    ui.button(egui::RichText::new(format!("{} {}", icon, label)).color(ui.visuals().error_fg_color))
 }
