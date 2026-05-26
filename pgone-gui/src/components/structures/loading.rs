@@ -224,6 +224,10 @@ pub(super) fn check_result_promises(tree: &mut DbTree, results_table: &mut Resul
 }
 
 pub(super) fn load_databases(tree: &mut DbTree, db_manager: &mut crate::components::DbManager) {
+    if tree.loaded_databases || tree.databases_promise.is_some() {
+        return;
+    }
+
     let Some(_db_id) = db_manager.active_db_config_id.clone() else {
         return;
     };
@@ -261,7 +265,9 @@ pub(super) fn load_schemas(
     db_manager: &mut crate::components::DbManager,
     database: &str,
 ) {
-    if tree.schemas_promises.contains_key(database) {
+    if tree.loaded_schemas.get(database).copied().unwrap_or(false)
+        || tree.schemas_promises.contains_key(database)
+    {
         return; // Already loading
     }
 
@@ -301,7 +307,9 @@ pub(super) fn load_tables(
     schema: &str,
 ) {
     let key = format!("{}.{}", database, schema);
-    if tree.tables_promises.contains_key(&key) {
+    if tree.loaded_tables.get(&key).copied().unwrap_or(false)
+        || tree.tables_promises.contains_key(&key)
+    {
         return; // Already loading
     }
 
@@ -342,7 +350,9 @@ pub(super) fn load_views(
     schema: &str,
 ) {
     let key = format!("{}.{}", database, schema);
-    if tree.views_promises.contains_key(&key) {
+    if tree.loaded_views.get(&key).copied().unwrap_or(false)
+        || tree.views_promises.contains_key(&key)
+    {
         return; // Already loading
     }
 
@@ -383,7 +393,13 @@ pub(super) fn load_materialized_views(
     schema: &str,
 ) {
     let key = format!("{}.{}", database, schema);
-    if tree.materialized_views_promises.contains_key(&key) {
+    if tree
+        .loaded_materialized_views
+        .get(&key)
+        .copied()
+        .unwrap_or(false)
+        || tree.materialized_views_promises.contains_key(&key)
+    {
         return; // Already loading
     }
 
@@ -425,7 +441,9 @@ pub(super) fn load_functions(
     schema: &str,
 ) {
     let key = format!("{}.{}", database, schema);
-    if tree.functions_promises.contains_key(&key) {
+    if tree.loaded_functions.get(&key).copied().unwrap_or(false)
+        || tree.functions_promises.contains_key(&key)
+    {
         return; // Already loading
     }
 
@@ -615,7 +633,9 @@ pub(super) fn load_indexes(
     table: &str,
 ) {
     let key = format!("{}.{}.{}", database, schema, table);
-    if tree.indexes_promises.contains_key(&key) {
+    if tree.loaded_indexes.get(&key).copied().unwrap_or(false)
+        || tree.indexes_promises.contains_key(&key)
+    {
         return; // Already loading
     }
 
@@ -655,7 +675,9 @@ pub(super) fn load_foreign_keys(
     table: &str,
 ) {
     let key = format!("{}.{}.{}", database, schema, table);
-    if tree.foreign_keys_promises.contains_key(&key) {
+    if tree.loaded_foreign_keys.get(&key).copied().unwrap_or(false)
+        || tree.foreign_keys_promises.contains_key(&key)
+    {
         return; // Already loading
     }
 
@@ -697,7 +719,9 @@ pub(super) fn load_triggers(
     table: &str,
 ) {
     let key = format!("{}.{}.{}", database, schema, table);
-    if tree.triggers_promises.contains_key(&key) {
+    if tree.loaded_triggers.get(&key).copied().unwrap_or(false)
+        || tree.triggers_promises.contains_key(&key)
+    {
         return; // Already loading
     }
 

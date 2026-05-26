@@ -164,7 +164,7 @@ impl DbTree {
                         return;
                     }
 
-                    if self.databases_promise.is_none() {
+                    if !self.loaded_databases && self.databases_promise.is_none() {
                         loading::load_databases(self, db_manager);
                     }
 
@@ -173,98 +173,15 @@ impl DbTree {
                         return;
                     }
 
-            // Pre-load schemas and tables for all databases (before rendering to avoid borrow issues)
-            let databases_clone = self.databases.clone();
-            for db in &databases_clone {
-                let db_name = db.name.clone();
-                let should_load_schemas = !self.loaded_schemas.get(&db_name).copied().unwrap_or(false);
-                if should_load_schemas {
-                    loading::load_schemas(self, db_manager, &db_name);
-                }
-            }
-
-            // Pre-load tables, views, materialized views, and functions for expanded schemas
-            let databases_clone2 = self.databases.clone();
-            let mut items_to_load = Vec::new();
-            for db in &databases_clone2 {
-                let db_name = db.name.clone();
-                let schemas_clone = self.schemas.get(&db_name).cloned();
-                if let Some(ref schemas) = schemas_clone {
-                    let expanded_schemas = self.expanded_schemas.get(&db_name);
-                    for schema in schemas {
-                        let schema_name = schema.name.clone();
-                        let should_load = expanded_schemas.map(|s| s.contains(&schema_name)).unwrap_or(false);
-                        if should_load {
-                            let key = format!("{}.{}", db_name, schema_name);
-                            if !self.loaded_tables.get(&key).copied().unwrap_or(false) {
-                                items_to_load.push(("tables", db_name.clone(), schema_name.clone()));
-                            }
-                            if !self.loaded_views.get(&key).copied().unwrap_or(false) {
-                                items_to_load.push(("views", db_name.clone(), schema_name.clone()));
-                            }
-                            if !self.loaded_materialized_views.get(&key).copied().unwrap_or(false) {
-                                items_to_load.push(("materialized_views", db_name.clone(), schema_name.clone()));
-                            }
-                            if !self.loaded_functions.get(&key).copied().unwrap_or(false) {
-                                items_to_load.push(("functions", db_name.clone(), schema_name.clone()));
-                            }
-                        }
-                    }
-                }
-            }
-            for (item_type, db_name, schema_name) in items_to_load {
-                match item_type {
-                    "tables" => loading::load_tables(self, db_manager, &db_name, &schema_name),
-                    "views" => loading::load_views(self, db_manager, &db_name, &schema_name),
-                    "materialized_views" => loading::load_materialized_views(self, db_manager, &db_name, &schema_name),
-                    "functions" => loading::load_functions(self, db_manager, &db_name, &schema_name),
-                    _ => {}
-                }
-            }
-
-            // Pre-load indexes, foreign keys, and triggers for expanded tables
-            let databases_clone3 = self.databases.clone();
-            let mut items_to_load = Vec::new();
-            for db in &databases_clone3 {
-                let db_name = db.name.clone();
-                let schemas_clone = self.schemas.get(&db_name).cloned();
-                if let Some(ref schemas) = schemas_clone {
-                    let _expanded_schemas = self.expanded_schemas.get(&db_name);
-                    for schema in schemas {
-                        let schema_name = schema.name.clone();
-                        let tables_key = format!("{}.{}", db_name, schema_name);
-                        let expanded_tables = self.expanded_tables.get(&tables_key);
-                        if let Some(tables) = self.tables.get(&tables_key) {
-                            if let Some(expanded) = expanded_tables {
-                                for table in tables {
-                                    let table_name = table.name.clone();
-                                    if expanded.contains(&table_name) {
-                                        items_to_load.push((db_name.clone(), schema_name.clone(), table_name));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            for (db_name, schema_name, table_name) in items_to_load {
-                let item_key = format!("{}.{}.{}", db_name, schema_name, table_name);
-                if !self.loaded_indexes.get(&item_key).copied().unwrap_or(false) {
-                    loading::load_indexes(self, db_manager, &db_name, &schema_name, &table_name);
-                }
-                if !self.loaded_foreign_keys.get(&item_key).copied().unwrap_or(false) {
-                    loading::load_foreign_keys(self, db_manager, &db_name, &schema_name, &table_name);
-                }
-                if !self.loaded_triggers.get(&item_key).copied().unwrap_or(false) {
-                    loading::load_triggers(self, db_manager, &db_name, &schema_name, &table_name);
-                }
-            }
-
             // 收集需要加载表结构详情的表
             let mut pending_design_loads = Vec::new();
 
-            for db in &self.databases {
-                let db_name = db.name.clone();
+            let database_names = self
+                .databases
+                .iter()
+                .map(|database| database.name.clone())
+                .collect::<Vec<_>>();
+            for db_name in database_names {
                 let is_expanded = self.expanded_databases.contains(&db_name);
                 let schemas_clone = self.schemas.get(&db_name).cloned();
 
@@ -277,13 +194,21 @@ impl DbTree {
                         self.expanded_databases.insert(db_name.clone());
                     }
 
+                    if !self.loaded_schemas.get(&db_name).copied().unwrap_or(false)
+                        && !self.schemas_promises.contains_key(&db_name)
+                    {
+                        loading::load_schemas(self, db_manager, &db_name);
+                    }
+
                     // Show schemas
                     if let Some(schemas) = schemas_clone {
-                        let expanded_schemas = self.expanded_schemas.entry(db_name.clone()).or_insert_with(HashSet::new);
-
                         for schema in &schemas {
                             let schema_name = schema.name.clone();
-                            let is_schema_expanded = expanded_schemas.contains(&schema_name);
+                            let is_schema_expanded = self
+                                .expanded_schemas
+                                .get(&db_name)
+                                .map(|schemas| schemas.contains(&schema_name))
+                                .unwrap_or(false);
 
                             let tables_key = format!("{}.{}", db_name, schema_name);
 
@@ -293,7 +218,10 @@ impl DbTree {
                             .default_open(is_schema_expanded)
                                         .show(ui, |ui| {
                                 if !is_schema_expanded {
-                                    expanded_schemas.insert(schema_name.clone());
+                                    self.expanded_schemas
+                                        .entry(db_name.clone())
+                                        .or_insert_with(HashSet::new)
+                                        .insert(schema_name.clone());
                                 }
 
                                 // Show Tables category
@@ -315,15 +243,20 @@ impl DbTree {
                                             .insert(tables_expanded_key.clone());
                                     }
 
-                                    if let Some(tables) = self.tables.get(&tables_key) {
-                                        let expanded_tables_set = self.expanded_tables
-                                            .entry(tables_key.clone())
-                                            .or_insert_with(HashSet::new);
+                                    if !self.loaded_tables.get(&tables_key).copied().unwrap_or(false)
+                                        && !self.tables_promises.contains_key(&tables_key)
+                                    {
+                                        loading::load_tables(self, db_manager, &db_name, &schema_name);
+                                    }
 
+                                    if let Some(tables) = self.tables.get(&tables_key).cloned() {
                                         for table in tables {
                                             let table_name = table.name.clone();
                                             let table_expanded_key = format!("table_{}", table_name);
-                                            let is_table_expanded = expanded_tables_set.contains(&table_expanded_key);
+                                            let is_table_expanded = self.expanded_tables
+                                                .get(&tables_key)
+                                                .map(|tables| tables.contains(&table_expanded_key))
+                                                .unwrap_or(false);
 
                                         let table_response = egui::CollapsingHeader::new(
                                             format!("{} {}", egui_phosphor::regular::TABLE, table_name)
@@ -331,7 +264,10 @@ impl DbTree {
                                         .default_open(is_table_expanded)
                                                 .show(ui, |ui| {
                                             if !is_table_expanded {
-                                                expanded_tables_set.insert(table_expanded_key.clone());
+                                                self.expanded_tables
+                                                    .entry(tables_key.clone())
+                                                    .or_insert_with(HashSet::new)
+                                                    .insert(table_expanded_key.clone());
                                             }
 
                                             let item_key = format!("{}.{}.{}", db_name, schema_name, table_name);
@@ -353,6 +289,18 @@ impl DbTree {
                                                         .entry(item_key.clone())
                                                         .or_insert_with(HashSet::new)
                                                         .insert(indexes_key.clone());
+                                                }
+
+                                                if !self.loaded_indexes.get(&item_key).copied().unwrap_or(false)
+                                                    && !self.indexes_promises.contains_key(&item_key)
+                                                {
+                                                    loading::load_indexes(
+                                                        self,
+                                                        db_manager,
+                                                        &db_name,
+                                                        &schema_name,
+                                                        &table_name,
+                                                    );
                                                 }
 
                                                 if let Some(indexes) = self.indexes.get(&item_key) {
@@ -391,6 +339,18 @@ impl DbTree {
                                                         .entry(item_key.clone())
                                                         .or_insert_with(HashSet::new)
                                                         .insert(fks_key.clone());
+                                                }
+
+                                                if !self.loaded_foreign_keys.get(&item_key).copied().unwrap_or(false)
+                                                    && !self.foreign_keys_promises.contains_key(&item_key)
+                                                {
+                                                    loading::load_foreign_keys(
+                                                        self,
+                                                        db_manager,
+                                                        &db_name,
+                                                        &schema_name,
+                                                        &table_name,
+                                                    );
                                                 }
 
                                                 if let Some(foreign_keys) = self.foreign_keys.get(&item_key) {
@@ -433,6 +393,18 @@ impl DbTree {
                                                         .entry(item_key.clone())
                                                         .or_insert_with(HashSet::new)
                                                         .insert(triggers_key.clone());
+                                                }
+
+                                                if !self.loaded_triggers.get(&item_key).copied().unwrap_or(false)
+                                                    && !self.triggers_promises.contains_key(&item_key)
+                                                {
+                                                    loading::load_triggers(
+                                                        self,
+                                                        db_manager,
+                                                        &db_name,
+                                                        &schema_name,
+                                                        &table_name,
+                                                    );
                                                 }
 
                                                 if let Some(triggers) = self.triggers.get(&item_key) {
@@ -570,8 +542,10 @@ impl DbTree {
 
                                 // Show Views category
                                 let views_expanded_key = format!("{}_views", tables_key);
-                                let expanded_views_category = self.expanded_views.entry(tables_key.clone()).or_insert_with(HashSet::new);
-                                let is_views_category_expanded = expanded_views_category.contains(&views_expanded_key);
+                                let is_views_category_expanded = self.expanded_views
+                                    .get(&tables_key)
+                                    .map(|set| set.contains(&views_expanded_key))
+                                    .unwrap_or(false);
 
                                 let views_category_response = egui::CollapsingHeader::new(
                                     format!("{} Views", egui_phosphor::regular::EYE)
@@ -579,7 +553,16 @@ impl DbTree {
                                 .default_open(is_views_category_expanded)
                                 .show(ui, |ui| {
                                     if !is_views_category_expanded {
-                                        expanded_views_category.insert(views_expanded_key.clone());
+                                        self.expanded_views
+                                            .entry(tables_key.clone())
+                                            .or_insert_with(HashSet::new)
+                                            .insert(views_expanded_key.clone());
+                                    }
+
+                                    if !self.loaded_views.get(&tables_key).copied().unwrap_or(false)
+                                        && !self.views_promises.contains_key(&tables_key)
+                                    {
+                                        loading::load_views(self, db_manager, &db_name, &schema_name);
                                     }
 
                                     if let Some(views) = self.views.get(&tables_key) {
@@ -623,13 +606,18 @@ impl DbTree {
                                 });
 
                                 if !is_views_category_expanded && views_category_response.header_response.clicked() {
-                                    expanded_views_category.insert(views_expanded_key.clone());
+                                    self.expanded_views
+                                        .entry(tables_key.clone())
+                                        .or_insert_with(HashSet::new)
+                                        .insert(views_expanded_key.clone());
                                 }
 
                                 // Show Materialized Views category
                                 let matviews_expanded_key = format!("{}_materialized_views", tables_key);
-                                let expanded_matviews_category = self.expanded_materialized_views.entry(tables_key.clone()).or_insert_with(HashSet::new);
-                                let is_matviews_category_expanded = expanded_matviews_category.contains(&matviews_expanded_key);
+                                let is_matviews_category_expanded = self.expanded_materialized_views
+                                    .get(&tables_key)
+                                    .map(|set| set.contains(&matviews_expanded_key))
+                                    .unwrap_or(false);
 
                                 let matviews_category_response = egui::CollapsingHeader::new(
                                     format!("{} Materialized Views", egui_phosphor::regular::STACK)
@@ -637,7 +625,25 @@ impl DbTree {
                                 .default_open(is_matviews_category_expanded)
                                 .show(ui, |ui| {
                                     if !is_matviews_category_expanded {
-                                        expanded_matviews_category.insert(matviews_expanded_key.clone());
+                                        self.expanded_materialized_views
+                                            .entry(tables_key.clone())
+                                            .or_insert_with(HashSet::new)
+                                            .insert(matviews_expanded_key.clone());
+                                    }
+
+                                    if !self
+                                        .loaded_materialized_views
+                                        .get(&tables_key)
+                                        .copied()
+                                        .unwrap_or(false)
+                                        && !self.materialized_views_promises.contains_key(&tables_key)
+                                    {
+                                        loading::load_materialized_views(
+                                            self,
+                                            db_manager,
+                                            &db_name,
+                                            &schema_name,
+                                        );
                                     }
 
                                     if let Some(materialized_views) = self.materialized_views.get(&tables_key) {
@@ -681,13 +687,18 @@ impl DbTree {
                                 });
 
                                 if !is_matviews_category_expanded && matviews_category_response.header_response.clicked() {
-                                    expanded_matviews_category.insert(matviews_expanded_key.clone());
+                                    self.expanded_materialized_views
+                                        .entry(tables_key.clone())
+                                        .or_insert_with(HashSet::new)
+                                        .insert(matviews_expanded_key.clone());
                                 }
 
                                 // Show Functions category
                                 let functions_expanded_key = format!("{}_functions", tables_key);
-                                let expanded_functions_category = self.expanded_functions.entry(tables_key.clone()).or_insert_with(HashSet::new);
-                                let is_functions_category_expanded = expanded_functions_category.contains(&functions_expanded_key);
+                                let is_functions_category_expanded = self.expanded_functions
+                                    .get(&tables_key)
+                                    .map(|set| set.contains(&functions_expanded_key))
+                                    .unwrap_or(false);
 
                                 let functions_category_response = egui::CollapsingHeader::new(
                                     format!("{} Functions", egui_phosphor::regular::FUNCTION)
@@ -695,7 +706,16 @@ impl DbTree {
                                 .default_open(is_functions_category_expanded)
                                 .show(ui, |ui| {
                                     if !is_functions_category_expanded {
-                                        expanded_functions_category.insert(functions_expanded_key.clone());
+                                        self.expanded_functions
+                                            .entry(tables_key.clone())
+                                            .or_insert_with(HashSet::new)
+                                            .insert(functions_expanded_key.clone());
+                                    }
+
+                                    if !self.loaded_functions.get(&tables_key).copied().unwrap_or(false)
+                                        && !self.functions_promises.contains_key(&tables_key)
+                                    {
+                                        loading::load_functions(self, db_manager, &db_name, &schema_name);
                                     }
 
                                     if let Some(functions) = self.functions.get(&tables_key) {
@@ -739,7 +759,10 @@ impl DbTree {
                                 });
 
                                 if !is_functions_category_expanded && functions_category_response.header_response.clicked() {
-                                    expanded_functions_category.insert(functions_expanded_key.clone());
+                                    self.expanded_functions
+                                        .entry(tables_key.clone())
+                                        .or_insert_with(HashSet::new)
+                                        .insert(functions_expanded_key.clone());
                                 }
                             });
 
@@ -836,73 +859,6 @@ impl DbTree {
                 loading::load_table_detail_for_design(self, db_manager, &db_name, &schema_name, &table_name);
             }
 
-            // Collect and load indexes, foreign keys, and triggers after all loops
-            let mut items_to_load_indexes = Vec::new();
-            let mut items_to_load_fks = Vec::new();
-            let mut items_to_load_triggers = Vec::new();
-
-            for db in &self.databases {
-                let db_name = db.name.clone();
-                if let Some(schemas) = self.schemas.get(&db_name) {
-                    for schema in schemas {
-                        let schema_name = schema.name.clone();
-                        let tables_key = format!("{}.{}", db_name, schema_name);
-                        if let Some(tables) = self.tables.get(&tables_key) {
-                            for table in tables {
-                                let table_name = table.name.clone();
-                                let item_key = format!("{}.{}.{}", db_name, schema_name, table_name);
-
-                                // Check indexes
-                                let indexes_key = format!("{}_indexes", item_key);
-                                let is_indexes_expanded = self.expanded_indexes
-                                    .get(&item_key)
-                                    .map(|s| s.contains(&indexes_key))
-                                    .unwrap_or(false);
-                                if is_indexes_expanded
-                                    && !self.loaded_indexes.get(&item_key).copied().unwrap_or(false)
-                                    && !self.indexes_promises.contains_key(&item_key) {
-                                    items_to_load_indexes.push((db_name.clone(), schema_name.clone(), table_name.clone()));
-                                }
-
-                                // Check foreign keys
-                                let fks_key = format!("{}_foreign_keys", item_key);
-                                let is_fks_expanded = self.expanded_foreign_keys
-                                    .get(&item_key)
-                                    .map(|s| s.contains(&fks_key))
-                                    .unwrap_or(false);
-                                if is_fks_expanded
-                                    && !self.loaded_foreign_keys.get(&item_key).copied().unwrap_or(false)
-                                    && !self.foreign_keys_promises.contains_key(&item_key) {
-                                    items_to_load_fks.push((db_name.clone(), schema_name.clone(), table_name.clone()));
-                                }
-
-                                // Check triggers
-                                let triggers_key = format!("{}_triggers", item_key);
-                                let is_triggers_expanded = self.expanded_triggers
-                                    .get(&item_key)
-                                    .map(|s| s.contains(&triggers_key))
-                                    .unwrap_or(false);
-                                if is_triggers_expanded
-                                    && !self.loaded_triggers.get(&item_key).copied().unwrap_or(false)
-                                    && !self.triggers_promises.contains_key(&item_key) {
-                                    items_to_load_triggers.push((db_name.clone(), schema_name.clone(), table_name.clone()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Load items after collecting to avoid borrow conflicts
-            for (db, schema, table) in items_to_load_indexes {
-                loading::load_indexes(self, db_manager, &db, &schema, &table);
-            }
-            for (db, schema, table) in items_to_load_fks {
-                loading::load_foreign_keys(self, db_manager, &db, &schema, &table);
-            }
-            for (db, schema, table) in items_to_load_triggers {
-                loading::load_triggers(self, db_manager, &db, &schema, &table);
-            }
                 });
 
                 if connection_response.header_response.clicked() && !is_active {

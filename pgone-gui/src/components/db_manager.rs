@@ -97,6 +97,7 @@ pub struct DbManager {
     pub show_delete_confirm: bool,
     add_test_receiver: Option<mpsc::Receiver<ConnectionTestResult>>,
     edit_test_receiver: Option<mpsc::Receiver<ConnectionTestResult>>,
+    storage_refresh_requested: bool,
 }
 
 struct ConnectionTestResult {
@@ -142,6 +143,7 @@ impl Default for DbManager {
             show_delete_confirm: false,
             add_test_receiver: None,
             edit_test_receiver: None,
+            storage_refresh_requested: false,
         }
     }
 }
@@ -404,12 +406,18 @@ impl DbManager {
 
     pub fn ensure_storage(&mut self) {
         if let Some(storage) = &self.storage {
-            storage.refresh();
+            if storage.is_ready() {
+                self.storage_refresh_requested = false;
+            } else if !self.storage_refresh_requested {
+                storage.refresh();
+                self.storage_refresh_requested = true;
+            }
         }
     }
 
     pub fn set_storage(&mut self, storage: GuiStorage) {
         self.storage = Some(storage);
+        self.storage_refresh_requested = false;
     }
 
     pub fn process_storage_events(&mut self) {

@@ -128,18 +128,33 @@ impl ChatPanel {
                             ctxs.should_scroll_to_bottom = true;
                         }
                         AgentStreamEvent::Completed { response } => {
+                            let fallback_content = std::mem::take(&mut self.partial_response);
+                            let content = if response.message.content.trim().is_empty()
+                                && !fallback_content.trim().is_empty()
+                            {
+                                fallback_content
+                            } else {
+                                response.message.content
+                            };
                             self.in_flight = None;
                             self.response_receiver = None;
                             self.events = response.events;
                             self.error = None;
                             self.partial_response.clear();
+                            if content.trim().is_empty() {
+                                let error = "模型返回了空回复，未保存 assistant 消息".to_owned();
+                                self.error = Some(error.clone());
+                                crate::notify::warning(&error);
+                                tracing::warn!("{error}");
+                                return;
+                            }
                             if let Some(sess) =
                                 ctxs.state.sessions.get_mut(ctxs.state.current_index)
                             {
                                 sess.messages.push(Message {
                                     role: Role::Assistant,
                                     timestamp: Utc::now(),
-                                    content: MessageContent::Markdown(response.message.content),
+                                    content: MessageContent::Markdown(content),
                                 });
                                 sess.updated_at = Utc::now();
                                 if let Err(error) = ctxs.storage.save_session(sess) {
