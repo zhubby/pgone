@@ -213,6 +213,19 @@ impl DbTree {
                 }
             }
 
+            let connection_name = db_manager
+                .active_db_config()
+                .map(|cfg| cfg.id)
+                .or_else(|| db_manager.active_db_config_id.clone())
+                .unwrap_or_else(|| "Connection".to_string());
+
+            egui::CollapsingHeader::new(format!(
+                "{} {}",
+                egui_phosphor::regular::PLUG,
+                connection_name
+            ))
+            .default_open(true)
+            .show(ui, |ui| {
             // 收集需要加载表结构详情的表
             let mut pending_design_loads = Vec::new();
 
@@ -856,13 +869,7 @@ impl DbTree {
             for (db, schema, table) in items_to_load_triggers {
                 loading::load_triggers(self, db_manager, &db, &schema, &table);
             }
-
-            // Add database button
-            if ui.button(format!("{} New Database", egui_phosphor::regular::PLUS)).clicked() {
-                use super::types::DialogType;
-                self.dialog = Some(DialogType::CreateDatabase);
-                self.dialog_input.clear();
-            }
+            });
         });
 
         // Show dialogs

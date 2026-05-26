@@ -6,6 +6,7 @@ use crate::futures;
 use crate::models::{Message, MessageContent, Role};
 use chrono::Utc;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use egui_file_dialog::FileDialog;
 use pgone_agent::{
     AgentContext, AgentEvent, AgentMessage, AgentRole, AgentTurnRequest, AgentTurnResponse,
     OpenAiCompatibleProvider, PgOneAgentService, ProviderConfig, StorageBackedAgentToolServices,
@@ -15,9 +16,15 @@ use tokio::sync::mpsc;
 use super::model_loader::ModelLoader;
 
 const AGENT_COMPOSER_OUTER_HEIGHT: f32 = 118.0;
-const AGENT_MESSAGE_FRAME_VERTICAL_INSET: f32 = 16.0;
 const AGENT_SECTION_SPACING: f32 = 8.0;
 const DEFAULT_OPENAI_CHAT_COMPLETIONS_URL: &str = "https://api.openai.com/v1/chat/completions";
+
+fn image_file_dialog() -> FileDialog {
+    FileDialog::new()
+        .add_file_filter_extensions("Images", vec!["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+        .default_file_filter("Images")
+        .id("agent_image_file_dialog")
+}
 
 struct AgentTurnResult {
     request_id: u64,
@@ -31,6 +38,8 @@ pub struct ChatPanel {
     events: Vec<AgentEvent>,
     response_receiver: Option<mpsc::Receiver<AgentTurnResult>>,
     model_loader: ModelLoader,
+    image_file_dialog: FileDialog,
+    file_dialog: FileDialog,
     in_flight: Option<u64>,
     error: Option<String>,
     next_request_id: u64,
@@ -46,6 +55,8 @@ impl Default for ChatPanel {
             events: Vec::new(),
             response_receiver: None,
             model_loader: ModelLoader::default(),
+            image_file_dialog: image_file_dialog(),
+            file_dialog: FileDialog::new().id("agent_file_dialog"),
             in_flight: None,
             error: None,
             next_request_id: 1,
@@ -67,6 +78,8 @@ impl Clone for ChatPanel {
                 models_receiver: None,
                 models_loaded: self.model_loader.models_loaded,
             },
+            image_file_dialog: image_file_dialog(),
+            file_dialog: FileDialog::new().id("agent_file_dialog"),
             in_flight: None,
             error: self.error.clone(),
             next_request_id: self.next_request_id,
@@ -80,8 +93,7 @@ impl ChatPanel {
         self.model_loader.check_and_load(ctxs);
         self.process_agent_response(ctxs);
 
-        let reserved_height = AGENT_COMPOSER_OUTER_HEIGHT + AGENT_MESSAGE_FRAME_VERTICAL_INSET;
-        let message_height = (ui.available_height() - reserved_height).max(120.0);
+        let message_height = (ui.available_height() - AGENT_COMPOSER_OUTER_HEIGHT).max(120.0);
         self.show_agent_messages(ctxs, ui, message_height);
 
         if self.show_agent_composer(ctxs, ui) {
@@ -304,20 +316,24 @@ impl ChatPanel {
             .button(egui_phosphor::regular::IMAGE)
             .on_hover_text("Attach image")
             .clicked()
-            && let Some(path) = rfd::FileDialog::new()
-                .add_filter("Image", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
-                .pick_file()
         {
-            self.pending_resources.push(path);
+            self.image_file_dialog.pick_file();
         }
 
         if ui
             .button(egui_phosphor::regular::FILE)
             .on_hover_text("Attach file")
             .clicked()
-            && let Some(path) = rfd::FileDialog::new().pick_file()
         {
-            self.pending_resources.push(path);
+            self.file_dialog.pick_file();
+        }
+
+        if let Some(path) = self.image_file_dialog.update(ui.ctx()).picked() {
+            self.pending_resources.push(path.to_path_buf());
+        }
+
+        if let Some(path) = self.file_dialog.update(ui.ctx()).picked() {
+            self.pending_resources.push(path.to_path_buf());
         }
     }
 
@@ -680,21 +696,23 @@ fn create_new_session(ctxs: &mut ChatCtx) {
 }
 
 fn show_agent_context_bar(ui: &mut egui::Ui, ctxs: &ChatCtx) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 14.0;
-        context_chip(
-            ui,
-            egui_phosphor::regular::DATABASE,
-            ctxs.active_db_label
-                .as_deref()
-                .unwrap_or("No database selected"),
-        );
-        context_chip(
-            ui,
-            egui_phosphor::regular::TABLE,
-            ctxs.selected_database.as_deref().unwrap_or("No database"),
-        );
-    });
+    if ui.available_width() < 220.0 {
+        return;
+    }
+
+    ui.spacing_mut().item_spacing.x = 14.0;
+    context_chip(
+        ui,
+        egui_phosphor::regular::DATABASE,
+        ctxs.active_db_label
+            .as_deref()
+            .unwrap_or("No database selected"),
+    );
+    context_chip(
+        ui,
+        egui_phosphor::regular::TABLE,
+        ctxs.selected_database.as_deref().unwrap_or("No database"),
+    );
 }
 
 fn context_chip(ui: &mut egui::Ui, icon: &str, text: &str) {
@@ -705,7 +723,14 @@ fn context_chip(ui: &mut egui::Ui, icon: &str, text: &str) {
                 .small()
                 .color(ui.visuals().weak_text_color()),
         );
-        ui.label(egui::RichText::new(text).small());
+        let max_text_width = (ui.available_width() - 6.0).min(96.0);
+        if max_text_width > 32.0 {
+            ui.add_sized(
+                [max_text_width, ui.spacing().interact_size.y],
+                egui::Label::new(egui::RichText::new(text).small()).truncate(),
+            )
+            .on_hover_text(text);
+        }
     });
 }
 

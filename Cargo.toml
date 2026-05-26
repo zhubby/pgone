@@ -99,6 +99,7 @@ egui_table = "0.8.0"
 egui-phosphor = "0.12"
 egui-notify = "0.22"
 egui-theme-switch = "0.7.0"
+egui-file-dialog = "0.13.0"
 image = { version = "0.25", default-features = false }
 webbrowser = "1"
 rfd = "0.15"
