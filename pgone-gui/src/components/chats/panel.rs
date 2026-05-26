@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 
 use super::model_loader::ModelLoader;
 
-const AGENT_COMPOSER_OUTER_HEIGHT: f32 = 132.0;
+const AGENT_COMPOSER_OUTER_HEIGHT: f32 = 118.0;
 const AGENT_MESSAGE_FRAME_VERTICAL_INSET: f32 = 16.0;
 const AGENT_SECTION_SPACING: f32 = 8.0;
 const DEFAULT_OPENAI_CHAT_COMPLETIONS_URL: &str = "https://api.openai.com/v1/chat/completions";
@@ -80,12 +80,7 @@ impl ChatPanel {
         self.model_loader.check_and_load(ctxs);
         self.process_agent_response(ctxs);
 
-        show_agent_header(ui, self, ctxs);
-        ui.add_space(AGENT_SECTION_SPACING);
-
-        let reserved_height = AGENT_COMPOSER_OUTER_HEIGHT
-            + AGENT_MESSAGE_FRAME_VERTICAL_INSET
-            + AGENT_SECTION_SPACING;
+        let reserved_height = AGENT_COMPOSER_OUTER_HEIGHT + AGENT_MESSAGE_FRAME_VERTICAL_INSET;
         let message_height = (ui.available_height() - reserved_height).max(120.0);
         self.show_agent_messages(ctxs, ui, message_height);
 
@@ -222,7 +217,6 @@ impl ChatPanel {
             .corner_radius(egui::CornerRadius::same(6))
             .inner_margin(egui::Margin::symmetric(8, 8))
             .show(ui, |ui| {
-                ui.set_min_height(108.0);
                 self.show_pending_resources(ctxs, ui);
                 let input_response = ui.add(
                     egui::TextEdit::multiline(&mut self.input)
@@ -241,6 +235,7 @@ impl ChatPanel {
 
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
+                    show_agent_conversation_menu(ui, self, ctxs);
                     show_agent_context_bar(ui, ctxs);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let send_text = egui::RichText::new(
@@ -626,55 +621,6 @@ impl ChatPanel {
     }
 }
 
-fn show_agent_header(ui: &mut egui::Ui, panel: &mut ChatPanel, ctxs: &mut ChatCtx) {
-    let (status_icon, status_text, status_color) = if panel.in_flight.is_some() {
-        (
-            egui_phosphor::regular::CIRCLE_NOTCH,
-            "Thinking",
-            ui.visuals().hyperlink_color,
-        )
-    } else if panel.error.is_some() {
-        (
-            egui_phosphor::regular::WARNING_CIRCLE,
-            "Needs attention",
-            ui.visuals().error_fg_color,
-        )
-    } else {
-        (
-            egui_phosphor::regular::SPARKLE,
-            "Ready",
-            ui.visuals().weak_text_color(),
-        )
-    };
-
-    egui::Frame::new()
-        .fill(ui.visuals().widgets.inactive.bg_fill)
-        .stroke(ui.visuals().widgets.inactive.bg_stroke)
-        .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::symmetric(10, 8))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(egui_phosphor::regular::SPARKLE)
-                        .color(ui.visuals().hyperlink_color),
-                );
-                ui.vertical(|ui| {
-                    ui.label(egui::RichText::new("PgOne Agent").strong());
-                    ui.label(
-                        egui::RichText::new(current_conversation_title(ctxs))
-                            .small()
-                            .color(ui.visuals().weak_text_color()),
-                    );
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new(status_text).small().color(status_color));
-                    ui.label(egui::RichText::new(status_icon).color(status_color));
-                    show_agent_conversation_menu(ui, panel, ctxs);
-                });
-            });
-        });
-}
-
 fn show_agent_conversation_menu(ui: &mut egui::Ui, panel: &mut ChatPanel, ctxs: &mut ChatCtx) {
     ui.menu_button(egui_phosphor::regular::CHATS, |ui| {
         if ui
@@ -731,14 +677,6 @@ fn create_new_session(ctxs: &mut ChatCtx) {
     if let Err(error) = ctxs.storage.save_session(&new_session) {
         tracing::error!("保存新会话失败: {error}");
     }
-}
-
-fn current_conversation_title(ctxs: &ChatCtx) -> String {
-    ctxs.state
-        .sessions
-        .get(ctxs.state.current_index)
-        .map(|session| session.title.clone())
-        .unwrap_or_else(|| "Database assistant".to_owned())
 }
 
 fn show_agent_context_bar(ui: &mut egui::Ui, ctxs: &ChatCtx) {

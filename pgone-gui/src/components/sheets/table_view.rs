@@ -80,26 +80,8 @@ impl ResultsTable {
             }
         }
 
-        // 顶部工具栏：标题、刷新按钮、CSV 导出按钮
+        // 顶部工具栏：SQL 预览、刷新按钮、CSV 导出按钮
         ui.horizontal(|ui| {
-            ui.heading(format!("{} Results", egui_phosphor::regular::TABLE));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if show_refresh {
-                    if ui.button(egui_phosphor::regular::ARROW_CLOCKWISE).clicked() {
-                        self.refresh_requested = true;
-                    }
-                    ui.add_space(8.0);
-                }
-                if ui.button("Export CSV...").clicked() {
-                    self.export_csv(&self.query_columns, &self.query_rows);
-                }
-            });
-        });
-        ui.separator();
-
-        // SQL 语句预览工具栏：左侧固定宽度显示 SQL，右侧显示 EXPLAIN 信息
-        ui.horizontal(|ui| {
-            // 左侧：SQL 显示区域
             if let Some(ref sql_str) = self.current_sql {
                 // 只显示第一行，最多 300 个字符
                 let first_line = sql_str.lines().next().unwrap_or("");
@@ -113,8 +95,18 @@ impl ResultsTable {
                 ui.label(egui::RichText::new("No SQL statement").color(egui::Color32::GRAY));
             }
 
-            // 右侧：EXPLAIN 信息显示区域，固定宽度
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Export CSV...").clicked() {
+                    self.export_csv(&self.query_columns, &self.query_rows);
+                }
+
+                if show_refresh {
+                    if ui.button(egui_phosphor::regular::ARROW_CLOCKWISE).clicked() {
+                        self.refresh_requested = true;
+                    }
+                    ui.add_space(8.0);
+                }
+
                 if let Some(ref explain_info) = self.explain_info {
                     // 显示 EXPLAIN 信息：类型 | 成本 | 行数
                     let info_text = format!(

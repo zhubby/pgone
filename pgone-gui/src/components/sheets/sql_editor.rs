@@ -4,12 +4,7 @@ use crate::sql;
 impl ResultsTable {
     /// Render SQL editor with syntax highlighting
     pub fn ui_sql_editor(&mut self, ui: &mut egui::Ui, show_execute: bool) {
-        // 标题栏：标题靠左，按钮在右侧垂直居中
         ui.horizontal(|ui| {
-            // 标题靠左显示
-            ui.heading(format!("{} SQL Editor", egui_phosphor::regular::CODE));
-
-            // 右侧按钮区域，垂直居中
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
 
@@ -79,11 +74,8 @@ impl ResultsTable {
             });
         });
 
-        ui.separator();
-
         let current_sql = self.sql_input.clone();
-        // Use available height minus header and separator space
-        let available_height = ui.available_height() - 10.0;
+        let available_height = ui.available_height() - 4.0;
 
         // 添加左右边距（各 5）
         ui.horizontal(|ui| {

@@ -17,12 +17,14 @@ pub enum DockTab {
 }
 
 impl DockTab {
-    fn title(&self) -> &'static str {
+    fn title(&self) -> String {
         match self {
-            Self::DatabaseStructure => "Database Structure",
-            Self::SqlEditor => "SQL Editor",
-            Self::Results => "Results",
-            Self::Chat => "Agent",
+            Self::DatabaseStructure => {
+                format!("{} Structure", egui_phosphor::regular::TREE_STRUCTURE)
+            }
+            Self::SqlEditor => format!("{} SQL", egui_phosphor::regular::CODE),
+            Self::Results => format!("{} Results", egui_phosphor::regular::TABLE),
+            Self::Chat => format!("{} Agent", egui_phosphor::regular::SPARKLE),
         }
     }
 }
