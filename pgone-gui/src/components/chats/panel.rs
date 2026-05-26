@@ -281,7 +281,6 @@ impl ChatPanel {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     show_agent_conversation_menu(ui, self, ctxs);
-                    show_agent_context_bar(ui, ctxs);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if self.in_flight.is_some()
                             && ui
@@ -311,7 +310,6 @@ impl ChatPanel {
                             .on_hover_text("Send")
                             .clicked();
 
-                        self.show_model_selector(ctxs, ui);
                         self.show_resource_buttons(ui);
                     });
                 });
@@ -328,35 +326,6 @@ impl ChatPanel {
             });
 
         send_clicked
-    }
-
-    fn show_model_selector(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
-        let available_models = if self.model_loader.available_models.is_empty() {
-            vec![
-                "gpt-4o-mini".to_string(),
-                "gpt-4o".to_string(),
-                "gpt-4-turbo".to_string(),
-                "gpt-4".to_string(),
-                "gpt-3.5-turbo".to_string(),
-            ]
-        } else {
-            self.model_loader.available_models.clone()
-        };
-
-        let mut selected_model = ctxs.openai_model.clone();
-        egui::ComboBox::from_id_salt("agent_model_selector")
-            .selected_text(&selected_model)
-            .width(150.0)
-            .show_ui(ui, |ui| {
-                for model in available_models {
-                    ui.selectable_value(&mut selected_model, model.clone(), model);
-                }
-            });
-
-        if selected_model != ctxs.openai_model {
-            ctxs.openai_model = selected_model.clone();
-            ctxs.state.settings.openai_model = selected_model;
-        }
     }
 
     fn show_resource_buttons(&mut self, ui: &mut egui::Ui) {
@@ -759,45 +728,6 @@ fn create_new_session(ctxs: &mut ChatCtx) {
     if let Err(error) = ctxs.storage.save_session(&new_session) {
         tracing::error!("保存新会话失败: {error}");
     }
-}
-
-fn show_agent_context_bar(ui: &mut egui::Ui, ctxs: &ChatCtx) {
-    if ui.available_width() < 220.0 {
-        return;
-    }
-
-    ui.spacing_mut().item_spacing.x = 14.0;
-    context_chip(
-        ui,
-        egui_phosphor::regular::DATABASE,
-        ctxs.active_db_label
-            .as_deref()
-            .unwrap_or("No database selected"),
-    );
-    context_chip(
-        ui,
-        egui_phosphor::regular::TABLE,
-        ctxs.selected_database.as_deref().unwrap_or("No database"),
-    );
-}
-
-fn context_chip(ui: &mut egui::Ui, icon: &str, text: &str) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        ui.label(
-            egui::RichText::new(icon)
-                .small()
-                .color(ui.visuals().weak_text_color()),
-        );
-        let max_text_width = (ui.available_width() - 6.0).min(96.0);
-        if max_text_width > 32.0 {
-            ui.add_sized(
-                [max_text_width, ui.spacing().interact_size.y],
-                egui::Label::new(egui::RichText::new(text).small()).truncate(),
-            )
-            .on_hover_text(text);
-        }
-    });
 }
 
 fn show_agent_empty_state(ui: &mut egui::Ui) {

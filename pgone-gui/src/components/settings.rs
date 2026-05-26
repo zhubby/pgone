@@ -302,67 +302,47 @@ impl SettingsTabViewer<'_> {
         ui.heading("LLM");
         ui.separator();
 
-        ui.horizontal(|ui| {
-            ui.label("接口:");
-            ui.label("OpenAI-compatible Chat Completions");
-        });
+        egui::Grid::new("llm_settings_grid")
+            .num_columns(2)
+            .spacing([16.0, 10.0])
+            .show(ui, |ui| {
+                ui.label("接口:");
+                ui.label("OpenAI-compatible Chat Completions");
+                ui.end_row();
 
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.label("API Key:");
-            let mut api_key_str = self
-                .settings
-                .openai_api_key
-                .as_deref()
-                .unwrap_or("")
-                .to_string();
-            if ui.text_edit_singleline(&mut api_key_str).changed() {
-                self.settings.openai_api_key = (!api_key_str.is_empty()).then_some(api_key_str);
-            }
-        });
+                ui.label("API Key:");
+                let mut api_key_str = self
+                    .settings
+                    .openai_api_key
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_string();
+                if ui.text_edit_singleline(&mut api_key_str).changed() {
+                    self.settings.openai_api_key = (!api_key_str.is_empty()).then_some(api_key_str);
+                }
+                ui.end_row();
 
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.label("Base URL:");
-            let mut base_url_str = self
-                .settings
-                .openai_base_url
-                .as_deref()
-                .unwrap_or("")
-                .to_string();
-            if ui.text_edit_singleline(&mut base_url_str).changed() {
-                self.settings.openai_base_url = (!base_url_str.is_empty()).then_some(base_url_str);
-            }
-        });
+                ui.label("Base URL:");
+                let mut base_url_str = self
+                    .settings
+                    .openai_base_url
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_string();
+                if ui.text_edit_singleline(&mut base_url_str).changed() {
+                    self.settings.openai_base_url =
+                        (!base_url_str.is_empty()).then_some(base_url_str);
+                }
+                ui.end_row();
 
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.label("启用流式 API:");
-            ui.add(toggle(&mut self.settings.enable_stream_api));
-        });
+                ui.label("启用流式 API:");
+                ui.add(toggle(&mut self.settings.enable_stream_api));
+                ui.end_row();
 
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.label("模型:");
-            let available_models = if self.panel.available_models.is_empty() {
-                default_models()
-            } else {
-                self.panel.available_models.clone()
-            };
-            let display_text = if self.panel.models_receiver.is_some() {
-                format!("{} (加载中...)", self.settings.openai_model)
-            } else {
-                self.settings.openai_model.clone()
-            };
-
-            ComboBox::from_id_salt("openai_model")
-                .selected_text(&display_text)
-                .show_ui(ui, |ui| {
-                    for model in &available_models {
-                        ui.selectable_value(&mut self.settings.openai_model, model.clone(), model);
-                    }
-                });
-        });
+                ui.label("模型:");
+                ui.text_edit_singleline(&mut self.settings.openai_model);
+                ui.end_row();
+            });
     }
 
     fn show_network(&mut self, ui: &mut Ui) {
