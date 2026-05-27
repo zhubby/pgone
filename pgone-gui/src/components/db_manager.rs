@@ -387,6 +387,16 @@ impl DbManager {
         self.active_db_config().map(|cfg| cfg.dsn)
     }
 
+    pub fn dsn_for_config(&self, id: &str) -> Option<String> {
+        self.storage.as_ref()?.get_db_config(id).map(|cfg| cfg.dsn)
+    }
+
+    pub fn dsn_for_config_database(&self, id: &str, database: &str) -> Option<String> {
+        let dsn = self.dsn_for_config(id)?;
+        crate::components::structures::utils::replace_database_in_dsn(&dsn, database)
+            .or_else(|| Some(dsn))
+    }
+
     pub fn dsn_for_database(&self, database: &str) -> Option<String> {
         let cfg = self.active_db_config()?;
         crate::components::structures::utils::replace_database_in_dsn(&cfg.dsn, database)

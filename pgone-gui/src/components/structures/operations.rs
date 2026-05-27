@@ -19,7 +19,10 @@ pub(super) fn create_database(
     db_manager: &mut crate::components::DbManager,
     name: &str,
 ) {
-    let Some(dsn) = db_manager.active_dsn() else {
+    let Some(connection_id) = tree.current_db_id.as_ref() else {
+        return;
+    };
+    let Some(dsn) = db_manager.dsn_for_config(connection_id) else {
         return;
     };
     let name = name.to_string();
@@ -186,7 +189,10 @@ pub(super) fn delete_database(
     name: &str,
     _cascade: bool,
 ) {
-    let Some(dsn) = db_manager.active_dsn() else {
+    let Some(connection_id) = tree.current_db_id.as_ref() else {
+        return;
+    };
+    let Some(dsn) = db_manager.dsn_for_config(connection_id) else {
         return;
     };
     let name = name.to_string();
@@ -269,7 +275,10 @@ pub(super) fn rename_database(
     old_name: &str,
     new_name: &str,
 ) {
-    let Some(dsn) = db_manager.active_dsn() else {
+    let Some(connection_id) = tree.current_db_id.as_ref() else {
+        return;
+    };
+    let Some(dsn) = db_manager.dsn_for_config(connection_id) else {
         return;
     };
     let old_name = old_name.to_string();
@@ -410,13 +419,13 @@ pub(super) fn design_table(
 }
 
 pub(super) fn drop_table(
-    _tree: &mut DbTree,
+    tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
     database: &str,
     schema: &str,
     name: &str,
 ) {
-    let Some(dsn) = db_manager.dsn_for_database(database) else {
+    let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
     let schema = schema.to_string();

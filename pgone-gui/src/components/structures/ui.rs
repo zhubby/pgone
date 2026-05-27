@@ -5,37 +5,22 @@ use crate::components::ResultsTable;
 use std::collections::HashSet;
 
 impl DbTree {
-    pub fn ui(
+    fn handle_connection_state(
         &mut self,
-        ui: &mut egui::Ui,
         db_manager: &mut crate::components::DbManager,
         results_table: &mut ResultsTable,
     ) {
-        // Check if database config changed
-        let current_db = db_manager.active_db_config_id.clone();
-        if current_db != self.current_db_id {
-            self.current_db_id = current_db.clone();
-            self.reset();
-            if current_db.is_some() {
-                loading::load_databases(self, db_manager);
-            }
-        }
-
-        // Check for async load results
         loading::check_promises(self);
         loading::check_result_promises(self, results_table);
 
-        // Handle pending query table action
         if let Some((database, schema, table)) = self.pending_query_table.take() {
             loading::query_table_data(self, db_manager, results_table, &database, &schema, &table);
         }
 
-        // Handle pending query view action
         if let Some((database, schema, view)) = self.pending_query_view.take() {
             loading::query_view_detail(self, db_manager, results_table, &database, &schema, &view);
         }
 
-        // Handle pending query materialized view action
         if let Some((database, schema, matview)) = self.pending_query_materialized_view.take() {
             loading::query_materialized_view_detail(
                 self,
@@ -47,7 +32,6 @@ impl DbTree {
             );
         }
 
-        // Handle pending query function action
         if let Some((database, schema, function)) = self.pending_query_function.take() {
             loading::query_function_detail(
                 self,
@@ -59,7 +43,6 @@ impl DbTree {
             );
         }
 
-        // Handle pending query index action
         if let Some((database, schema, table, index)) = self.pending_query_index.take() {
             loading::query_index_detail(
                 self,
@@ -72,7 +55,6 @@ impl DbTree {
             );
         }
 
-        // Handle pending query foreign key action
         if let Some((database, schema, table, fk_name)) = self.pending_query_foreign_key.take() {
             loading::query_foreign_key_detail(
                 self,
@@ -85,7 +67,6 @@ impl DbTree {
             );
         }
 
-        // Handle pending query trigger action
         if let Some((database, schema, table, trigger)) = self.pending_query_trigger.take() {
             loading::query_trigger_detail(
                 self,
@@ -98,11 +79,17 @@ impl DbTree {
             );
         }
 
-        // Handle pending load DDL action
         if let Some((database, schema, table)) = self.pending_load_ddl.take() {
             loading::load_table_ddl(self, db_manager, &database, &schema, &table);
         }
+    }
 
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        db_manager: &mut crate::components::DbManager,
+        results_table: &mut ResultsTable,
+    ) {
         // Render tree
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
@@ -140,21 +127,47 @@ impl DbTree {
             {
                 db_manager.active_db_config_id = None;
                 self.current_db_id = None;
-                self.reset();
             }
+
+            let known_connection_ids = connection_configs
+                .iter()
+                .map(|cfg| cfg.id.clone())
+                .collect::<HashSet<_>>();
+            self.connection_states
+                .retain(|connection_id, _| known_connection_ids.contains(connection_id));
+            self.expanded_connections
+                .retain(|connection_id| known_connection_ids.contains(connection_id));
 
             for cfg in connection_configs {
                 let connection_id = cfg.id.clone();
-                let is_active = db_manager.active_db_config_id.as_deref() == Some(connection_id.as_str());
+                let state = self
+                    .connection_states
+                    .remove(&connection_id)
+                    .unwrap_or_default();
+                self.load_connection_state(connection_id.clone(), state);
+                self.handle_connection_state(db_manager, results_table);
+                let is_active =
+                    db_manager.active_db_config_id.as_deref() == Some(connection_id.as_str());
+                let connection_label = if is_active {
+                    format!(
+                        "{} {}  [Active]",
+                        egui_phosphor::regular::PLUG,
+                        connection_id
+                    )
+                } else {
+                    format!("{} {}", egui_phosphor::regular::PLUG, connection_id)
+                };
+                let mut connection_title = egui::RichText::new(connection_label);
+                if is_active {
+                    connection_title = connection_title
+                        .strong()
+                        .color(ui.visuals().selection.stroke.color);
+                }
 
-                let connection_response = egui::CollapsingHeader::new(format!(
-                    "{} {}",
-                    egui_phosphor::regular::PLUG,
-                    connection_id
-                ))
-                .open(Some(is_active))
-                .show(ui, |ui| {
-                    if let Some(err) = &self.error {
+                let connection_response = egui::CollapsingHeader::new(connection_title)
+                    .default_open(self.expanded_connections.contains(&connection_id))
+                    .show(ui, |ui| {
+                        if let Some(err) = &self.error {
                         ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
                         if ui.button("Retry").clicked() {
                             self.reset();
@@ -1113,16 +1126,18 @@ impl DbTree {
 
                 if connection_response.header_response.clicked() && !is_active {
                     db_manager.select_db_config(&connection_id);
-                    self.current_db_id = Some(connection_id.clone());
-                    self.reset();
-                    loading::load_databases(self, db_manager);
+                }
+
+                if connection_response.fully_open() {
+                    self.expanded_connections.insert(connection_id.clone());
+                } else if connection_response.fully_closed() {
+                    self.expanded_connections.remove(&connection_id);
                 }
 
                 connection_response.header_response.context_menu(|ui| {
                     if refresh_menu_button(ui).clicked() {
                         if !is_active {
                             db_manager.select_db_config(&connection_id);
-                            self.current_db_id = Some(connection_id.clone());
                         }
                         self.reset();
                         loading::refresh_databases(self, db_manager);
@@ -1145,6 +1160,10 @@ impl DbTree {
                         ui.close();
                     }
                 });
+
+                dialogs::show_dialogs(self, ui, db_manager);
+                let state = self.take_connection_state();
+                self.connection_states.insert(connection_id.clone(), state);
             }
 
             show_blank_area_context_menu(
@@ -1153,8 +1172,7 @@ impl DbTree {
             );
         });
 
-        // Show dialogs
-        dialogs::show_dialogs(self, ui, db_manager);
+        self.current_db_id = db_manager.active_db_config_id.clone();
     }
 
     fn reset(&mut self) {

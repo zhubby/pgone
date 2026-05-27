@@ -228,11 +228,11 @@ pub(super) fn load_databases(tree: &mut DbTree, db_manager: &mut crate::componen
         return;
     }
 
-    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(db_id) = tree.current_db_id.clone() else {
         return;
     };
 
-    let dsn = if let Some(dsn) = db_manager.active_dsn() {
+    let dsn = if let Some(dsn) = db_manager.dsn_for_config(&db_id) {
         dsn
     } else {
         tree.error = Some("Database config not available".to_string());
@@ -271,11 +271,11 @@ pub(super) fn load_schemas(
         return; // Already loading
     }
 
-    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(db_id) = tree.current_db_id.clone() else {
         return;
     };
 
-    let Some(dsn) = db_manager.dsn_for_database(database) else {
+    let Some(dsn) = db_manager.dsn_for_config_database(&db_id, database) else {
         return;
     };
 
@@ -313,11 +313,11 @@ pub(super) fn load_tables(
         return; // Already loading
     }
 
-    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(db_id) = tree.current_db_id.clone() else {
         return;
     };
 
-    let Some(dsn) = db_manager.dsn_for_database(database) else {
+    let Some(dsn) = db_manager.dsn_for_config_database(&db_id, database) else {
         return;
     };
 
@@ -356,11 +356,11 @@ pub(super) fn load_views(
         return; // Already loading
     }
 
-    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(db_id) = tree.current_db_id.clone() else {
         return;
     };
 
-    let Some(dsn) = db_manager.dsn_for_database(database) else {
+    let Some(dsn) = db_manager.dsn_for_config_database(&db_id, database) else {
         return;
     };
 
@@ -403,11 +403,11 @@ pub(super) fn load_materialized_views(
         return; // Already loading
     }
 
-    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(db_id) = tree.current_db_id.clone() else {
         return;
     };
 
-    let Some(dsn) = db_manager.dsn_for_database(database) else {
+    let Some(dsn) = db_manager.dsn_for_config_database(&db_id, database) else {
         return;
     };
 
@@ -447,11 +447,11 @@ pub(super) fn load_functions(
         return; // Already loading
     }
 
-    let Some(_db_id) = db_manager.active_db_config_id.clone() else {
+    let Some(db_id) = tree.current_db_id.clone() else {
         return;
     };
 
-    let Some(dsn) = db_manager.dsn_for_database(database) else {
+    let Some(dsn) = db_manager.dsn_for_config_database(&db_id, database) else {
         return;
     };
 
@@ -554,13 +554,18 @@ pub(super) fn refresh_schema_children(
 }
 
 pub(super) fn query_table_data(
-    _tree: &mut DbTree,
-    _db_manager: &mut crate::components::DbManager,
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
     results_table: &mut ResultsTable,
     database: &str,
     schema: &str,
     table: &str,
 ) {
+    if let Some(connection_id) = tree.current_db_id.clone() {
+        db_manager.select_db_config(&connection_id);
+        results_table.current_db_id = Some(connection_id);
+    }
+
     // 生成 SQL 查询语句，让表格组件自己执行查询
     // 使用 LIMIT 100 限制结果数量，避免查询过大数据集
     let sql = format!("SELECT * FROM \"{}\".\"{}\" LIMIT 100", schema, table);
@@ -693,12 +698,12 @@ pub(super) fn load_table_ddl(
 }
 
 pub(super) fn get_dsn_for_database(
-    _tree: &DbTree,
+    tree: &DbTree,
     db_manager: &mut crate::components::DbManager,
     database: &str,
 ) -> Option<String> {
-    let _db_id = db_manager.active_db_config_id.clone()?;
-    db_manager.dsn_for_database(database)
+    let db_id = tree.current_db_id.as_ref()?;
+    db_manager.dsn_for_config_database(db_id, database)
 }
 
 pub(super) fn load_indexes(
@@ -833,6 +838,44 @@ pub(super) fn load_triggers(
 
         sender.send(result);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{DbManager, ResultsTable};
+
+    #[test]
+    fn query_table_data_switches_active_connection_to_tree_connection() {
+        let mut tree = DbTree {
+            current_db_id: Some("analytics".to_string()),
+            ..Default::default()
+        };
+        let mut db_manager = DbManager::default();
+        db_manager.active_db_config_id = Some("default".to_string());
+        let mut results_table = ResultsTable::default();
+
+        query_table_data(
+            &mut tree,
+            &mut db_manager,
+            &mut results_table,
+            "warehouse",
+            "public",
+            "events",
+        );
+
+        assert_eq!(db_manager.active_db_config_id.as_deref(), Some("analytics"));
+        assert_eq!(results_table.current_db_id.as_deref(), Some("analytics"));
+        assert_eq!(
+            results_table.selected_database.as_deref(),
+            Some("warehouse")
+        );
+        assert_eq!(
+            results_table.sql_input,
+            "SELECT * FROM \"public\".\"events\" LIMIT 100"
+        );
+        assert!(results_table.execute_sql_requested);
+    }
 }
 
 pub(super) fn refresh_indexes(
