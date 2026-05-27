@@ -318,12 +318,38 @@ impl DbTree {
 
                                                     for index in indexes {
                                                         let index_name = index.name.clone();
-                                                        if ui.selectable_label(false, &index_name).clicked() {
-                                                            self.pending_query_index = Some((db_name.clone(), schema_name.clone(), table_name.clone(), index_name.clone()));
+                                                        let db_name_menu = db_name.clone();
+                                                        let schema_name_menu = schema_name.clone();
+                                                        let table_name_menu = table_name.clone();
+                                                        let index_name_menu = index_name.clone();
+                                                        let index_response =
+                                                            ui.selectable_label(false, &index_name);
+                                                        if index_response.clicked() {
+                                                            self.pending_query_index = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone(), index_name_menu.clone()));
                                                         }
+
+                                                        index_response.context_menu(|ui| {
+                                                            if refresh_menu_button(ui).clicked() {
+                                                                self.pending_query_index = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone(), index_name_menu.clone()));
+                                                                ui.close();
+                                                            }
+                                                        });
                                                     }
                                                 } else {
                                                     ui.label("Loading indexes...");
+                                                }
+                                            });
+
+                                            indexes_response.header_response.context_menu(|ui| {
+                                                if refresh_menu_button(ui).clicked() {
+                                                    loading::refresh_indexes(
+                                                        self,
+                                                        db_manager,
+                                                        &db_name,
+                                                        &schema_name,
+                                                        &table_name,
+                                                    );
+                                                    ui.close();
                                                 }
                                             });
 
@@ -373,15 +399,39 @@ impl DbTree {
                                                     for (idx, fk) in foreign_keys.iter().enumerate() {
                                                         // Generate a display name for the foreign key
                                                         let fk_display = format!("{} -> {}", fk.columns.join(", "), fk.ref_table);
-                                                        if ui.selectable_label(false, &fk_display).clicked() {
-                                                            // Store foreign key info as JSON string to pass to query function
-                                                            // The query function will use columns and ref_table to find the constraint name
-                                                            let fk_info = format!("{}|{}|{}", fk.columns.join(","), fk.ref_table, idx);
-                                                            self.pending_query_foreign_key = Some((db_name.clone(), schema_name.clone(), table_name.clone(), fk_info));
+                                                        let fk_info = format!("{}|{}|{}", fk.columns.join(","), fk.ref_table, idx);
+                                                        let db_name_menu = db_name.clone();
+                                                        let schema_name_menu = schema_name.clone();
+                                                        let table_name_menu = table_name.clone();
+                                                        let fk_info_menu = fk_info.clone();
+                                                        let fk_response =
+                                                            ui.selectable_label(false, &fk_display);
+                                                        if fk_response.clicked() {
+                                                            self.pending_query_foreign_key = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone(), fk_info_menu.clone()));
                                                         }
+
+                                                        fk_response.context_menu(|ui| {
+                                                            if refresh_menu_button(ui).clicked() {
+                                                                self.pending_query_foreign_key = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone(), fk_info_menu.clone()));
+                                                                ui.close();
+                                                            }
+                                                        });
                                                     }
                                                 } else {
                                                     ui.label("Loading foreign keys...");
+                                                }
+                                            });
+
+                                            fks_response.header_response.context_menu(|ui| {
+                                                if refresh_menu_button(ui).clicked() {
+                                                    loading::refresh_foreign_keys(
+                                                        self,
+                                                        db_manager,
+                                                        &db_name,
+                                                        &schema_name,
+                                                        &table_name,
+                                                    );
+                                                    ui.close();
                                                 }
                                             });
 
@@ -430,12 +480,38 @@ impl DbTree {
 
                                                     for trigger in triggers {
                                                         let trigger_name = trigger.name.clone();
-                                                        if ui.selectable_label(false, &trigger_name).clicked() {
-                                                            self.pending_query_trigger = Some((db_name.clone(), schema_name.clone(), table_name.clone(), trigger_name.clone()));
+                                                        let db_name_menu = db_name.clone();
+                                                        let schema_name_menu = schema_name.clone();
+                                                        let table_name_menu = table_name.clone();
+                                                        let trigger_name_menu = trigger_name.clone();
+                                                        let trigger_response =
+                                                            ui.selectable_label(false, &trigger_name);
+                                                        if trigger_response.clicked() {
+                                                            self.pending_query_trigger = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone(), trigger_name_menu.clone()));
                                                         }
+
+                                                        trigger_response.context_menu(|ui| {
+                                                            if refresh_menu_button(ui).clicked() {
+                                                                self.pending_query_trigger = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone(), trigger_name_menu.clone()));
+                                                                ui.close();
+                                                            }
+                                                        });
                                                     }
                                                 } else {
                                                     ui.label("Loading triggers...");
+                                                }
+                                            });
+
+                                            triggers_response.header_response.context_menu(|ui| {
+                                                if refresh_menu_button(ui).clicked() {
+                                                    loading::refresh_triggers(
+                                                        self,
+                                                        db_manager,
+                                                        &db_name,
+                                                        &schema_name,
+                                                        &table_name,
+                                                    );
+                                                    ui.close();
                                                 }
                                             });
 
@@ -463,6 +539,17 @@ impl DbTree {
                                         let table_name_menu = table_name.clone();
 
                                         table_response.header_response.context_menu(|ui| {
+                                            if refresh_menu_button(ui).clicked() {
+                                                self.pending_query_table = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone()));
+                                                loading::refresh_table_children(
+                                                    self,
+                                                    db_manager,
+                                                    &db_name_menu,
+                                                    &schema_name_menu,
+                                                    &table_name_menu,
+                                                );
+                                                ui.close();
+                                            }
                                             if menu_button(
                                                 ui,
                                                 egui_phosphor::regular::MAGNIFYING_GLASS,
@@ -578,6 +665,13 @@ impl DbTree {
                                     }
                                 });
 
+                                tables_category_response.header_response.context_menu(|ui| {
+                                    if refresh_menu_button(ui).clicked() {
+                                        loading::refresh_tables(self, db_manager, &db_name, &schema_name);
+                                        ui.close();
+                                    }
+                                });
+
                                 if !is_tables_category_expanded && tables_category_response.header_response.clicked() {
                                     self.expanded_tables
                                         .entry(tables_key.clone())
@@ -628,6 +722,10 @@ impl DbTree {
 
                                             // Context menu for view
                                             view_response.context_menu(|ui| {
+                                                if refresh_menu_button(ui).clicked() {
+                                                    self.pending_query_view = Some((db_name_menu.clone(), schema_name_menu.clone(), view_name_menu.clone()));
+                                                    ui.close();
+                                                }
                                                 if menu_button(
                                                     ui,
                                                     egui_phosphor::regular::GEAR,
@@ -648,6 +746,13 @@ impl DbTree {
 
                                     } else {
                                         ui.label("Loading views...");
+                                    }
+                                });
+
+                                views_category_response.header_response.context_menu(|ui| {
+                                    if refresh_menu_button(ui).clicked() {
+                                        loading::refresh_views(self, db_manager, &db_name, &schema_name);
+                                        ui.close();
                                     }
                                 });
 
@@ -710,6 +815,10 @@ impl DbTree {
 
                                             // Context menu for materialized view
                                             matview_response.context_menu(|ui| {
+                                                if refresh_menu_button(ui).clicked() {
+                                                    self.pending_query_materialized_view = Some((db_name_menu.clone(), schema_name_menu.clone(), matview_name_menu.clone()));
+                                                    ui.close();
+                                                }
                                                 if menu_button(
                                                     ui,
                                                     egui_phosphor::regular::GEAR,
@@ -730,6 +839,18 @@ impl DbTree {
 
                                     } else {
                                         ui.label("Loading materialized views...");
+                                    }
+                                });
+
+                                matviews_category_response.header_response.context_menu(|ui| {
+                                    if refresh_menu_button(ui).clicked() {
+                                        loading::refresh_materialized_views(
+                                            self,
+                                            db_manager,
+                                            &db_name,
+                                            &schema_name,
+                                        );
+                                        ui.close();
                                     }
                                 });
 
@@ -783,6 +904,10 @@ impl DbTree {
 
                                             // Context menu for function
                                             function_response.context_menu(|ui| {
+                                                if refresh_menu_button(ui).clicked() {
+                                                    self.pending_query_function = Some((db_name_menu.clone(), schema_name_menu.clone(), function_name_menu.clone()));
+                                                    ui.close();
+                                                }
                                                 if menu_button(
                                                     ui,
                                                     egui_phosphor::regular::GEAR,
@@ -806,6 +931,18 @@ impl DbTree {
                                     }
                                 });
 
+                                functions_category_response.header_response.context_menu(|ui| {
+                                    if refresh_menu_button(ui).clicked() {
+                                        loading::refresh_functions(
+                                            self,
+                                            db_manager,
+                                            &db_name,
+                                            &schema_name,
+                                        );
+                                        ui.close();
+                                    }
+                                });
+
                                 if !is_functions_category_expanded && functions_category_response.header_response.clicked() {
                                     self.expanded_functions
                                         .entry(tables_key.clone())
@@ -816,6 +953,15 @@ impl DbTree {
 
                             // Handle schema context menu
                             schema_response.header_response.context_menu(|ui| {
+                                if refresh_menu_button(ui).clicked() {
+                                    loading::refresh_schema_children(
+                                        self,
+                                        db_manager,
+                                        &db_name,
+                                        &schema_name,
+                                    );
+                                    ui.close();
+                                }
                                 if menu_button(ui, egui_phosphor::regular::GRAPH, "Graph").clicked() {
                                     self.pending_open_graph = Some((db_name.clone(), schema_name.clone()));
                                     ui.close();
@@ -921,6 +1067,10 @@ impl DbTree {
 
                 // Handle database context menu
                 response.header_response.context_menu(|ui| {
+                    if refresh_menu_button(ui).clicked() {
+                        loading::refresh_schemas(self, db_manager, &db_name);
+                        ui.close();
+                    }
                     if menu_button(ui, egui_phosphor::regular::FOLDER_PLUS, "New Schema").clicked() {
                         use super::types::DialogType;
                         self.dialog = Some(DialogType::CreateSchema {
@@ -969,6 +1119,15 @@ impl DbTree {
                 }
 
                 connection_response.header_response.context_menu(|ui| {
+                    if refresh_menu_button(ui).clicked() {
+                        if !is_active {
+                            db_manager.select_db_config(&connection_id);
+                            self.current_db_id = Some(connection_id.clone());
+                        }
+                        self.reset();
+                        loading::refresh_databases(self, db_manager);
+                        ui.close();
+                    }
                     if menu_button(ui, egui_phosphor::regular::DATABASE, "New Database").clicked() {
                         use super::types::DialogType;
                         self.dialog = Some(DialogType::CreateDatabase);
@@ -1001,22 +1160,31 @@ impl DbTree {
     fn reset(&mut self) {
         self.databases.clear();
         self.loaded_databases = false;
+        self.databases_promise = None;
         self.schemas.clear();
         self.loaded_schemas.clear();
+        self.schemas_promises.clear();
         self.tables.clear();
         self.loaded_tables.clear();
+        self.tables_promises.clear();
         self.views.clear();
         self.loaded_views.clear();
+        self.views_promises.clear();
         self.materialized_views.clear();
         self.loaded_materialized_views.clear();
+        self.materialized_views_promises.clear();
         self.functions.clear();
         self.loaded_functions.clear();
+        self.functions_promises.clear();
         self.indexes.clear();
         self.loaded_indexes.clear();
+        self.indexes_promises.clear();
         self.foreign_keys.clear();
         self.loaded_foreign_keys.clear();
+        self.foreign_keys_promises.clear();
         self.triggers.clear();
         self.loaded_triggers.clear();
+        self.triggers_promises.clear();
         self.expanded_databases.clear();
         self.expanded_schemas.clear();
         self.expanded_tables.clear();
@@ -1034,6 +1202,7 @@ impl DbTree {
         self.design_table_columns.clear();
         self.design_table_promise = None;
         self.ddl_promise = None;
+        self.results_promise = None;
         self.dialog_ddl_content.clear();
         self.pending_load_ddl = None;
     }
@@ -1053,6 +1222,10 @@ fn show_blank_area_context_menu(
 
 fn menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
     ui.button(format!("{} {}", icon, label))
+}
+
+fn refresh_menu_button(ui: &mut egui::Ui) -> egui::Response {
+    menu_button(ui, egui_phosphor::regular::ARROW_CLOCKWISE, "Refresh")
 }
 
 fn danger_menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {

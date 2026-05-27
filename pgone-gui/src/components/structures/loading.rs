@@ -477,6 +477,82 @@ pub(super) fn load_functions(
     });
 }
 
+pub(super) fn refresh_databases(tree: &mut DbTree, db_manager: &mut crate::components::DbManager) {
+    tree.loaded_databases = false;
+    tree.databases_promise = None;
+    load_databases(tree, db_manager);
+}
+
+pub(super) fn refresh_schemas(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+) {
+    tree.loaded_schemas.insert(database.to_string(), false);
+    tree.schemas_promises.remove(database);
+    load_schemas(tree, db_manager, database);
+}
+
+pub(super) fn refresh_tables(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+) {
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_tables.insert(key.clone(), false);
+    tree.tables_promises.remove(&key);
+    load_tables(tree, db_manager, database, schema);
+}
+
+pub(super) fn refresh_views(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+) {
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_views.insert(key.clone(), false);
+    tree.views_promises.remove(&key);
+    load_views(tree, db_manager, database, schema);
+}
+
+pub(super) fn refresh_materialized_views(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+) {
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_materialized_views.insert(key.clone(), false);
+    tree.materialized_views_promises.remove(&key);
+    load_materialized_views(tree, db_manager, database, schema);
+}
+
+pub(super) fn refresh_functions(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+) {
+    let key = format!("{}.{}", database, schema);
+    tree.loaded_functions.insert(key.clone(), false);
+    tree.functions_promises.remove(&key);
+    load_functions(tree, db_manager, database, schema);
+}
+
+pub(super) fn refresh_schema_children(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+) {
+    refresh_tables(tree, db_manager, database, schema);
+    refresh_views(tree, db_manager, database, schema);
+    refresh_materialized_views(tree, db_manager, database, schema);
+    refresh_functions(tree, db_manager, database, schema);
+}
+
 pub(super) fn query_table_data(
     _tree: &mut DbTree,
     _db_manager: &mut crate::components::DbManager,
@@ -757,6 +833,57 @@ pub(super) fn load_triggers(
 
         sender.send(result);
     });
+}
+
+pub(super) fn refresh_indexes(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+    table: &str,
+) {
+    let key = format!("{}.{}.{}", database, schema, table);
+    tree.loaded_indexes.insert(key.clone(), false);
+    tree.indexes_promises.remove(&key);
+    load_indexes(tree, db_manager, database, schema, table);
+}
+
+pub(super) fn refresh_foreign_keys(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+    table: &str,
+) {
+    let key = format!("{}.{}.{}", database, schema, table);
+    tree.loaded_foreign_keys.insert(key.clone(), false);
+    tree.foreign_keys_promises.remove(&key);
+    load_foreign_keys(tree, db_manager, database, schema, table);
+}
+
+pub(super) fn refresh_triggers(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+    table: &str,
+) {
+    let key = format!("{}.{}.{}", database, schema, table);
+    tree.loaded_triggers.insert(key.clone(), false);
+    tree.triggers_promises.remove(&key);
+    load_triggers(tree, db_manager, database, schema, table);
+}
+
+pub(super) fn refresh_table_children(
+    tree: &mut DbTree,
+    db_manager: &mut crate::components::DbManager,
+    database: &str,
+    schema: &str,
+    table: &str,
+) {
+    refresh_indexes(tree, db_manager, database, schema, table);
+    refresh_foreign_keys(tree, db_manager, database, schema, table);
+    refresh_triggers(tree, db_manager, database, schema, table);
 }
 
 pub(super) fn query_index_detail(
