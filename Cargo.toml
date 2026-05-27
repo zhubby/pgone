@@ -75,6 +75,7 @@ async-trait = "0.1"
 sqlx = { version = "0.8.6", default-features = false, features = [
     "runtime-tokio-rustls",
     "postgres",
+    "chrono",
 ] }
 strum = { version = "0.27", features = ["derive"] }
 sqlparser = "0.48"

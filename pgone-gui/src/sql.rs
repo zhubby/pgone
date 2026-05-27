@@ -1,12 +1,12 @@
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use eframe::egui::text::{LayoutJob, TextFormat};
 use once_cell::sync::Lazy;
 use sea_query::{Asterisk, Expr, Query, SelectStatement};
 use serde_json;
 use sqlparser::ast::{JoinOperator, SelectItem, SetExpr, Statement, TableFactor, TableWithJoins};
-use sqlx::Row;
 use sqlx::postgres::PgRow;
+use sqlx::{Column, Row, TypeInfo, ValueRef};
 use std::collections::HashSet;
 
 /// PostgreSQL 关键字集合（基于 PostgreSQL 9.3+ 官方文档）
@@ -1208,9 +1208,19 @@ fn format_sql_string(sql: &str) -> String {
 }
 
 pub fn format_cell(row: &PgRow, idx: usize) -> String {
-    // 首先检查是否为 NULL
-    if row.try_get_raw(idx).is_err() {
+    let Ok(raw) = row.try_get_raw(idx) else {
         return "NULL".to_string();
+    };
+    if raw.is_null() {
+        return "NULL".to_string();
+    }
+
+    if let Some(formatted) = format_temporal_cell(row, idx) {
+        return formatted;
+    }
+
+    if let Some(formatted) = format_string_like_cell(row, idx) {
+        return formatted;
     }
 
     // JSON/JSONB 类型 - 尝试直接获取（如果 sqlx 支持）
@@ -1295,34 +1305,8 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
 
     // 字符串类型 - 尝试解析为日期时间、UUID等
     if let Ok(v) = row.try_get::<String, _>(idx) {
-        // 尝试解析为 TIMESTAMPTZ (带时区的时间戳)
-        if let Ok(dt) = DateTime::parse_from_rfc3339(&v) {
-            return dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string();
-        }
-        // 尝试解析为 TIMESTAMPTZ (其他格式)
-        if let Ok(dt) = DateTime::<FixedOffset>::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f %z") {
-            return dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string();
-        }
-        // 尝试解析为 TIMESTAMP (不带时区的时间戳)
-        if let Ok(dt) = NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f") {
-            return dt.format("%Y-%m-%d %H:%M:%S%.f").to_string();
-        }
-        if let Ok(dt) = NaiveDateTime::parse_from_str(&v, "%Y-%m-%dT%H:%M:%S%.f") {
-            return dt.format("%Y-%m-%d %H:%M:%S%.f").to_string();
-        }
-        if let Ok(dt) = NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S") {
-            return dt.format("%Y-%m-%d %H:%M:%S").to_string();
-        }
-        // 尝试解析为 DATE
-        if let Ok(d) = NaiveDate::parse_from_str(&v, "%Y-%m-%d") {
-            return d.format("%Y-%m-%d").to_string();
-        }
-        // 尝试解析为 TIME
-        if let Ok(t) = NaiveTime::parse_from_str(&v, "%H:%M:%S%.f") {
-            return t.format("%H:%M:%S%.f").to_string();
-        }
-        if let Ok(t) = NaiveTime::parse_from_str(&v, "%H:%M:%S") {
-            return t.format("%H:%M:%S").to_string();
+        if let Some(formatted) = format_temporal_string(&v) {
+            return formatted;
         }
         // 尝试解析为 UUID
         if let Ok(u) = uuid::Uuid::parse_str(&v) {
@@ -1343,6 +1327,85 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
 
     // 最后的回退
     "<unfmt>".to_string()
+}
+
+fn format_temporal_cell(row: &PgRow, idx: usize) -> Option<String> {
+    let type_name = row.column(idx).type_info().name().to_ascii_lowercase();
+
+    match type_name.as_str() {
+        "timestamptz" | "timestamp with time zone" => row
+            .try_get::<DateTime<Utc>, _>(idx)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string())
+            .or_else(|_| {
+                row.try_get::<DateTime<FixedOffset>, _>(idx)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string())
+            })
+            .or_else(|_| {
+                row.try_get::<String, _>(idx)
+                    .map(|v| format_temporal_string(&v).unwrap_or(v))
+            })
+            .ok(),
+        "timestamp" | "timestamp without time zone" => row
+            .try_get::<NaiveDateTime, _>(idx)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f").to_string())
+            .or_else(|_| {
+                row.try_get::<String, _>(idx)
+                    .map(|v| format_temporal_string(&v).unwrap_or(v))
+            })
+            .ok(),
+        "date" => row
+            .try_get::<NaiveDate, _>(idx)
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .or_else(|_| row.try_get::<String, _>(idx))
+            .ok(),
+        "time" | "time without time zone" => row
+            .try_get::<NaiveTime, _>(idx)
+            .map(|t| t.format("%H:%M:%S%.f").to_string())
+            .or_else(|_| {
+                row.try_get::<String, _>(idx)
+                    .map(|v| format_temporal_string(&v).unwrap_or(v))
+            })
+            .ok(),
+        _ => None,
+    }
+}
+
+fn format_string_like_cell(row: &PgRow, idx: usize) -> Option<String> {
+    let type_name = row.column(idx).type_info().name().to_ascii_lowercase();
+
+    match type_name.as_str() {
+        "text" | "varchar" | "char" | "bpchar" | "name" => row.try_get::<String, _>(idx).ok(),
+        _ => None,
+    }
+}
+
+fn format_temporal_string(v: &str) -> Option<String> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(v) {
+        return Some(dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string());
+    }
+    if let Ok(dt) = DateTime::<FixedOffset>::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f %z") {
+        return Some(dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string());
+    }
+    if let Ok(dt) = NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f") {
+        return Some(dt.format("%Y-%m-%d %H:%M:%S%.f").to_string());
+    }
+    if let Ok(dt) = NaiveDateTime::parse_from_str(v, "%Y-%m-%dT%H:%M:%S%.f") {
+        return Some(dt.format("%Y-%m-%d %H:%M:%S%.f").to_string());
+    }
+    if let Ok(dt) = NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S") {
+        return Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+    }
+    if let Ok(d) = NaiveDate::parse_from_str(v, "%Y-%m-%d") {
+        return Some(d.format("%Y-%m-%d").to_string());
+    }
+    if let Ok(t) = NaiveTime::parse_from_str(v, "%H:%M:%S%.f") {
+        return Some(t.format("%H:%M:%S%.f").to_string());
+    }
+    if let Ok(t) = NaiveTime::parse_from_str(v, "%H:%M:%S") {
+        return Some(t.format("%H:%M:%S").to_string());
+    }
+
+    None
 }
 
 /// 将 SQL 语句转换为 sea_query::Query 对象
