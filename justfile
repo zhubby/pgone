@@ -44,6 +44,20 @@ install-tools:
 bundle:
     cargo bundle --release
 
+# 构建 macOS app bundle
+build-macos-app:
+    cargo build --release -p pgone-gui --target aarch64-apple-darwin
+    ./scripts/macos/build_app.sh --target aarch64-apple-darwin --version $(awk -F' *= *' '/^version = / {gsub(/"/,"",$2); print $2; exit}' Cargo.toml) --output-dir dist/macos
+
+# 打包 macOS DMG
+package-macos-dmg:
+    just build-macos-app
+    ./scripts/macos/package_dmg.sh --app-path dist/macos/PGone.app --output-path dist/macos/PGone-$(awk -F' *= *' '/^version = / {gsub(/"/,"",$2); print $2; exit}' Cargo.toml)-aarch64-apple-darwin.dmg
+
+# 清理 macOS 打包产物
+clean-macos-artifacts:
+    rm -rf dist/macos
+
 # 组合命令：格式化 + clippy
 lint:
     just fmt

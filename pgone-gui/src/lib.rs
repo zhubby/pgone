@@ -36,6 +36,18 @@ mod styles;
 const DOCK_LAYOUT_SAVE_INTERVAL: Duration = Duration::from_millis(750);
 
 fn asset_path(path: impl AsRef<Path>) -> PathBuf {
+    let path = path.as_ref();
+
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(resources_dir) = exe_path
+            .parent()
+            .and_then(Path::parent)
+            .map(|contents_dir| contents_dir.join("Resources"))
+        && resources_dir.exists()
+    {
+        return resources_dir.join(path);
+    }
+
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("assets")
         .join(path)

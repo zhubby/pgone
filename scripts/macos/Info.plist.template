@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>__APP_NAME__</string>
+    <key>CFBundleExecutable</key>
+    <string>__EXECUTABLE_NAME__</string>
+    <key>CFBundleIconFile</key>
+    <string>icon.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>__BUNDLE_IDENTIFIER__</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>__APP_NAME__</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__VERSION__</string>
+    <key>CFBundleVersion</key>
+    <string>__VERSION__</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>__APP_NAME__ accesses Desktop files only when you choose Desktop as a workspace, attachment source, or command target.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>__APP_NAME__ accesses Documents files only when you choose Documents as a workspace, attachment source, or command target.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>__APP_NAME__ accesses Downloads files only when you choose Downloads as a workspace, attachment source, or command target.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>__APP_NAME__ accesses network volume files only when you choose a network volume as a workspace, attachment source, or command target.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>__APP_NAME__ accesses removable volume files only when you choose a removable volume as a workspace, attachment source, or command target.</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>

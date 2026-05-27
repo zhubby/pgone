@@ -1,4 +1,5 @@
 /target
+/dist
 pgone.db
 pgone.db-wal
 vector.db

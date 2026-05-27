@@ -1,0 +1,55 @@
+name: macos-package
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos-package:
+    runs-on: macos-latest
+    env:
+      MACOS_TARGET: aarch64-apple-darwin
+      APP_NAME: PGone
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve app version
+        id: version
+        run: |
+          VERSION="$(awk -F' *= *' '/^version = / {gsub(/"/,"",$2); print $2; exit}' Cargo.toml)"
+          echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build macOS dmg
+        run: make package-macos-dmg
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          cp dist/macos/*.dmg release-assets/
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PGone-dmg-${{ steps.version.outputs.app_version }}-aarch64-apple-darwin
+          path: dist/macos/*.dmg
+
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            release-assets/*
+          fail_on_unmatched_files: true

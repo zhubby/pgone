@@ -1,4 +1,14 @@
-.PHONY: help build test fmt clippy clean run-gui run-mcp-server install-tools
+SHELL := /bin/bash
+
+APP_NAME := PGone
+MACOS_TARGET := aarch64-apple-darwin
+VERSION := $(shell awk -F' *= *' '/^version = / {gsub(/"/,"",$$2); print $$2; exit}' Cargo.toml)
+DIST_DIR := dist/macos
+APP_DIR := $(DIST_DIR)/$(APP_NAME).app
+DMG_NAME := $(APP_NAME)-$(VERSION)-$(MACOS_TARGET).dmg
+DMG_PATH := $(DIST_DIR)/$(DMG_NAME)
+
+.PHONY: help build test fmt clippy clean run-gui run-mcp-server install-tools build-macos-app package-macos-dmg clean-macos-artifacts
 
 # 默认目标
 help:
@@ -13,6 +23,7 @@ help:
 	@echo "  make run-gui         - 运行 GUI 应用"
 	@echo "  make run-mcp-server  - 运行 MCP Server (STDIO 模式)"
 	@echo "  make install-tools   - 安装开发工具 (cargo-bundle 等)"
+	@echo "  make package-macos-dmg - 打包 macOS DMG"
 	@echo "  make lint            - 运行 fmt 和 clippy"
 	@echo "  make check           - 运行 fmt, clippy 和 test"
 
@@ -55,6 +66,21 @@ install-tools:
 # 打包可执行程序
 bundle:
 	cargo bundle --release
+
+build-macos-app:
+	cargo build --release -p pgone-gui --target $(MACOS_TARGET)
+	./scripts/macos/build_app.sh \
+		--target $(MACOS_TARGET) \
+		--version $(VERSION) \
+		--output-dir $(DIST_DIR)
+
+package-macos-dmg: build-macos-app
+	./scripts/macos/package_dmg.sh \
+		--app-path $(APP_DIR) \
+		--output-path $(DMG_PATH)
+
+clean-macos-artifacts:
+	rm -rf $(DIST_DIR)
 
 # 组合命令：格式化 + clippy
 lint: fmt clippy
