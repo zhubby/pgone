@@ -514,6 +514,11 @@ fn format_cell(row: &Row, index: usize) -> String {
             .map(|value| value.to_string())
             .unwrap_or_else(|| "NULL".to_owned());
     }
+    if let Ok(value) = row.try_get::<_, Option<uuid::Uuid>>(index) {
+        return value
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "NULL".to_owned());
+    }
     "<unprintable>".to_owned()
 }
 

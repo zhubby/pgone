@@ -2,7 +2,7 @@ use super::ResultsTable;
 use crate::components::SqlCtx;
 use egui_extras::{Column, TableBuilder};
 
-fn truncate_cell_text(text: &str) -> String {
+fn truncate_cell_text(text: &str) -> (String, bool) {
     const MAX_LENGTH: usize = 12;
 
     let first_line = if let Some(crlf_pos) = text.find("\r\n") {
@@ -16,11 +16,15 @@ fn truncate_cell_text(text: &str) -> String {
     };
 
     if first_line.chars().count() <= MAX_LENGTH {
-        first_line
+        let truncated = first_line != text;
+        (first_line, truncated)
     } else {
-        format!(
-            "{}...",
-            first_line.chars().take(MAX_LENGTH).collect::<String>()
+        (
+            format!(
+                "{}...",
+                first_line.chars().take(MAX_LENGTH).collect::<String>()
+            ),
+            true,
         )
     }
 }
@@ -198,7 +202,11 @@ impl ResultsTable {
                             for index in 0..columns.len() {
                                 table_row.col(|ui| {
                                     let value = row.get(index).map(String::as_str).unwrap_or("");
-                                    ui.label(truncate_cell_text(value));
+                                    let (display_value, truncated) = truncate_cell_text(value);
+                                    let response = ui.label(display_value);
+                                    if truncated {
+                                        response.on_hover_text(value);
+                                    }
                                 });
                             }
                         });

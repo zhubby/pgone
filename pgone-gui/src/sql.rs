@@ -1223,6 +1223,10 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
         return formatted;
     }
 
+    if let Ok(v) = row.try_get::<uuid::Uuid, _>(idx) {
+        return v.to_string();
+    }
+
     // JSON/JSONB 类型 - 尝试直接获取（如果 sqlx 支持）
     // 注意：如果 sqlx 未启用 json 特性，这会失败并继续尝试其他类型
     if let Ok(v) = row.try_get::<serde_json::Value, _>(idx) {

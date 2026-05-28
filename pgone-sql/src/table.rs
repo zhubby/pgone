@@ -568,6 +568,10 @@ fn format_cell(row: &tokio_postgres::Row, idx: usize) -> String {
             Type::TIMESTAMP => format_timestamp(row, idx),
             Type::DATE => format_date(row, idx),
             Type::TIME => format_time(row, idx),
+            Type::UUID => row
+                .try_get::<_, uuid::Uuid>(idx)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
             _ => {
                 // Fallback: try as string
                 row.try_get::<_, String>(idx)

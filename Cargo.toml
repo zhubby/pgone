@@ -76,11 +76,12 @@ sqlx = { version = "0.8.6", default-features = false, features = [
     "runtime-tokio-rustls",
     "postgres",
     "chrono",
+    "uuid",
 ] }
 strum = { version = "0.27", features = ["derive"] }
 sqlparser = "0.48"
 bb8-postgres = "0.9.0"
-tokio-postgres = "0.7"
+tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
 rmcp = { version = "0.10.0" }
 egui_dock = { version = "0.19", features = ["serde"] }
 egui = { version = "0.34.2", default-features = false }
