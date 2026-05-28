@@ -21,7 +21,7 @@ async fn wait_for_shutdown_signal() {
         let mut sigterm = match signal(SignalKind::terminate()) {
             Ok(sigterm) => Some(sigterm),
             Err(e) => {
-                tracing::warn!("注册 SIGTERM 关闭信号失败: {}", e);
+                tracing::warn!("Failed to register SIGTERM shutdown signal: {}", e);
                 None
             }
         };
@@ -29,7 +29,7 @@ async fn wait_for_shutdown_signal() {
         tokio::select! {
             result = tokio::signal::ctrl_c() => {
                 if let Err(e) = result {
-                    tracing::warn!("监听 Ctrl+C 关闭信号失败: {}", e);
+                    tracing::warn!("Failed to listen for Ctrl+C shutdown signal: {}", e);
                 }
             }
             _ = async {
@@ -45,14 +45,14 @@ async fn wait_for_shutdown_signal() {
     #[cfg(not(unix))]
     {
         if let Err(e) = tokio::signal::ctrl_c().await {
-            tracing::warn!("监听 Ctrl+C 关闭信号失败: {}", e);
+            tracing::warn!("Failed to listen for Ctrl+C shutdown signal: {}", e);
         }
     }
 
-    tracing::info!("收到关闭信号");
+    tracing::info!("Shutdown signal received");
 }
 
-/// MCP 服务器上下文
+/// MCP server context
 #[derive(Clone)]
 pub struct McpContext {
     storage: Arc<RwLock<StorageService>>,
@@ -78,7 +78,7 @@ impl McpContext {
     }
 }
 
-/// MCP 服务器实现
+/// MCP server implementation
 #[derive(Clone)]
 pub struct PgoneMcpServer {
     context: McpContext,
@@ -120,47 +120,47 @@ pub fn list_tools() -> Vec<Tool> {
     vec![
         PgoneMcpServer::create_tool(
             "introspect_all",
-            "自省整个数据库，返回表、视图、触发器、例程、类型等信息",
+            "Introspect the entire database, returning tables, views, triggers, routines, types and other information",
             json!({
                 "type": "object",
                 "properties": {
                     "schemas": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "要查询的 schema 列表，为空则查询所有"
+                        "description": "List of schemas to query, empty means query all"
                     },
                     "with_indexes": {
                         "type": "boolean",
-                        "description": "是否包含索引信息",
+                        "description": "Whether to include index information",
                         "default": true
                     },
                     "with_routines": {
                         "type": "boolean",
-                        "description": "是否包含例程（函数/过程）",
+                        "description": "Whether to include routines (functions/procedures)",
                         "default": false
                     },
                     "with_types": {
                         "type": "boolean",
-                        "description": "是否包含类型信息",
+                        "description": "Whether to include type information",
                         "default": false
                     },
                     "with_triggers": {
                         "type": "boolean",
-                        "description": "是否包含触发器",
+                        "description": "Whether to include triggers",
                         "default": false
                     },
                     "page": {
                         "type": "number",
-                        "description": "分页页码（从1开始）"
+                        "description": "Page number (starting from 1)"
                     },
                     "page_size": {
                         "type": "number",
-                        "description": "每页大小"
+                        "description": "Page size"
                     },
                     "format": {
                         "type": "string",
                         "enum": ["json", "markdown"],
-                        "description": "输出格式",
+                        "description": "Output format",
                         "default": "json"
                     }
                 }
@@ -168,22 +168,22 @@ pub fn list_tools() -> Vec<Tool> {
         ),
         PgoneMcpServer::create_tool(
             "get_table",
-            "获取指定表的详细信息",
+            "Get detailed information for a specific table",
             json!({
                 "type": "object",
                 "properties": {
                     "schema": {
                         "type": "string",
-                        "description": "Schema 名称"
+                        "description": "Schema name"
                     },
                     "table": {
                         "type": "string",
-                        "description": "表名"
+                        "description": "Table name"
                     },
                     "format": {
                         "type": "string",
                         "enum": ["json", "markdown"],
-                        "description": "输出格式",
+                        "description": "Output format",
                         "default": "json"
                     }
                 },
@@ -192,82 +192,86 @@ pub fn list_tools() -> Vec<Tool> {
         ),
         PgoneMcpServer::create_tool(
             "list_triggers",
-            "列出触发器",
+            "List triggers",
             json!({
                 "type": "object",
                 "properties": {
                     "schema": {
                         "type": "string",
-                        "description": "Schema 名称，为空则查询所有"
+                        "description": "Schema name, empty to query all"
                     }
                 }
             }),
         ),
         PgoneMcpServer::create_tool(
             "list_routines",
-            "列出例程（函数/过程/聚合）",
+            "List routines (functions/procedures/aggregates)",
             json!({
                 "type": "object",
                 "properties": {
                     "schema": {
                         "type": "string",
-                        "description": "Schema 名称，为空则查询所有"
+                        "description": "Schema name, empty to query all"
                     },
                     "kind": {
                         "type": "string",
                         "enum": ["function", "procedure", "aggregate"],
-                        "description": "例程类型"
+                        "description": "Routine type"
                     }
                 }
             }),
         ),
         PgoneMcpServer::create_tool(
             "list_types",
-            "列出类型（枚举/域/复合）",
+            "List types (enum/domain/composite)",
             json!({
                 "type": "object",
                 "properties": {
                     "schema": {
                         "type": "string",
-                        "description": "Schema 名称，为空则查询所有"
+                        "description": "Schema name, empty to query all"
                     },
                     "kind": {
                         "type": "string",
                         "enum": ["enum", "domain", "composite", "base"],
-                        "description": "类型"
+                        "description": "Type"
                     }
                 }
             }),
         ),
         PgoneMcpServer::create_tool(
             "render_er",
-            "生成 ER 图（Mermaid 格式）",
+            "Generate ER diagram (Mermaid format)",
             json!({
                 "type": "object",
                 "properties": {
                     "schemas": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "要查询的 schema 列表，为空则查询所有"
+                        "description": "List of schemas to query, empty means query all"
                     }
                 }
             }),
         ),
         PgoneMcpServer::create_tool(
             "render_dbml",
-            "生成 DBML 格式",
+            "Generate DBML format",
             json!({
                 "type": "object",
                 "properties": {
                     "schemas": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "要查询的 schema 列表，为空则查询所有"
+                        "description": "List of schemas to query, empty means query all"
                     }
                 }
             }),
         ),
-        PgoneMcpServer::create_tool("health_check", "检查数据库连接健康状态", json!({})),
+        PgoneMcpServer::create_tool(
+            "health_check",
+            "Check database connection health status",
+            json!({}),
+        ),
     ]
 }
 
@@ -444,7 +448,7 @@ impl PgoneMcpServer {
             if params.with_triggers {
                 let triggers = introspector.list_triggers(None).await?;
                 if !triggers.is_empty() {
-                    md.push_str("\n触发器：\n");
+                    md.push_str("\nTriggers:\n");
                     for t in triggers {
                         md.push_str(&format!(
                             "- {}.{} [{} {}]\n",
@@ -459,7 +463,7 @@ impl PgoneMcpServer {
             if params.with_routines {
                 let routines = introspector.list_routines(None, None).await?;
                 if !routines.is_empty() {
-                    md.push_str("\n例程：\n");
+                    md.push_str("\nRoutines:\n");
                     for r in routines {
                         md.push_str(&format!("- {}.{} ({:?})\n", r.schema, r.name, r.kind));
                     }
@@ -468,7 +472,7 @@ impl PgoneMcpServer {
             if params.with_types {
                 let types = introspector.list_types(None, None).await?;
                 if !types.is_empty() {
-                    md.push_str("\n类型：\n");
+                    md.push_str("\nTypes:\n");
                     for t in types {
                         md.push_str(&format!("- {}.{} ({:?})\n", t.schema, t.name, t.kind));
                     }
@@ -618,7 +622,7 @@ impl PgoneMcpServer {
     async fn handle_health_check(&self, _args: Value) -> anyhow::Result<Value> {
         let session = self.context.get_session(&self.dbconfig_id).await?;
 
-        // 执行简单查询来检查连接
+        // Execute a simple query to check the connection
         let _: String = session
             .current_database()
             .await
@@ -626,7 +630,7 @@ impl PgoneMcpServer {
         Ok(json!({"ok": true}))
     }
 
-    /// 直接调用工具（用于 GUI 等非 MCP 协议场景）
+    /// Direct tool invocation (for non-MCP protocol scenarios such as GUI)
     pub async fn call_tool_direct(
         &self,
         tool_name: &str,
@@ -646,7 +650,7 @@ impl PgoneMcpServer {
     }
 }
 
-/// 运行 STDIO 模式的 MCP 服务器
+/// Run MCP server in STDIO mode
 pub async fn run_stdio(dbconfig_id: String) -> anyhow::Result<()> {
     use rmcp::handler::server::router::Router;
     use rmcp::service::serve_server;
@@ -657,41 +661,41 @@ pub async fn run_stdio(dbconfig_id: String) -> anyhow::Result<()> {
     let service = Router::new(handler);
     let transport = AsyncRwTransport::new_server(io::stdin(), io::stdout());
 
-    tracing::info!("MCP 服务器启动（STDIO 模式）");
+    tracing::info!("MCP server starting (STDIO mode)");
     tokio::select! {
         result = serve_server(service, transport) => {
             result?;
-            tracing::info!("MCP STDIO 服务已结束");
+            tracing::info!("MCP STDIO service has ended");
         }
         _ = wait_for_shutdown_signal() => {
-            tracing::info!("开始关闭 MCP STDIO 服务");
+            tracing::info!("Starting shutdown of MCP STDIO service");
         }
     }
 
-    tracing::info!("MCP STDIO 服务已关闭");
+    tracing::info!("MCP STDIO service has been shut down");
     Ok(())
 }
 
-/// 运行 Streamable HTTP 模式的 MCP 服务器
+/// Run MCP server in Streamable HTTP mode
 pub async fn run_streamable(addr: &str, dbconfig_id: String) -> anyhow::Result<()> {
     use rmcp::transport::streamable_http_server::{
         StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     };
     use std::sync::Arc;
 
-    // 先创建 handler（async 初始化）
+    // Create handler first (async initialization)
     let handler = PgoneMcpServer::new(dbconfig_id).await?;
     let handler = Arc::new(handler);
 
-    // 创建工厂函数，返回克隆的 handler
+    // Create factory function that returns the cloned handler
     let handler_clone = handler.clone();
     let factory =
         move || -> Result<PgoneMcpServer, std::io::Error> { Ok((*handler_clone).clone()) };
 
-    // 创建 session manager 并包装在 Arc 中
+    // Create session manager and wrap in Arc
     let session_manager = Arc::new(LocalSessionManager::default());
 
-    // 创建 StreamableHttpService
+    // Create StreamableHttpService
     let service = StreamableHttpService::new(
         factory,
         session_manager,
@@ -701,20 +705,20 @@ pub async fn run_streamable(addr: &str, dbconfig_id: String) -> anyhow::Result<(
         },
     );
 
-    // 创建 axum router
+    // Create axum router
     let router = axum::Router::new().nest_service("/mcp", service);
 
-    // 绑定地址
+    // Bind address
     let tcp_listener = tokio::net::TcpListener::bind(addr).await?;
 
-    tracing::info!("MCP 服务器启动（Streamable HTTP 模式）");
-    tracing::info!("监听地址: {}", addr);
+    tracing::info!("MCP server starting (Streamable HTTP mode)");
+    tracing::info!("Listening address: {}", addr);
 
-    // 启动服务器
+    // Start server
     let _ = axum::serve(tcp_listener, router)
         .with_graceful_shutdown(wait_for_shutdown_signal())
         .await;
 
-    tracing::info!("MCP Streamable HTTP 服务已关闭");
+    tracing::info!("MCP Streamable HTTP service has been shut down");
     Ok(())
 }

@@ -21,12 +21,12 @@ impl Default for ModelLoader {
 
 impl ModelLoader {
     pub fn check_and_load(&mut self, ctxs: &ChatCtx) {
-        // 在首次显示时加载模型列表
+        // Load model list on first display
         if !self.models_loaded && ctxs.openai_api_key.is_some() && self.models_receiver.is_none() {
             self.load_models(ctxs);
         }
 
-        // 检查模型加载结果
+        // Check model loading results
         if let Some(ref mut receiver) = self.models_receiver {
             match receiver.try_recv() {
                 Ok(result) => {
@@ -36,8 +36,8 @@ impl ModelLoader {
                             self.models_loaded = true;
                         }
                         Err(e) => {
-                            tracing::error!("加载模型列表失败: {}", e);
-                            // 如果加载失败，使用默认模型列表
+                            tracing::error!("Failed to load model list: {}", e);
+                            // If loading fails, use the default model list
                             self.available_models = vec!["Unknown".to_string()];
                             self.models_loaded = true;
                         }
@@ -45,10 +45,10 @@ impl ModelLoader {
                     self.models_receiver = None;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => {
-                    // 还没有结果，继续等待
+                    // No results yet, continue waiting
                 }
                 Err(mpsc::error::TryRecvError::Disconnected) => {
-                    // Channel已断开，清理
+                    // Channel disconnected, clean up
                     self.models_receiver = None;
                 }
             }

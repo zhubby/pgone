@@ -32,7 +32,7 @@ impl ActivityMonitor {
         }
 
         let Some(dsn) = dsn else {
-            self.error = Some("未选择数据库".to_string());
+            self.error = Some("No database selected".to_string());
             return;
         };
 
@@ -45,7 +45,7 @@ impl ActivityMonitor {
                 let pool = pools
                     .get_or_create_pool(&dsn)
                     .await
-                    .map_err(|e| format!("连接失败: {}", e))?;
+                    .map_err(|e| format!("Connection failed: {}", e))?;
 
                 let rows = sqlx::query(
                     r#"
@@ -57,7 +57,7 @@ impl ActivityMonitor {
                 )
                 .fetch_all(&pool)
                 .await
-                .map_err(|e| format!("查询失败: {}", e))?;
+                .map_err(|e| format!("Query failed: {}", e))?;
 
                 let mut data = Vec::new();
                 for row in rows {
@@ -80,7 +80,7 @@ impl ActivityMonitor {
         pools: crate::components::db_manager::PoolRegistry,
         dsn: Option<&str>,
     ) {
-        // 检查Promise状态
+        // Check Promise status
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
                 match result {
@@ -96,38 +96,38 @@ impl ActivityMonitor {
             }
         }
 
-        // 如果没有数据且没有错误，开始加载
+        // If no data and no error, start loading
         if self.data.is_empty() && self.error.is_none() && self.promise.is_none() {
             self.load_data(pools.clone(), dsn);
         }
 
-        // 显示加载状态
+        // Show loading state
         if self.promise.is_some() {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
-                ui.label("加载中...");
+                ui.label("Loading...");
             });
             return;
         }
 
-        // 显示错误
+        // Show error
         if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("错误: {}", err));
-            if ui.button("重试").clicked() {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+            if ui.button("Retry").clicked() {
                 self.error = None;
                 self.data.clear();
             }
             return;
         }
 
-        // 显示数据
+        // Show data
         if self.data.is_empty() {
-            ui.label("没有数据");
+            ui.label("No data");
             return;
         }
 
         ui.horizontal(|ui| {
-            if ui.button("刷新").clicked() {
+            if ui.button("Refresh").clicked() {
                 self.data.clear();
                 self.error = None;
             }
@@ -135,14 +135,14 @@ impl ActivityMonitor {
 
         ui.separator();
 
-        // 显示表格
+        // Show table
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("activity_grid")
                 .num_columns(2)
                 .spacing([40.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new("状态").strong());
-                    ui.label(egui::RichText::new("数量").strong());
+                    ui.label(egui::RichText::new("Status").strong());
+                    ui.label(egui::RichText::new("Count").strong());
                     ui.end_row();
 
                     for item in &self.data {
@@ -156,7 +156,7 @@ impl ActivityMonitor {
 
         ui.separator();
 
-        // 显示柱状图
+        // Show bar chart
         if !self.data.is_empty() {
             let bars: Vec<Bar> = self
                 .data
@@ -168,7 +168,7 @@ impl ActivityMonitor {
                 })
                 .collect();
 
-            let chart = BarChart::new("连接状态分布", bars);
+            let chart = BarChart::new("Connection status distribution", bars);
 
             Plot::new("activity_plot")
                 .height(300.0)

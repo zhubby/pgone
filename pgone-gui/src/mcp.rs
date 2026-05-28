@@ -8,8 +8,8 @@ use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{info, warn};
 
-/// MCP 客户端管理器
-/// 负责管理 MCP server 子进程和客户端连接
+/// MCP client manager
+/// Responsible for managing the MCP server child process and client connection
 pub struct McpClientManager {
     client: Option<McpClient>,
     child: Option<tokio::process::Child>,
@@ -17,15 +17,15 @@ pub struct McpClientManager {
 }
 
 impl McpClientManager {
-    /// 创建新的 MCP 客户端管理器并启动 stdio 服务器
+    /// Create a new MCP client manager and start the stdio server
     pub async fn new(storage_path: PathBuf) -> Result<Self> {
-        info!("启动 MCP server (stdio 模式)...");
+        info!("Starting MCP server (stdio mode)...");
 
-        // 查找 pgone-mcp-server 可执行文件路径
+        // Find pgone-mcp-server executable path
         let server_path = Self::find_server_executable()?;
-        info!("MCP server 路径: {}", server_path.display());
+        info!("MCP server path: {}", server_path.display());
 
-        // 启动子进程
+        // Start child process
         let mut child = Command::new(&server_path)
             .env("PGONE_MCP_STDIO", "1")
             .env("RUST_LOG", "info")
@@ -33,28 +33,28 @@ impl McpClientManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| anyhow::anyhow!("启动 MCP server 失败: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to start MCP server: {}", e))?;
 
-        // 获取 stdin/stdout
+        // Get stdin/stdout
         let stdin = child
             .stdin
             .take()
-            .ok_or_else(|| anyhow::anyhow!("无法获取子进程 stdin"))?;
+            .ok_or_else(|| anyhow::anyhow!("Failed to get child process stdin"))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| anyhow::anyhow!("无法获取子进程 stdout"))?;
+            .ok_or_else(|| anyhow::anyhow!("Failed to get child process stdout"))?;
 
-        // 将 ChildStdin/ChildStdout 转换为 AsyncRead/AsyncWrite
-        // 注意：ChildStdin 实现了 AsyncWrite，ChildStdout 实现了 AsyncRead
-        // 但我们需要交换它们：stdin 是写入到子进程，stdout 是从子进程读取
+        // Convert ChildStdin/ChildStdout to AsyncRead/AsyncWrite
+        // Note: ChildStdin implements AsyncWrite, ChildStdout implements AsyncRead
+        // We need to swap them: stdin writes to the child process, stdout reads from it
         let reader = tokio::io::BufReader::new(stdout);
         let writer = stdin;
 
-        // 创建 MCP 客户端
+        // Create MCP client
         let client = McpClient::new_stdio(reader, writer).await?;
 
-        info!("MCP client 初始化成功");
+        info!("MCP client initialized successfully");
 
         Ok(Self {
             client: Some(client),
@@ -63,9 +63,9 @@ impl McpClientManager {
         })
     }
 
-    /// 查找 pgone-mcp-server 可执行文件
+    /// Find pgone-mcp-server executable
     fn find_server_executable() -> Result<PathBuf> {
-        // 首先尝试从环境变量获取
+        // First try to get from environment variable
         if let Ok(path) = std::env::var("PGONE_MCP_SERVER_PATH") {
             let path = PathBuf::from(path);
             if path.exists() {
@@ -73,11 +73,11 @@ impl McpClientManager {
             }
         }
 
-        // 尝试从当前可执行文件所在目录查找
+        // Try to find from the current executable's directory
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                // 在 macOS 上，可执行文件可能在 Contents/MacOS 目录下
-                // 尝试多个可能的位置
+                // On macOS, the executable may be in the Contents/MacOS directory
+                // Try multiple possible locations
                 let possible_paths = vec![
                     exe_dir.join("pgone-mcp-server"),
                     exe_dir.join("../pgone-mcp-server"),
@@ -93,7 +93,7 @@ impl McpClientManager {
             }
         }
 
-        // 最后尝试使用 which/where 命令查找
+        // Finally try using which/where command to find it
         let which_cmd = if cfg!(target_os = "windows") {
             "where"
         } else {
@@ -112,37 +112,37 @@ impl McpClientManager {
             }
         }
 
-        // 如果都找不到，尝试使用 cargo run 的方式（开发环境）
-        // 这种情况下，我们需要使用不同的方法
+        // If none found, try cargo run approach (development environment)
+        // In this case, we need to use a different method
         Err(anyhow::anyhow!(
-            "无法找到 pgone-mcp-server 可执行文件。请设置 PGONE_MCP_SERVER_PATH 环境变量"
+            "Cannot find pgone-mcp-server executable. Please set the PGONE_MCP_SERVER_PATH environment variable"
         ))
     }
 
-    /// 列出所有可用的工具
+    /// List all available tools
     pub async fn list_tools(&self) -> Result<Vec<Tool>> {
         if let Some(ref client) = self.client {
             client.list_tools().await
         } else {
-            Err(anyhow::anyhow!("MCP client 未初始化"))
+            Err(anyhow::anyhow!("MCP client not initialized"))
         }
     }
 
-    /// 调用指定的工具
+    /// Call the specified tool
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<CallToolResult> {
         if let Some(ref client) = self.client {
             client.call_tool(name, arguments).await
         } else {
-            Err(anyhow::anyhow!("MCP client 未初始化"))
+            Err(anyhow::anyhow!("MCP client not initialized"))
         }
     }
 
-    /// 检查客户端是否可用
+    /// Check if the client is available
     pub fn is_available(&self) -> bool {
         self.client.is_some()
     }
 
-    /// 获取 storage 路径
+    /// Get the storage path
     pub fn storage_path(&self) -> &PathBuf {
         &self.storage_path
     }
@@ -150,24 +150,26 @@ impl McpClientManager {
 
 impl Drop for McpClientManager {
     fn drop(&mut self) {
-        // 先释放 MCP client，让 stdio 管道关闭并给子进程一个正常退出机会。
+        // Release MCP client first, closing the stdio pipes and giving the child process a chance to exit gracefully.
         self.client.take();
 
-        // 关闭子进程
+        // Shut down the child process
         if let Some(mut child) = self.child.take() {
-            info!("正在关闭 MCP server 子进程...");
+            info!("Shutting down MCP server child process...");
             let _ = futures::block_on_async(async {
                 match tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await {
                     Ok(Ok(status)) => {
-                        info!("MCP server 子进程已退出，状态: {:?}", status);
+                        info!("MCP server child process exited, status: {:?}", status);
                     }
                     Ok(Err(e)) => {
-                        warn!("等待 MCP server 子进程退出时出错: {}", e);
+                        warn!("Error waiting for MCP server child process to exit: {}", e);
                     }
                     Err(_) => {
-                        warn!("等待 MCP server 子进程优雅退出超时，开始强制关闭");
+                        warn!(
+                            "Timeout waiting for MCP server child process graceful exit, forcing kill"
+                        );
                         if let Err(e) = child.kill().await {
-                            warn!("关闭 MCP server 子进程失败: {}", e);
+                            warn!("Failed to kill MCP server child process: {}", e);
                             return;
                         }
 
@@ -175,13 +177,19 @@ impl Drop for McpClientManager {
                             .await
                         {
                             Ok(Ok(status)) => {
-                                info!("MCP server 子进程已强制退出，状态: {:?}", status);
+                                info!(
+                                    "MCP server child process forcefully exited, status: {:?}",
+                                    status
+                                );
                             }
                             Ok(Err(e)) => {
-                                warn!("等待 MCP server 子进程强制退出时出错: {}", e);
+                                warn!(
+                                    "Error waiting for MCP server child process forceful exit: {}",
+                                    e
+                                );
                             }
                             Err(_) => {
-                                warn!("等待 MCP server 子进程强制退出超时");
+                                warn!("Timeout waiting for MCP server child process forceful exit");
                             }
                         }
                     }

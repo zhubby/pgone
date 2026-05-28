@@ -96,7 +96,7 @@ pub(super) enum DialogType {
     },
 }
 
-/// 可编辑的列数据结构
+/// Editable column data structure
 #[derive(Clone, Debug)]
 pub(super) struct EditableColumn {
     pub name: String,
@@ -107,9 +107,9 @@ pub(super) struct EditableColumn {
     pub nullable: bool,
     pub default: Option<String>,
     pub comment: Option<String>,
-    pub is_new: bool,                  // 标记是否为新增列
-    pub is_deleted: bool,              // 标记是否为删除列
-    pub original_name: Option<String>, // 原始列名（用于重命名检测）
+    pub is_new: bool,     // Flag indicating whether this is a new column
+    pub is_deleted: bool, // Flag indicating whether this is a deleted column
+    pub original_name: Option<String>, // Original column name (for rename detection)
 }
 
 #[derive(Default)]
@@ -256,13 +256,13 @@ pub struct DbTree {
     pub(super) dialog_cascade: bool,       // For delete operations
 
     // Table design state
-    pub(super) design_table_detail: Option<TableDetail>, // 原始表结构
-    pub(super) design_table_columns: Vec<EditableColumn>, // 可编辑的列数据
-    pub(super) design_table_promise: Option<Promise<Result<TableDetail, String>>>, // 异步加载表结构的 Promise
-    pub(super) design_table_loaded: Option<(String, String, String)>, // 当前已加载的表 (database, schema, name)
+    pub(super) design_table_detail: Option<TableDetail>, // Original table structure
+    pub(super) design_table_columns: Vec<EditableColumn>, // Editable column data
+    pub(super) design_table_promise: Option<Promise<Result<TableDetail, String>>>, // Promise for async table structure loading
+    pub(super) design_table_loaded: Option<(String, String, String)>, // Currently loaded table (database, schema, name)
 
     // DDL state
-    pub(super) ddl_promise: Option<Promise<Result<String, String>>>, // 异步加载DDL的 Promise
+    pub(super) ddl_promise: Option<Promise<Result<String, String>>>, // Promise for async DDL loading
     pub(super) results_promise: Option<Promise<Result<(Vec<String>, Vec<Vec<String>>), String>>>,
 
     // Pending actions (to avoid borrow checker issues in context menus)

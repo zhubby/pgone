@@ -1,163 +1,163 @@
 # pgone-mcp
 
-一个基于 MCP（Model Context Protocol）的数据库自省模块，包含 server 和 client 实现。当前 server 支持 PostgreSQL，功能：
-- 列出/描述表、视图（含物化视图）、触发器、例程（函数/过程/聚合）、类型（枚举/域/复合）
-- 输出结构化 JSON 与 LLM 友好的 Markdown 摘要
-- 生成 ER 图（Mermaid）与 DBML 文本
-- 多数据库：以固定 `connectionId` 管理；内置缓存与按表刷新
+A database introspection module based on MCP (Model Context Protocol), including server and client implementations. The server currently supports PostgreSQL, with features:
+- List/describe tables, views (including materialized views), triggers, routines (functions/procedures/aggregates), types (enums/domains/composites)
+- Output structured JSON and LLM-friendly Markdown summaries
+- Generate ER diagrams (Mermaid) and DBML text
+- Multi-database: managed with a fixed `connectionId`; built-in caching and per-table refresh
 
-> 未来可扩展更多数据库，只需新增适配器实现统一自省接口。
+> More databases can be added in the future by implementing a new adapter for the unified introspection interface.
 
 ---
 
-## 快速开始
+## Quick Start
 
-### MCP STDIO 模式（推荐）
-1) 可选：准备 YAML 连接配置
+### MCP STDIO Mode (Recommended)
+1) Optional: prepare a YAML connection configuration
 ```yaml
 connections:
   - id: main
     engine: postgres
     dsn: postgres://user:pass@host:5432/dbname
 ```
-2) 启动（在工作区根目录或本模块目录执行）
+2) Start (run from the workspace root or this module's directory)
 ```bash
 PGONE_CONNECTIONS_PATH=/path/to/connections.yaml PGONE_MCP_STDIO=1 cargo run -p pgone-mcp --bin pgone-mcp-server
 ```
-兼容的可执行文件名仍然是 `pgone-mcp-server`，由 `pgone-mcp` crate 提供。
+The compatible executable name is still `pgone-mcp-server`, provided by the `pgone-mcp` crate.
 ```bash
 PGONE_CONNECTIONS_PATH=/path/to/connections.yaml PGONE_MCP_STDIO=1 cargo run --bin pgone-mcp-server
 ```
-也可以通过统一 CLI 启动：
+You can also start via the unified CLI:
 ```bash
 cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio
 ```
-3) 与进程通过 STDIO 交换“每行一个 JSON”的消息。
+3) Exchange "one JSON per line" messages with the process via STDIO.
 
-### 一次性快速自省（非 MCP）
+### One-shot Quick Introspection (Non-MCP)
 ```bash
 PGONE_PG_DSN='postgres://user:pass@host:5432/dbname' cargo run -p pgone-mcp --bin pgone-mcp-server
 ```
-运行后打印数据库结构 JSON。
+Prints the database schema JSON after running.
 
 ---
 
-## 交互与约定
-- 每条请求/响应为一行 JSON 文本。
-- 请求示例：
+## Interaction and Conventions
+- Each request/response is a single line of JSON text.
+- Request example:
 ```json
 {"id":1,"method":"list_connections","params":{}}
 ```
-- 成功响应：`{"id":1,"result":...}`；失败响应：`{"id":1,"error":{"code":...,"message":"..."}}`
-- 参数命名采用 camelCase；连接以固定 `connectionId` 标识。
+- Success response: `{"id":1,"result":...}`; failure response: `{"id":1,"error":{"code":...,"message":"..."}}`
+- Parameter naming uses camelCase; connections are identified by a fixed `connectionId`.
 
 ---
 
-## 方法（methods）
+## Methods
 
 - register_connection
-  - 入参：`{ id: string, engine: 'postgres', dsn: string }`
-  - 出参：`{ ok: true }`
+  - Input: `{ id: string, engine: 'postgres', dsn: string }`
+  - Output: `{ ok: true }`
 
 - list_connections
-  - 入参：`{}`
-  - 出参：`[{ id: string, engine: 'postgres' }]`
+  - Input: `{}`
+  - Output: `[{ id: string, engine: 'postgres' }]`
 
 - remove_connection
-  - 入参：`{ id: string }`
-  - 出参：`{ removed: boolean }`
+  - Input: `{ id: string }`
+  - Output: `{ removed: boolean }`
 
 - health_check
-  - 入参：`{ id: string }`
-  - 出参：`{ ok: boolean }`
+  - Input: `{ id: string }`
+  - Output: `{ ok: boolean }`
 
 - introspect_all
-  - 入参：`{ connectionId: string, schemas?: string[], withIndexes?: boolean, withRoutines?: boolean, withTypes?: boolean, withTriggers?: boolean, page?: number, pageSize?: number, format?: 'markdown' }`
-  - 出参：
-    - Markdown：`{ markdown: string }`
-    - JSON：`DatabaseSchema`（分页时附 `pageInfo: { page, pageSize, total }`）
+  - Input: `{ connectionId: string, schemas?: string[], withIndexes?: boolean, withRoutines?: boolean, withTypes?: boolean, withTriggers?: boolean, page?: number, pageSize?: number, format?: 'markdown' }`
+  - Output:
+    - Markdown: `{ markdown: string }`
+    - JSON: `DatabaseSchema` (paginated responses include `pageInfo: { page, pageSize, total }`)
 
 - list_triggers
-  - 入参：`{ connectionId: string, schema?: string }`
-  - 出参：`TriggerDetail[]`
+  - Input: `{ connectionId: string, schema?: string }`
+  - Output: `TriggerDetail[]`
 
 - list_routines
-  - 入参：`{ connectionId: string, schema?: string, kind?: 'function'|'procedure'|'aggregate' }`
-  - 出参：`RoutineDetail[]`
+  - Input: `{ connectionId: string, schema?: string, kind?: 'function'|'procedure'|'aggregate' }`
+  - Output: `RoutineDetail[]`
 
 - list_types
-  - 入参：`{ connectionId: string, schema?: string, kind?: 'enum'|'domain'|'composite'|'base' }`
-  - 出参：`TypeDetail[]`
+  - Input: `{ connectionId: string, schema?: string, kind?: 'enum'|'domain'|'composite'|'base' }`
+  - Output: `TypeDetail[]`
 
 - get_table
-  - 入参：`{ connectionId: string, schema: string, table: string, format?: 'markdown' }`
-  - 出参：Markdown：`{ markdown: string }` 或 JSON：`TableDetail`
+  - Input: `{ connectionId: string, schema: string, table: string, format?: 'markdown' }`
+  - Output: Markdown: `{ markdown: string }` or JSON: `TableDetail`
 
 - refresh_cache
-  - 入参：`{ id: string, scope?: 'table', schema?: string, table?: string }`
-  - 出参：`{ refreshed: true }`
+  - Input: `{ id: string, scope?: 'table', schema?: string, table?: string }`
+  - Output: `{ refreshed: true }`
 
 - reload_connections
-  - 入参：`{ path: string }`
-  - 出参：`{ ok: true }`
+  - Input: `{ path: string }`
+  - Output: `{ ok: true }`
 
 - render_er
-  - 入参：`{ connectionId: string, schemas?: string[] }`
-  - 出参：`{ mermaid: string }`
+  - Input: `{ connectionId: string, schemas?: string[] }`
+  - Output: `{ mermaid: string }`
 
 - render_dbml
-  - 入参：`{ connectionId: string, schemas?: string[] }`
-  - 出参：`{ dbml: string }`
+  - Input: `{ connectionId: string, schemas?: string[] }`
+  - Output: `{ dbml: string }`
 
 ---
 
-## 示例（STDIO）
+## Examples (STDIO)
 
-- 列出连接
+- List connections
 ```json
 {"id":1,"method":"list_connections","params":{}}
 ```
 
-- 健康检查
+- Health check
 ```json
 {"id":2,"method":"health_check","params":{"id":"main"}}
 ```
 
-- 全库 Markdown 摘要
+- Full database Markdown summary
 ```json
 {"id":3,"method":"introspect_all","params":{"connectionId":"main","format":"markdown","withRoutines":true,"withTypes":true,"withTriggers":true}}
 ```
 
-- 分页返回（JSON）
+- Paginated response (JSON)
 ```json
 {"id":4,"method":"introspect_all","params":{"connectionId":"main","page":1,"pageSize":50}}
 ```
 
-- 获取单表（Markdown）
+- Get a single table (Markdown)
 ```json
 {"id":5,"method":"get_table","params":{"connectionId":"main","schema":"public","table":"orders","format":"markdown"}}
 ```
 
-- 生成 ER 图（Mermaid）
+- Generate ER diagram (Mermaid)
 ```json
 {"id":6,"method":"render_er","params":{"connectionId":"main","schemas":["public"]}}
 ```
 
-- 生成 DBML
+- Generate DBML
 ```json
 {"id":7,"method":"render_dbml","params":{"connectionId":"main","schemas":["public"]}}
 ```
 
-- 按表刷新缓存
+- Per-table cache refresh
 ```json
 {"id":8,"method":"refresh_cache","params":{"id":"main","scope":"table","schema":"public","table":"orders"}}
 ```
 
 ---
 
-## 数据模型（节选）
+## Data Models (Excerpt)
 
-- DatabaseSchema（缩略）
+- DatabaseSchema (abbreviated)
 ```json
 {
   "database": "dbname",
@@ -168,9 +168,9 @@ PGONE_PG_DSN='postgres://user:pass@host:5432/dbname' cargo run -p pgone-mcp --bi
         {
           "schema": "public",
           "name": "orders",
-          "comment": "订单主表",
+          "comment": "Main orders table",
           "columns": [
-            { "name": "id", "dataType": "uuid", "nullable": false, "default": "gen_random_uuid()", "comment": "订单ID" }
+            { "name": "id", "dataType": "uuid", "nullable": false, "default": "gen_random_uuid()", "comment": "Order ID" }
           ],
           "primaryKey": { "columns": ["id"] },
           "foreignKeys": [ { "columns": ["user_id"], "refTable": "public.users", "refColumns": ["id"], "onDelete": "CASCADE" } ],
@@ -185,20 +185,20 @@ PGONE_PG_DSN='postgres://user:pass@host:5432/dbname' cargo run -p pgone-mcp --bi
 
 ---
 
-## 安全与性能
-- 只读：仅执行自省查询
-- 缓存：内存缓存（默认 TTL 5 分钟），支持按表/全量刷新
-- 过滤：默认排除 `pg_catalog` / `information_schema`
-- 超时/并发：建议通过连接池与外层网关控制
+## Security and Performance
+- Read-only: only executes introspection queries
+- Caching: in-memory cache (default TTL 5 minutes), supports per-table/full refresh
+- Filtering: excludes `pg_catalog` / `information_schema` by default
+- Timeout/concurrency: recommended to control via connection pools and external gateways
 
 ---
 
-## 已知限制
-- 目前仅支持 PostgreSQL；后续扩展其他数据库
-- `introspect_all` 分页按“表”粒度；例程/类型/触发器摘要按需附带
-- 复杂索引表达式和包含列已支持基础解析，极端方言可能存在边界
+## Known Limitations
+- Currently only supports PostgreSQL; other databases will be added later
+- `introspect_all` pagination is at the "table" granularity; routines/types/triggers summaries are appended on demand
+- Complex index expressions and include columns are supported with basic parsing; edge cases with extreme dialects may exist
 
 ---
 
-## 许可证
-与仓库一致。
+## License
+Same as the repository.

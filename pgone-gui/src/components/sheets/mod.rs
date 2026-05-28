@@ -12,14 +12,14 @@ mod sql_editor;
 mod table_view;
 mod utils;
 
-/// SQL 执行计划信息
+/// SQL execution plan information
 #[derive(Clone, Default)]
 pub struct ExplainInfo {
-    /// 扫描类型（如 "Seq Scan", "Index Scan", "Hash Join"）
+    /// Scan type (e.g., "Seq Scan", "Index Scan", "Hash Join")
     pub scan_type: String,
-    /// 成本信息（如 "0.00..1234.56"）
+    /// Cost information (e.g., "0.00..1234.56")
     pub cost: String,
-    /// 行数（如 "10000"）
+    /// Row count (e.g., "10000")
     pub rows: String,
 }
 
@@ -82,8 +82,8 @@ pub struct ResultsTable {
     pub completion_cursor_pos: usize,
     pub completion_word_start: usize,
     pub completion_word_end: usize,
-    pub previous_sql_input: String,        // 用于检测文本变化位置
-    pub pending_cursor_pos: Option<usize>, // 待设置的光标位置
+    pub previous_sql_input: String,        // Used to detect text change position
+    pub pending_cursor_pos: Option<usize>, // Pending cursor position to set
 }
 
 impl ResultsTable {
@@ -208,8 +208,8 @@ impl ResultsTable {
     pub fn ui(&mut self, ui: &mut egui::Ui, mut ctxs: Option<&mut SqlCtx>) {
         self.sync_database_selection(ctxs.as_deref_mut());
 
-        // SQL 执行现在由表格组件内部处理
-        // refresh_requested 和 execute_sql_requested 会在 ui_results_table 中处理
+        // SQL execution is now handled internally by the table component
+        // refresh_requested and execute_sql_requested will be handled in ui_results_table
 
         let has_ctxs = ctxs.is_some();
 
@@ -228,8 +228,8 @@ impl ResultsTable {
         ui.separator();
 
         // Results section
-        // 传递 SQL 语句和上下文，表格内部负责执行和渲染
-        // 克隆 SQL 字符串以避免借用冲突
+        // Pass SQL statement and context; the table handles execution and rendering internally
+        // Clone SQL string to avoid borrow conflicts
         let sql = if self.sql_input.trim().is_empty() {
             None
         } else {

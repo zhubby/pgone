@@ -36,7 +36,7 @@ impl IndexesMonitor {
         }
 
         let Some(dsn) = dsn else {
-            self.error = Some("未选择数据库".to_string());
+            self.error = Some("No database selected".to_string());
             return;
         };
 
@@ -49,7 +49,7 @@ impl IndexesMonitor {
                 let pool = pools
                     .get_or_create_pool(&dsn)
                     .await
-                    .map_err(|e| format!("连接失败: {}", e))?;
+                    .map_err(|e| format!("Connection failed: {}", e))?;
 
                 let rows = sqlx::query(
                     r#"
@@ -67,7 +67,7 @@ impl IndexesMonitor {
                 )
                 .fetch_all(&pool)
                 .await
-                .map_err(|e| format!("查询失败: {}", e))?;
+                .map_err(|e| format!("Query failed: {}", e))?;
 
                 let mut data = Vec::new();
                 for row in rows {
@@ -95,7 +95,7 @@ impl IndexesMonitor {
         pools: crate::components::db_manager::PoolRegistry,
         dsn: Option<&str>,
     ) {
-        // 检查Promise状态
+        // Check Promise status
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
                 match result {
@@ -111,38 +111,38 @@ impl IndexesMonitor {
             }
         }
 
-        // 如果没有数据且没有错误，开始加载
+        // If no data and no error, start loading
         if self.data.is_empty() && self.error.is_none() && self.promise.is_none() {
             self.load_data(pools.clone(), dsn);
         }
 
-        // 显示加载状态
+        // Show loading state
         if self.promise.is_some() {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
-                ui.label("加载中...");
+                ui.label("Loading...");
             });
             return;
         }
 
-        // 显示错误
+        // Show error
         if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("错误: {}", err));
-            if ui.button("重试").clicked() {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+            if ui.button("Retry").clicked() {
                 self.error = None;
                 self.data.clear();
             }
             return;
         }
 
-        // 显示数据
+        // Show data
         if self.data.is_empty() {
-            ui.label("没有数据");
+            ui.label("No data");
             return;
         }
 
         ui.horizontal(|ui| {
-            if ui.button("刷新").clicked() {
+            if ui.button("Refresh").clicked() {
                 self.data.clear();
                 self.error = None;
             }
@@ -150,7 +150,7 @@ impl IndexesMonitor {
 
         ui.separator();
 
-        // 显示表格
+        // Show table
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("indexes_grid")
                 .num_columns(6)
@@ -159,9 +159,9 @@ impl IndexesMonitor {
                     ui.label(egui::RichText::new("Schema").strong());
                     ui.label(egui::RichText::new("Table").strong());
                     ui.label(egui::RichText::new("Index").strong());
-                    ui.label(egui::RichText::new("索引扫描").strong());
-                    ui.label(egui::RichText::new("读取行数").strong());
-                    ui.label(egui::RichText::new("获取行数").strong());
+                    ui.label(egui::RichText::new("Index scans").strong());
+                    ui.label(egui::RichText::new("Rows read").strong());
+                    ui.label(egui::RichText::new("Rows fetched").strong());
                     ui.end_row();
 
                     for item in &self.data {
@@ -178,7 +178,7 @@ impl IndexesMonitor {
 
         ui.separator();
 
-        // 显示柱状图 - TOP 10
+        // Show bar chart - TOP 10
         if !self.data.is_empty() {
             let bars: Vec<Bar> = self
                 .data
@@ -192,7 +192,7 @@ impl IndexesMonitor {
                 })
                 .collect();
 
-            let chart = BarChart::new("索引扫描次数 TOP 10", bars);
+            let chart = BarChart::new("Index scan count TOP 10", bars);
 
             Plot::new("indexes_plot").height(300.0).show(ui, |plot_ui| {
                 plot_ui.bar_chart(chart);

@@ -102,12 +102,12 @@ impl SettingsPanel {
         let mut save_clicked = false;
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("保存").clicked() {
+                if ui.button("Save").clicked() {
                     viewer.panel.reset_original_settings(viewer.settings);
                     save_clicked = true;
                 }
                 if has_changes {
-                    ui.label(egui::RichText::new("有未保存的更改").color(egui::Color32::YELLOW));
+                    ui.label(egui::RichText::new("Unsaved changes").color(egui::Color32::YELLOW));
                 }
             });
         });
@@ -153,7 +153,7 @@ impl SettingsPanel {
                             self.models_loaded = true;
                         }
                         Err(e) => {
-                            let message = format!("加载模型列表失败: {}", e);
+                            let message = format!("Failed to load model list: {}", e);
                             crate::notify::error(&message);
                             tracing::error!("{}", message);
                             self.available_models = default_models();
@@ -273,7 +273,7 @@ impl SettingsTabViewer<'_> {
         ui.separator();
 
         ui.horizontal(|ui| {
-            ui.label("发送快捷键:");
+            ui.label("Send shortcut:");
             ComboBox::from_id_salt("send_shortcut")
                 .selected_text(match self.settings.send_shortcut {
                     SendShortcut::Enter => "Enter",
@@ -294,8 +294,8 @@ impl SettingsTabViewer<'_> {
         });
 
         ui.add_space(12.0);
-        ui.checkbox(&mut self.settings.enable_monitor, "启用系统监控");
-        ui.label("在状态栏显示当前进程的 CPU、内存和网络使用情况");
+        ui.checkbox(&mut self.settings.enable_monitor, "Enable system monitoring");
+        ui.label("Show CPU, memory, and network usage of the current process in the status bar");
     }
 
     fn show_llm(&mut self, ui: &mut Ui) {
@@ -306,7 +306,7 @@ impl SettingsTabViewer<'_> {
             .num_columns(2)
             .spacing([16.0, 10.0])
             .show(ui, |ui| {
-                ui.label("接口:");
+                ui.label("API:");
                 ui.label("OpenAI-compatible Chat Completions");
                 ui.end_row();
 
@@ -335,11 +335,11 @@ impl SettingsTabViewer<'_> {
                 }
                 ui.end_row();
 
-                ui.label("启用流式 API:");
+                ui.label("Enable streaming API:");
                 ui.add(toggle(&mut self.settings.enable_stream_api));
                 ui.end_row();
 
-                ui.label("模型:");
+                ui.label("Model:");
                 ui.text_edit_singleline(&mut self.settings.openai_model);
                 ui.end_row();
             });
@@ -349,11 +349,11 @@ impl SettingsTabViewer<'_> {
         ui.heading("Network");
         ui.separator();
 
-        ui.checkbox(&mut self.settings.proxy_enabled, "启用网络代理");
+        ui.checkbox(&mut self.settings.proxy_enabled, "Enable network proxy");
         ui.add_enabled_ui(self.settings.proxy_enabled, |ui| {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label("代理地址:");
+                ui.label("Proxy address:");
                 let mut proxy_host_str = self
                     .settings
                     .proxy_host
@@ -368,7 +368,7 @@ impl SettingsTabViewer<'_> {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label("代理端口:");
+                ui.label("Proxy port:");
                 let mut proxy_port_str = self
                     .settings
                     .proxy_port
@@ -391,7 +391,7 @@ impl SettingsTabViewer<'_> {
 
         let mut size_changed = false;
         ui.horizontal(|ui| {
-            ui.label("字号:");
+            ui.label("Font size:");
             let old_size = self.settings.font_size;
             ComboBox::from_id_salt("font_size")
                 .selected_text(format!("{:.0}", self.settings.font_size))

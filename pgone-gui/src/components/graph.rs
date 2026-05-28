@@ -124,14 +124,14 @@ impl SchemaGraph {
         if self.loading {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
-                ui.label("加载表信息中...");
+                ui.label("Loading table information...");
             });
             return;
         }
 
         if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("错误: {}", err));
-            if ui.button("重试").clicked() {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+            if ui.button("Retry").clicked() {
                 self.error = None;
                 self.initialized = false;
             }
@@ -140,7 +140,7 @@ impl SchemaGraph {
 
         if self.tables.is_empty() {
             ui.centered_and_justified(|ui| {
-                ui.label("没有找到表");
+                ui.label("No tables found");
             });
             return;
         }

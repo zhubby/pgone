@@ -91,7 +91,10 @@ fn resolve_protocol(protocol: Option<Protocol>) -> Protocol {
         Ok(value) if value == "stdio" => Protocol::Stdio,
         Ok(value) if value == "streamable" => Protocol::Streamable,
         Ok(value) => {
-            eprintln!("警告: 无效的协议类型 '{}'，使用默认值 streamable", value);
+            eprintln!(
+                "warning: invalid protocol type '{}', using default streamable",
+                value
+            );
             Protocol::Streamable
         }
         Err(_) => Protocol::Streamable,

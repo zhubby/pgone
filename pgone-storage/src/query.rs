@@ -1,33 +1,33 @@
 use sea_query::{Expr, Order, Query, SqliteQueryBuilder};
 
-/// 查询 messages 表的选项
+/// Options for querying the messages table
 #[derive(Debug, Clone, Default)]
 pub struct MessagesQueryOptions {
-    /// 按 session_id 过滤
+    /// Filter by session_id
     pub session_id: Option<String>,
-    /// 按 role 过滤
+    /// Filter by role
     pub role: Option<String>,
-    /// 按 kind 过滤
+    /// Filter by kind
     pub kind: Option<String>,
-    /// 时间戳范围：起始时间
+    /// Timestamp range: start time
     pub timestamp_from: Option<i64>,
-    /// 时间戳范围：结束时间
+    /// Timestamp range: end time
     pub timestamp_to: Option<i64>,
-    /// 排序字段，默认为 timestamp
+    /// Order by field, defaults to timestamp
     pub order_by: Option<String>,
-    /// 排序方向，默认为 ASC
+    /// Order direction, defaults to ASC
     pub order: Option<Order>,
-    /// 限制返回的记录数
+    /// Limit the number of returned records
     pub limit: Option<u64>,
-    /// 偏移量，用于分页
+    /// Offset for pagination
     pub offset: Option<u64>,
 }
 
-/// 生成查询 messages 表的 SQL 语句
+/// Build SQL query for the messages table
 pub fn build_messages_query(options: MessagesQueryOptions) -> (String, Vec<sea_query::Value>) {
     let mut query = Query::select();
 
-    // 选择所有列
+    // Select all columns
     query
         .column("id")
         .column("session_id")
@@ -42,7 +42,7 @@ pub fn build_messages_query(options: MessagesQueryOptions) -> (String, Vec<sea_q
         .column("video_duration_ms")
         .from("messages");
 
-    // 构建 WHERE 条件和参数
+    // Build WHERE conditions and parameters
     let mut where_parts = Vec::new();
     let mut params = Vec::new();
 
@@ -71,18 +71,18 @@ pub fn build_messages_query(options: MessagesQueryOptions) -> (String, Vec<sea_q
         params.push(sea_query::Value::BigInt(Some(to)));
     }
 
-    // 应用 WHERE 条件
+    // Apply WHERE conditions
     if !where_parts.is_empty() {
         let where_clause = where_parts.join(" AND ");
         query.cond_where(Expr::cust(where_clause));
     }
 
-    // 排序
+    // Ordering
     let order = options.order.unwrap_or(Order::Asc);
     let order_by_col = options.order_by.unwrap_or_else(|| "timestamp".to_string());
     query.order_by(order_by_col, order);
 
-    // 限制和偏移
+    // Limit and offset
     if let Some(limit) = options.limit {
         query.limit(limit);
     }
@@ -91,34 +91,34 @@ pub fn build_messages_query(options: MessagesQueryOptions) -> (String, Vec<sea_q
         query.offset(offset);
     }
 
-    // 生成 SQL
+    // Generate SQL
     let (sql, _values) = query.build(SqliteQueryBuilder);
 
-    // 注意：由于我们使用 Expr::cust 构建 WHERE 子句，sea-query 不会自动绑定参数
-    // 所以我们需要手动返回参数列表
-    // 在实际使用时，需要确保 SQL 中的 ? 占位符与参数顺序匹配
+    // Note: Since we use Expr::cust to build the WHERE clause, sea-query does not
+    // automatically bind parameters, so we return the parameter list manually.
+    // Ensure the ? placeholders in the SQL match the parameter order at call sites.
 
     (sql, params)
 }
 
-/// 查询 messages 表中指定 id 和 session_id 的记录，按创建时间从近到远排序，返回前 10 条
+/// Query messages by id and session_id, ordered by creation time (newest first), returning up to 10 rows.
 ///
-/// # 参数
-/// - `id`: message 的 id（可选，如果为 None 则不按 id 过滤）
-/// - `session_id`: session 的 id（必需）
+/// # Parameters
+/// - `id`: message id (optional; if None, no id filter is applied)
+/// - `session_id`: session id (required)
 ///
-/// # 返回
-/// 返回生成的 SQL 语句和参数列表
+/// # Returns
+/// The generated SQL statement and parameter list.
 ///
-/// # 排序
-/// 按 timestamp 降序排列，最新的记录在前
+/// # Ordering
+/// Ordered by timestamp descending (newest first).
 pub fn build_messages_query_by_id_and_session(
     id: Option<String>,
     session_id: String,
 ) -> (String, Vec<sea_query::Value>) {
     let mut query = Query::select();
 
-    // 选择所有列
+    // Select all columns
     query
         .column("id")
         .column("session_id")
@@ -133,33 +133,33 @@ pub fn build_messages_query_by_id_and_session(
         .column("video_duration_ms")
         .from("messages");
 
-    // 构建 WHERE 条件和参数
+    // Build WHERE conditions and parameters
     let mut where_parts = Vec::new();
     let mut params = Vec::new();
 
-    // session_id 是必需的
+    // session_id is required
     where_parts.push("session_id = ?".to_string());
     params.push(sea_query::Value::String(Some(session_id)));
 
-    // id 是可选的
+    // id is optional
     if let Some(msg_id) = id {
         where_parts.push("id = ?".to_string());
         params.push(sea_query::Value::String(Some(msg_id)));
     }
 
-    // 应用 WHERE 条件
+    // Apply WHERE conditions
     if !where_parts.is_empty() {
         let where_clause = where_parts.join(" AND ");
         query.cond_where(Expr::cust(where_clause));
     }
 
-    // 按创建时间（timestamp）排序，从近到远（降序）
+    // Order by creation time (timestamp), newest first (descending)
     query.order_by("timestamp", Order::Desc);
 
-    // 限制返回 10 条数据
+    // Limit to 10 rows
     query.limit(10);
 
-    // 生成 SQL
+    // Generate SQL
     let (sql, _values) = query.build(SqliteQueryBuilder);
 
     (sql, params)
@@ -226,7 +226,7 @@ mod tests {
         assert!(sql.contains("LIMIT"));
         assert_eq!(params.len(), 2);
 
-        // 验证参数顺序：session_id 在前，id 在后
+        // Verify parameter order: session_id first, id second
         match &params[0] {
             sea_query::Value::String(Some(s)) => {
                 assert_eq!(s, "session-456");

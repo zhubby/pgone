@@ -51,7 +51,7 @@ impl TablesMonitor {
         }
 
         let Some(dsn) = dsn else {
-            self.error = Some("未选择数据库".to_string());
+            self.error = Some("No database selected".to_string());
             return;
         };
 
@@ -64,7 +64,7 @@ impl TablesMonitor {
                 let pool = pools
                     .get_or_create_pool(&dsn)
                     .await
-                    .map_err(|e| format!("连接失败: {}", e))?;
+                    .map_err(|e| format!("Connection failed: {}", e))?;
 
                 let rows = sqlx::query(
                     r#"
@@ -85,7 +85,7 @@ impl TablesMonitor {
                 )
                 .fetch_all(&pool)
                 .await
-                .map_err(|e| format!("查询失败: {}", e))?;
+                .map_err(|e| format!("Query failed: {}", e))?;
 
                 let mut data = Vec::new();
                 for row in rows {
@@ -116,7 +116,7 @@ impl TablesMonitor {
         pools: crate::components::db_manager::PoolRegistry,
         dsn: Option<&str>,
     ) {
-        // 检查Promise状态
+        // Check Promise status
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
                 match result {
@@ -132,45 +132,45 @@ impl TablesMonitor {
             }
         }
 
-        // 如果没有数据且没有错误，开始加载
+        // If no data and no error, start loading
         if self.data.is_empty() && self.error.is_none() && self.promise.is_none() {
             self.load_data(pools.clone(), dsn);
         }
 
-        // 显示加载状态
+        // Show loading state
         if self.promise.is_some() {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
-                ui.label("加载中...");
+                ui.label("Loading...");
             });
             return;
         }
 
-        // 显示错误
+        // Show error
         if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("错误: {}", err));
-            if ui.button("重试").clicked() {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+            if ui.button("Retry").clicked() {
                 self.error = None;
                 self.data.clear();
             }
             return;
         }
 
-        // 显示数据
+        // Show data
         if self.data.is_empty() {
-            ui.label("没有数据");
+            ui.label("No data");
             return;
         }
 
         ui.horizontal(|ui| {
-            ui.label("排序方式:");
-            ui.selectable_value(&mut self.sort_by, SortBy::SeqScan, "顺序扫描");
-            ui.selectable_value(&mut self.sort_by, SortBy::SeqTupRead, "顺序读取行数");
-            ui.selectable_value(&mut self.sort_by, SortBy::IdxScan, "索引扫描");
-            ui.selectable_value(&mut self.sort_by, SortBy::NtupIns, "插入行数");
-            ui.selectable_value(&mut self.sort_by, SortBy::NtupUpd, "更新行数");
-            ui.selectable_value(&mut self.sort_by, SortBy::NtupDel, "删除行数");
-            if ui.button("刷新").clicked() {
+            ui.label("Sort by:");
+            ui.selectable_value(&mut self.sort_by, SortBy::SeqScan, "Seq scan");
+            ui.selectable_value(&mut self.sort_by, SortBy::SeqTupRead, "Seq rows read");
+            ui.selectable_value(&mut self.sort_by, SortBy::IdxScan, "Index scans");
+            ui.selectable_value(&mut self.sort_by, SortBy::NtupIns, "Rows inserted");
+            ui.selectable_value(&mut self.sort_by, SortBy::NtupUpd, "Rows updated");
+            ui.selectable_value(&mut self.sort_by, SortBy::NtupDel, "Rows deleted");
+            if ui.button("Refresh").clicked() {
                 self.data.clear();
                 self.error = None;
             }
@@ -178,7 +178,7 @@ impl TablesMonitor {
 
         ui.separator();
 
-        // 排序数据
+        // Sort data
         let mut sorted_data = self.data.clone();
         sorted_data.sort_by(|a, b| {
             let a_val = match self.sort_by {
@@ -200,7 +200,7 @@ impl TablesMonitor {
             b_val.cmp(&a_val)
         });
 
-        // 显示表格
+        // Show table
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("tables_grid")
                 .num_columns(9)
@@ -208,12 +208,12 @@ impl TablesMonitor {
                 .show(ui, |ui| {
                     ui.label(egui::RichText::new("Schema").strong());
                     ui.label(egui::RichText::new("Table").strong());
-                    ui.label(egui::RichText::new("顺序扫描").strong());
-                    ui.label(egui::RichText::new("顺序读取行").strong());
-                    ui.label(egui::RichText::new("索引扫描").strong());
-                    ui.label(egui::RichText::new("插入").strong());
-                    ui.label(egui::RichText::new("更新").strong());
-                    ui.label(egui::RichText::new("删除").strong());
+                    ui.label(egui::RichText::new("Seq scan").strong());
+                    ui.label(egui::RichText::new("Seq rows read").strong());
+                    ui.label(egui::RichText::new("Index scans").strong());
+                    ui.label(egui::RichText::new("Inserts").strong());
+                    ui.label(egui::RichText::new("Updates").strong());
+                    ui.label(egui::RichText::new("Deletes").strong());
                     ui.end_row();
 
                     for item in sorted_data.iter().take(30) {
@@ -232,7 +232,7 @@ impl TablesMonitor {
 
         ui.separator();
 
-        // 显示柱状图 - TOP 10
+        // Show bar chart - TOP 10
         if !sorted_data.is_empty() {
             let bars: Vec<Bar> = sorted_data
                 .iter()
@@ -254,12 +254,12 @@ impl TablesMonitor {
                 .collect();
 
             let chart_name = match self.sort_by {
-                SortBy::SeqScan => "顺序扫描 TOP 10",
-                SortBy::SeqTupRead => "顺序读取行数 TOP 10",
-                SortBy::IdxScan => "索引扫描 TOP 10",
-                SortBy::NtupIns => "插入行数 TOP 10",
-                SortBy::NtupUpd => "更新行数 TOP 10",
-                SortBy::NtupDel => "删除行数 TOP 10",
+                SortBy::SeqScan => "Sequential scan TOP 10",
+                SortBy::SeqTupRead => "Sequential rows read TOP 10",
+                SortBy::IdxScan => "Index scan TOP 10",
+                SortBy::NtupIns => "Rows inserted TOP 10",
+                SortBy::NtupUpd => "Rows updated TOP 10",
+                SortBy::NtupDel => "Rows deleted TOP 10",
             };
 
             let chart = BarChart::new(chart_name, bars);

@@ -41,7 +41,7 @@ impl BgwriterMonitor {
         }
 
         let Some(dsn) = dsn else {
-            self.error = Some("未选择数据库".to_string());
+            self.error = Some("No database selected".to_string());
             return;
         };
 
@@ -51,7 +51,7 @@ impl BgwriterMonitor {
 
         crate::futures::spawn(async move {
             let result = async {
-                let pool = pools.get_or_create_pool(&dsn).await.map_err(|e| format!("连接失败: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn).await.map_err(|e| format!("Connection failed: {}", e))?;
 
                 let row = sqlx::query(
                     r#"
@@ -72,7 +72,7 @@ impl BgwriterMonitor {
                 )
                 .fetch_one(&pool)
                 .await
-                .map_err(|e| format!("查询失败: {}", e))?;
+                .map_err(|e| format!("Query failed: {}", e))?;
 
                 let stats_reset_str: Option<String> = row.get(10);
                 let stats_reset = stats_reset_str.and_then(|s| {
@@ -107,7 +107,7 @@ impl BgwriterMonitor {
         pools: crate::components::db_manager::PoolRegistry,
         dsn: Option<&str>,
     ) {
-        // 检查Promise状态
+        // Check Promise status
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
                 match result {
@@ -123,39 +123,39 @@ impl BgwriterMonitor {
             }
         }
 
-        // 如果没有数据且没有错误，开始加载
+        // If no data and no error, start loading
         if self.data.is_none() && self.error.is_none() && self.promise.is_none() {
             self.load_data(pools.clone(), dsn);
         }
 
-        // 显示加载状态
+        // Show loading state
         if self.promise.is_some() {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
-                ui.label("加载中...");
+                ui.label("Loading...");
             });
             return;
         }
 
-        // 显示错误
+        // Show error
         if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("错误: {}", err));
-            if ui.button("重试").clicked() {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+            if ui.button("Retry").clicked() {
                 self.error = None;
                 self.data = None;
             }
             return;
         }
 
-        // 显示数据
+        // Show data
         let reset_time = self.data.as_ref().and_then(|d| d.stats_reset);
         let mut should_refresh = false;
         ui.horizontal(|ui| {
-            if ui.button("刷新").clicked() {
+            if ui.button("Refresh").clicked() {
                 should_refresh = true;
             }
             if let Some(reset_time) = reset_time {
-                ui.label(format!("统计重置时间: {}", reset_time));
+                ui.label(format!("Stats reset time: {}", reset_time));
             }
         });
 
@@ -166,87 +166,87 @@ impl BgwriterMonitor {
         }
 
         let Some(ref data) = self.data else {
-            ui.label("没有数据");
+            ui.label("No data");
             return;
         };
 
         ui.separator();
 
-        // 显示表格
+        // Show table
         egui::Grid::new("bgwriter_grid")
             .num_columns(2)
             .spacing([40.0, 4.0])
             .show(ui, |ui| {
-                ui.label(egui::RichText::new("指标").strong());
-                ui.label(egui::RichText::new("值").strong());
+                ui.label(egui::RichText::new("Metric").strong());
+                ui.label(egui::RichText::new("Value").strong());
                 ui.end_row();
 
-                ui.label("定时检查点");
+                ui.label("Timed checkpoints");
                 ui.label(data.checkpoints_timed.to_string());
                 ui.end_row();
 
-                ui.label("请求检查点");
+                ui.label("Requested checkpoints");
                 ui.label(data.checkpoints_req.to_string());
                 ui.end_row();
 
-                ui.label("检查点写入时间(ms)");
+                ui.label("Checkpoint write time (ms)");
                 ui.label(format!("{:.2}", data.checkpoint_write_time));
                 ui.end_row();
 
-                ui.label("检查点同步时间(ms)");
+                ui.label("Checkpoint sync time (ms)");
                 ui.label(format!("{:.2}", data.checkpoint_sync_time));
                 ui.end_row();
 
-                ui.label("检查点缓冲区");
+                ui.label("Checkpoint buffers");
                 ui.label(data.buffers_checkpoint.to_string());
                 ui.end_row();
 
-                ui.label("清理缓冲区");
+                ui.label("Clean buffers");
                 ui.label(data.buffers_clean.to_string());
                 ui.end_row();
 
-                ui.label("最大清理写入");
+                ui.label("Max written clean");
                 ui.label(data.maxwritten_clean.to_string());
                 ui.end_row();
 
-                ui.label("后端缓冲区");
+                ui.label("Backend buffers");
                 ui.label(data.buffers_backend.to_string());
                 ui.end_row();
 
-                ui.label("后端fsync");
+                ui.label("Backend fsync");
                 ui.label(data.buffers_backend_fsync.to_string());
                 ui.end_row();
 
-                ui.label("分配缓冲区");
+                ui.label("Allocated buffers");
                 ui.label(data.buffers_alloc.to_string());
                 ui.end_row();
             });
 
         ui.separator();
 
-        // 显示柱状图
+        // Show bar chart
         let bars = vec![
             Bar::new(0.0, data.checkpoints_timed as f64)
                 .width(0.6)
-                .name("定时检查点"),
+                .name("Timed checkpoints"),
             Bar::new(1.0, data.checkpoints_req as f64)
                 .width(0.6)
-                .name("请求检查点"),
+                .name("Requested checkpoints"),
             Bar::new(2.0, data.buffers_checkpoint as f64)
                 .width(0.6)
-                .name("检查点缓冲区"),
+                .name("Checkpoint buffers"),
             Bar::new(3.0, data.buffers_clean as f64)
                 .width(0.6)
-                .name("清理缓冲区"),
+                .name("Clean buffers"),
             Bar::new(4.0, data.buffers_backend as f64)
                 .width(0.6)
-                .name("后端缓冲区"),
+                .name("Backend buffers"),
             Bar::new(5.0, data.buffers_alloc as f64)
                 .width(0.6)
-                .name("分配缓冲区"),
+                .name("Allocated buffers"),
         ];
 
-        let chart = BarChart::new("后台写入器统计", bars);
+        let chart = BarChart::new("Background writer statistics", bars);
 
         Plot::new("bgwriter_plot")
             .height(300.0)

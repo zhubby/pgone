@@ -36,7 +36,7 @@ impl StatementsMonitor {
         }
 
         let Some(dsn) = dsn else {
-            self.error = Some("未选择数据库".to_string());
+            self.error = Some("No database selected".to_string());
             return;
         };
 
@@ -50,19 +50,19 @@ impl StatementsMonitor {
                 let pool = pools
                     .get_or_create_pool(&dsn)
                     .await
-                    .map_err(|e| format!("连接失败: {}", e))?;
+                    .map_err(|e| format!("Connection failed: {}", e))?;
 
-                // 检查扩展是否启用
+                // Check if extension is enabled
                 let ext_check: Option<(bool,)> = sqlx::query_as(
                     "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')"
                 )
                 .fetch_optional(&pool)
                 .await
-                .map_err(|e| format!("检查扩展失败: {}", e))?
+                .map_err(|e| format!("Failed to check extension: {}", e))?
                 .map(|row: (bool,)| row);
 
                 if ext_check.map(|(exists,)| exists) != Some(true) {
-                    return Err("pg_stat_statements 扩展未启用".to_string());
+                    return Err("pg_stat_statements extension is not enabled".to_string());
                 }
 
                 let rows = sqlx::query(
@@ -80,7 +80,7 @@ impl StatementsMonitor {
                 .bind(limit as i64)
                 .fetch_all(&pool)
                 .await
-                .map_err(|e| format!("查询失败: {}", e))?;
+                .map_err(|e| format!("Query failed: {}", e))?;
 
                 let mut data = Vec::new();
                 for row in rows {
@@ -110,7 +110,7 @@ impl StatementsMonitor {
         pools: crate::components::db_manager::PoolRegistry,
         dsn: Option<&str>,
     ) {
-        // 检查Promise状态
+        // Check Promise status
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
                 match result {
@@ -126,40 +126,40 @@ impl StatementsMonitor {
             }
         }
 
-        // 如果没有数据且没有错误，开始加载
+        // If no data and no error, start loading
         if self.data.is_empty() && self.error.is_none() && self.promise.is_none() {
             self.load_data(pools.clone(), dsn);
         }
 
-        // 显示加载状态
+        // Show loading state
         if self.promise.is_some() {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
-                ui.label("加载中...");
+                ui.label("Loading...");
             });
             return;
         }
 
-        // 显示错误
+        // Show error
         if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("错误: {}", err));
-            if ui.button("重试").clicked() {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+            if ui.button("Retry").clicked() {
                 self.error = None;
                 self.data.clear();
             }
             return;
         }
 
-        // 显示数据
+        // Show data
         if self.data.is_empty() {
-            ui.label("没有数据");
+            ui.label("No data");
             return;
         }
 
         ui.horizontal(|ui| {
-            ui.label("显示数量:");
+            ui.label("Display count:");
             ui.add(egui::Slider::new(&mut self.limit, 10..=100).text(""));
-            if ui.button("刷新").clicked() {
+            if ui.button("Refresh").clicked() {
                 self.data.clear();
                 self.error = None;
             }
@@ -167,16 +167,16 @@ impl StatementsMonitor {
 
         ui.separator();
 
-        // 显示表格
+        // Show table
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("statements_grid")
                 .num_columns(4)
                 .spacing([40.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new("查询").strong());
-                    ui.label(egui::RichText::new("调用次数").strong());
-                    ui.label(egui::RichText::new("总时间(ms)").strong());
-                    ui.label(egui::RichText::new("平均时间(ms)").strong());
+                    ui.label(egui::RichText::new("Query").strong());
+                    ui.label(egui::RichText::new("Calls").strong());
+                    ui.label(egui::RichText::new("Total time (ms)").strong());
+                    ui.label(egui::RichText::new("Mean time (ms)").strong());
                     ui.end_row();
 
                     for item in &self.data {
@@ -191,7 +191,7 @@ impl StatementsMonitor {
 
         ui.separator();
 
-        // 显示柱状图 - 按总时间排序
+        // Show bar chart - sorted by total time
         if !self.data.is_empty() {
             let bars: Vec<Bar> = self
                 .data
@@ -201,11 +201,11 @@ impl StatementsMonitor {
                 .map(|(i, item)| {
                     Bar::new(i as f64, item.total_time)
                         .width(0.6)
-                        .name(format!("查询 {}", i + 1))
+                        .name(format!("Query {}", i + 1))
                 })
                 .collect();
 
-            let chart = BarChart::new("查询总时间 TOP 10", bars);
+            let chart = BarChart::new("Query total time TOP 10", bars);
 
             Plot::new("statements_plot")
                 .height(300.0)

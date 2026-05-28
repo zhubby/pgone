@@ -142,7 +142,9 @@ impl ChatPanel {
                             self.error = None;
                             self.partial_response.clear();
                             if content.trim().is_empty() {
-                                let error = "模型返回了空回复，未保存 assistant 消息".to_owned();
+                                let error =
+                                    "Model returned empty response, assistant message not saved"
+                                        .to_owned();
                                 self.error = Some(error.clone());
                                 crate::notify::warning(&error);
                                 tracing::warn!("{error}");
@@ -158,7 +160,7 @@ impl ChatPanel {
                                 });
                                 sess.updated_at = Utc::now();
                                 if let Err(error) = ctxs.storage.save_session(sess) {
-                                    tracing::error!("保存 Agent 响应失败: {error}");
+                                    tracing::error!("Failed to save Agent response: {error}");
                                 }
                                 ctxs.should_scroll_to_bottom = true;
                             }
@@ -424,14 +426,14 @@ impl ChatPanel {
         }
 
         let Some(api_key) = ctxs.openai_api_key.clone() else {
-            let error = "请先配置 API Key".to_owned();
+            let error = "Please configure API Key first".to_owned();
             self.error = Some(error.clone());
             crate::notify::error(&error);
             return;
         };
 
         let Some(dbconfig_id) = ctxs.active_db_config_id.clone() else {
-            let error = "请先选择一个数据库配置".to_owned();
+            let error = "Please select a database configuration first".to_owned();
             self.error = Some(error.clone());
             crate::notify::error(&error);
             return;
@@ -464,7 +466,7 @@ impl ChatPanel {
             });
             session.updated_at = Utc::now();
             if let Err(error) = ctxs.storage.save_session(session) {
-                tracing::error!("保存用户消息失败: {error}");
+                tracing::error!("Failed to save user message: {error}");
             }
             ctxs.should_scroll_to_bottom = true;
         }
@@ -557,9 +559,9 @@ impl ChatPanel {
                 self.add_image_message(ctxs, path);
             } else if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
                 let label = if is_supported_text_attachment(&path) {
-                    format!("[文件已发送给 Agent] {}", path.display())
+                    format!("[File sent to Agent] {}", path.display())
                 } else {
-                    format!("[文件未发送给 Agent] {}", path.display())
+                    format!("[File not sent to Agent] {}", path.display())
                 };
                 session.messages.push(Message {
                     role: Role::User,
@@ -568,7 +570,7 @@ impl ChatPanel {
                 });
                 session.updated_at = Utc::now();
                 if let Err(error) = ctxs.storage.save_session(session) {
-                    tracing::error!("保存文件消息失败: {error}");
+                    tracing::error!("Failed to save file message: {error}");
                 }
             }
         }
@@ -600,7 +602,7 @@ impl ChatPanel {
             session.updated_at = Utc::now();
 
             if let Err(error) = ctxs.storage.save_session(session) {
-                tracing::error!("保存图片消息失败: {error}");
+                tracing::error!("Failed to save image message: {error}");
             }
         }
     }
@@ -617,27 +619,27 @@ impl ChatPanel {
             .sessions
             .get(ctxs.state.current_index)
             .map(|session| session.title.clone())
-            .unwrap_or_else(|| "当前会话".to_owned());
+            .unwrap_or_else(|| "Current session".to_owned());
 
-        egui::Window::new("确认删除会话")
+        egui::Window::new("Confirm Delete Session")
             .id(egui::Id::new("confirm_delete_session_window"))
             .open(&mut open)
             .default_pos(center)
             .pivot(egui::Align2::CENTER_CENTER)
             .show(ui.ctx(), |ui| {
-                ui.label(format!("确定要删除会话 '{}' 吗？", current_session_title));
+                ui.label(format!("Are you sure you want to delete session '{}'?", current_session_title));
                 ui.label(
-                    egui::RichText::new("此操作不可恢复，会话及其所有消息将被永久删除。")
+                    egui::RichText::new("This action cannot be undone. The session and all its messages will be permanently deleted.")
                         .color(ui.visuals().error_fg_color),
                 );
                 ui.add_space(10.0);
 
                 ui.horizontal(|ui| {
-                    if ui.button("取消").clicked() {
+                    if ui.button("Cancel").clicked() {
                         self.show_delete_confirm = false;
                     }
                     if ui
-                        .button(egui::RichText::new("确认删除").color(ui.visuals().error_fg_color))
+                        .button(egui::RichText::new("Confirm Delete").color(ui.visuals().error_fg_color))
                         .clicked()
                     {
                         self.delete_current_session(ctxs);
@@ -660,8 +662,8 @@ impl ChatPanel {
         if let Some(session) = ctxs.state.sessions.get(current_index) {
             let session_id = session.id.clone();
             if let Err(error) = ctxs.storage.delete_session(&session_id) {
-                tracing::error!("删除会话失败: {error}");
-                crate::notify::error(&format!("删除会话失败: {error}"));
+                tracing::error!("Failed to delete session: {error}");
+                crate::notify::error(&format!("Failed to delete session: {error}"));
                 return;
             }
 
@@ -676,13 +678,13 @@ impl ChatPanel {
                 ctxs.state.sessions.push(new_session.clone());
                 ctxs.state.current_index = 0;
                 if let Err(error) = ctxs.storage.save_session(&new_session) {
-                    tracing::error!("保存新会话失败: {error}");
+                    tracing::error!("Failed to save new session: {error}");
                 }
             } else if current_index >= ctxs.state.sessions.len() {
                 ctxs.state.current_index = ctxs.state.sessions.len() - 1;
             }
 
-            crate::notify::info("会话已删除");
+            crate::notify::info("Session deleted");
         }
     }
 }
@@ -741,7 +743,7 @@ fn create_new_session(ctxs: &mut ChatCtx) {
     ctxs.state.current_index = ctxs.state.sessions.len() - 1;
 
     if let Err(error) = ctxs.storage.save_session(&new_session) {
-        tracing::error!("保存新会话失败: {error}");
+        tracing::error!("Failed to save new session: {error}");
     }
 }
 
@@ -1146,7 +1148,7 @@ fn combine_prompt_and_attachments(prompt: &str, attachments: &[String]) -> Strin
 }
 
 fn should_replace_default_title(title: &str) -> bool {
-    title.starts_with("新会话-") || title == "New conversation"
+    title.starts_with("New session-") || title == "New conversation"
 }
 
 fn conversation_title(message: &str) -> String {

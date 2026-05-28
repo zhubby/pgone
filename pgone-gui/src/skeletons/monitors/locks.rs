@@ -44,7 +44,7 @@ impl LocksMonitor {
         }
 
         let Some(dsn) = dsn else {
-            self.error = Some("未选择数据库".to_string());
+            self.error = Some("No database selected".to_string());
             return;
         };
 
@@ -57,7 +57,7 @@ impl LocksMonitor {
                 let pool = pools
                     .get_or_create_pool(&dsn)
                     .await
-                    .map_err(|e| format!("连接失败: {}", e))?;
+                    .map_err(|e| format!("Connection failed: {}", e))?;
 
                 let rows = sqlx::query(
                     r#"
@@ -83,7 +83,7 @@ impl LocksMonitor {
                 )
                 .fetch_all(&pool)
                 .await
-                .map_err(|e| format!("查询失败: {}", e))?;
+                .map_err(|e| format!("Query failed: {}", e))?;
 
                 let mut data = Vec::new();
                 for row in rows {
@@ -120,7 +120,7 @@ impl LocksMonitor {
         pools: crate::components::db_manager::PoolRegistry,
         dsn: Option<&str>,
     ) {
-        // 检查Promise状态
+        // Check Promise status
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
                 match result {
@@ -136,46 +136,46 @@ impl LocksMonitor {
             }
         }
 
-        // 如果没有数据且没有错误，开始加载
+        // If no data and no error, start loading
         if self.data.is_empty() && self.error.is_none() && self.promise.is_none() {
             self.load_data(pools.clone(), dsn);
         }
 
-        // 显示加载状态
+        // Show loading state
         if self.promise.is_some() {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
-                ui.label("加载中...");
+                ui.label("Loading...");
             });
             return;
         }
 
-        // 显示错误
+        // Show error
         if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("错误: {}", err));
-            if ui.button("重试").clicked() {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+            if ui.button("Retry").clicked() {
                 self.error = None;
                 self.data.clear();
             }
             return;
         }
 
-        // 统计信息
+        // Statistics
         let granted_count = self.data.iter().filter(|l| l.granted).count();
         let waiting_count = self.data.len() - granted_count;
 
         ui.horizontal(|ui| {
-            ui.label(format!("总锁数: {}", self.data.len()));
-            ui.label(format!("已授予: {}", granted_count));
+            ui.label(format!("Total locks: {}", self.data.len()));
+            ui.label(format!("Granted: {}", granted_count));
             ui.colored_label(
                 if waiting_count > 0 {
                     egui::Color32::RED
                 } else {
                     egui::Color32::GREEN
                 },
-                format!("等待中: {}", waiting_count),
+                format!("Waiting: {}", waiting_count),
             );
-            if ui.button("刷新").clicked() {
+            if ui.button("Refresh").clicked() {
                 self.data.clear();
                 self.error = None;
             }
@@ -183,20 +183,20 @@ impl LocksMonitor {
 
         ui.separator();
 
-        // 显示表格
+        // Show table
         egui::ScrollArea::both().show(ui, |ui| {
             egui::Grid::new("locks_grid")
                 .num_columns(8)
                 .spacing([20.0, 4.0])
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new("锁类型").strong());
-                    ui.label(egui::RichText::new("模式").strong());
+                    ui.label(egui::RichText::new("Lock type").strong());
+                    ui.label(egui::RichText::new("Mode").strong());
                     ui.label(egui::RichText::new("PID").strong());
-                    ui.label(egui::RichText::new("虚拟事务").strong());
-                    ui.label(egui::RichText::new("数据库").strong());
-                    ui.label(egui::RichText::new("关系").strong());
-                    ui.label(egui::RichText::new("事务ID").strong());
-                    ui.label(egui::RichText::new("状态").strong());
+                    ui.label(egui::RichText::new("Virtual XID").strong());
+                    ui.label(egui::RichText::new("Database").strong());
+                    ui.label(egui::RichText::new("Relation").strong());
+                    ui.label(egui::RichText::new("Transaction ID").strong());
+                    ui.label(egui::RichText::new("Status").strong());
                     ui.end_row();
 
                     for item in &self.data {
@@ -230,9 +230,9 @@ impl LocksMonitor {
                                 egui::Color32::RED
                             },
                             if item.granted {
-                                "已授予"
+                                "Granted"
                             } else {
-                                "等待中"
+                                "Waiting"
                             },
                         );
                         ui.end_row();

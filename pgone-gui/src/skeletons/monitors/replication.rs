@@ -44,7 +44,7 @@ impl ReplicationMonitor {
         }
 
         let Some(dsn) = dsn else {
-            self.error = Some("未选择数据库".to_string());
+            self.error = Some("No database selected".to_string());
             return;
         };
 
@@ -57,7 +57,7 @@ impl ReplicationMonitor {
                 let pool = pools
                     .get_or_create_pool(&dsn)
                     .await
-                    .map_err(|e| format!("连接失败: {}", e))?;
+                    .map_err(|e| format!("Connection failed: {}", e))?;
 
                 let rows = sqlx::query(
                     r#"
@@ -82,7 +82,7 @@ impl ReplicationMonitor {
                 )
                 .fetch_all(&pool)
                 .await
-                .map_err(|e| format!("查询失败: {}", e))?;
+                .map_err(|e| format!("Query failed: {}", e))?;
 
                 let mut data = Vec::new();
                 for row in rows {
@@ -131,7 +131,7 @@ impl ReplicationMonitor {
         pools: crate::components::db_manager::PoolRegistry,
         dsn: Option<&str>,
     ) {
-        // 检查Promise状态
+        // Check Promise status
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
                 match result {
@@ -147,39 +147,39 @@ impl ReplicationMonitor {
             }
         }
 
-        // 如果没有数据且没有错误，开始加载
+        // If no data and no error, start loading
         if self.data.is_empty() && self.error.is_none() && self.promise.is_none() {
             self.load_data(pools.clone(), dsn);
         }
 
-        // 显示加载状态
+        // Show loading state
         if self.promise.is_some() {
             ui.centered_and_justified(|ui| {
                 ui.spinner();
-                ui.label("加载中...");
+                ui.label("Loading...");
             });
             return;
         }
 
-        // 显示错误
+        // Show error
         if let Some(err) = &self.error {
-            ui.colored_label(egui::Color32::RED, format!("错误: {}", err));
-            if ui.button("重试").clicked() {
+            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
+            if ui.button("Retry").clicked() {
                 self.error = None;
                 self.data.clear();
             }
             return;
         }
 
-        // 显示数据
+        // Show data
         if self.data.is_empty() {
-            ui.label("没有复制连接（可能是单机模式）");
+            ui.label("No replication connections (may be standalone mode)");
             return;
         }
 
         ui.horizontal(|ui| {
-            ui.label(format!("复制连接数: {}", self.data.len()));
-            if ui.button("刷新").clicked() {
+            ui.label(format!("Replication connections: {}", self.data.len()));
+            if ui.button("Refresh").clicked() {
                 self.data.clear();
                 self.error = None;
             }
@@ -187,11 +187,11 @@ impl ReplicationMonitor {
 
         ui.separator();
 
-        // 显示表格
+        // Show table
         egui::ScrollArea::both().show(ui, |ui| {
             for (idx, item) in self.data.iter().enumerate() {
                 ui.group(|ui| {
-                    ui.heading(format!("复制连接 #{}", idx + 1));
+                    ui.heading(format!("Replication connection #{}", idx + 1));
 
                     egui::Grid::new(format!("replication_grid_{}", idx))
                         .num_columns(2)
@@ -204,67 +204,67 @@ impl ReplicationMonitor {
                             }
 
                             if let Some(ref usename) = item.usename {
-                                ui.label("用户名:");
+                                ui.label("Username:");
                                 ui.label(usename);
                                 ui.end_row();
                             }
 
                             if let Some(ref app_name) = item.application_name {
-                                ui.label("应用名称:");
+                                ui.label("Application name:");
                                 ui.label(app_name);
                                 ui.end_row();
                             }
 
                             if let Some(ref client_addr) = item.client_addr {
-                                ui.label("客户端地址:");
+                                ui.label("Client address:");
                                 ui.label(client_addr);
                                 ui.end_row();
                             }
 
                             if let Some(ref state) = item.state {
-                                ui.label("状态:");
+                                ui.label("Status:");
                                 ui.label(state);
                                 ui.end_row();
                             }
 
                             if let Some(ref sent_lsn) = item.sent_lsn {
-                                ui.label("发送LSN:");
+                                ui.label("Sent LSN:");
                                 ui.label(sent_lsn);
                                 ui.end_row();
                             }
 
                             if let Some(ref write_lsn) = item.write_lsn {
-                                ui.label("写入LSN:");
+                                ui.label("Write LSN:");
                                 ui.label(write_lsn);
                                 ui.end_row();
                             }
 
                             if let Some(ref flush_lsn) = item.flush_lsn {
-                                ui.label("刷新LSN:");
+                                ui.label("Flush LSN:");
                                 ui.label(flush_lsn);
                                 ui.end_row();
                             }
 
                             if let Some(ref replay_lsn) = item.replay_lsn {
-                                ui.label("重放LSN:");
+                                ui.label("Replay LSN:");
                                 ui.label(replay_lsn);
                                 ui.end_row();
                             }
 
                             if let Some(sync_priority) = item.sync_priority {
-                                ui.label("同步优先级:");
+                                ui.label("Sync priority:");
                                 ui.label(sync_priority.to_string());
                                 ui.end_row();
                             }
 
                             if let Some(ref sync_state) = item.sync_state {
-                                ui.label("同步状态:");
+                                ui.label("Sync state:");
                                 ui.label(sync_state);
                                 ui.end_row();
                             }
 
                             if let Some(backend_start) = item.backend_start {
-                                ui.label("后端启动时间:");
+                                ui.label("Backend start time:");
                                 ui.label(backend_start.to_string());
                                 ui.end_row();
                             }

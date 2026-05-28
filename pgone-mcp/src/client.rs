@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// 客户端错误类型
+/// Client error types
 #[derive(Error, Debug)]
 pub enum ClientError {
     #[error("Transport error: {0}")]
@@ -25,27 +25,27 @@ impl From<anyhow::Error> for ClientError {
     }
 }
 
-/// 传输方式枚举
+/// Transport type enum
 #[derive(Clone, Debug)]
 pub enum Transport {
-    /// STDIO 传输方式
+    /// STDIO transport
     Stdio,
-    /// Streamable HTTP 传输方式
+    /// Streamable HTTP transport
     StreamableHttp { url: String },
 }
 
-/// MCP 客户端
+/// MCP client
 pub struct McpClient {
     transport: Transport,
-    // 对于 Streamable HTTP，我们需要一个 HTTP 客户端
+    // For Streamable HTTP, we need an HTTP client
     #[allow(dead_code)]
     http_client: Option<reqwest::Client>,
-    // 对于 STDIO，我们需要保持传输层
-    // 注意：传输层类型取决于实际的 reader/writer 类型
+    // For STDIO, we need to hold the transport layer
+    // Note: transport layer type depends on the actual reader/writer types
 }
 
 impl McpClient {
-    /// 创建新的 MCP 客户端
+    /// Creates a new MCP client
     pub async fn new(transport: Transport) -> Result<Self> {
         let http_client = match &transport {
             Transport::StreamableHttp { .. } => Some(reqwest::Client::new()),
@@ -58,21 +58,21 @@ impl McpClient {
         })
     }
 
-    /// 创建新的 STDIO MCP 客户端
+    /// Creates a new STDIO MCP client
     pub async fn new_stdio<R, W>(reader: R, writer: W) -> Result<Self>
     where
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        // 创建传输层（暂时不保存，因为需要实现 JSON-RPC 通信）
+        // Create transport layer (not saved yet, as JSON-RPC communication needs to be implemented)
         let _transport: AsyncRwTransport<RoleClient, R, W> =
             AsyncRwTransport::new_client(reader, writer);
 
-        // TODO: 实现完整的 stdio 传输通信
-        // 需要：
-        // 1. 保存传输层引用
-        // 2. 实现 JSON-RPC 消息发送和接收
-        // 3. 实现 list_tools 和 call_tool 方法
+        // TODO: Implement full stdio transport communication
+        // Needs:
+        // 1. Save transport layer reference
+        // 2. Implement JSON-RPC message sending and receiving
+        // 3. Implement list_tools and call_tool methods
 
         Ok(Self {
             transport: Transport::Stdio,
@@ -80,7 +80,7 @@ impl McpClient {
         })
     }
 
-    /// 列出所有可用的工具
+    /// Lists all available tools
     pub async fn list_tools(&self) -> Result<Vec<Tool>> {
         match &self.transport {
             Transport::Stdio => self.list_tools_stdio().await,
@@ -88,7 +88,7 @@ impl McpClient {
         }
     }
 
-    /// 调用指定的工具
+    /// Calls the specified tool
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<CallToolResult> {
         match &self.transport {
             Transport::Stdio => self.call_tool_stdio(name, arguments).await,
@@ -98,9 +98,9 @@ impl McpClient {
         }
     }
 
-    // STDIO 传输实现
-    // 注意：这些方法需要实现 JSON-RPC 协议通信
-    // 暂时返回错误，提示使用 Streamable HTTP
+    // STDIO transport implementation
+    // Note: these methods need JSON-RPC protocol communication implemented
+    // Temporarily returns error, suggesting to use Streamable HTTP
     async fn list_tools_stdio(&self) -> Result<Vec<Tool>> {
         tracing::warn!(
             "STDIO transport for list_tools not fully implemented. Use StreamableHttp transport instead."
@@ -115,19 +115,19 @@ impl McpClient {
         Err(anyhow::anyhow!("STDIO transport not yet implemented"))
     }
 
-    // Streamable HTTP 传输实现
+    // Streamable HTTP transport implementation
     async fn list_tools_streamable(&self, url: &str) -> Result<Vec<Tool>> {
         let client = self
             .http_client
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
-        // 构建请求 URL - Streamable HTTP 使用 SSE 端点
+        // Build request URL - Streamable HTTP uses SSE endpoint
         let request_url = format!("{}/mcp", url.trim_end_matches('/'));
 
-        // 创建请求体 - MCP Streamable HTTP 使用特定的格式
-        // 这里我们需要发送一个初始化请求或直接调用工具列表端点
-        // 暂时使用简单的 HTTP POST 请求
+        // Create request body - MCP Streamable HTTP uses a specific format
+        // Here we need to send an init request or directly call the tool list endpoint
+        // Temporarily using a simple HTTP POST request
         let request_body = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -135,20 +135,20 @@ impl McpClient {
             "params": {}
         });
 
-        // 发送 POST 请求
+        // Send POST request
         let response = client.post(&request_url).json(&request_body).send().await?;
 
-        // 检查响应状态
+        // Check response status
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             return Err(anyhow::anyhow!("HTTP error {}: {}", status, text));
         }
 
-        // 解析响应
+        // Parse response
         let result: Value = response.json().await?;
 
-        // 提取工具列表
+        // Extract tool list
         if let Some(tools_array) = result
             .get("result")
             .and_then(|r| r.get("tools"))
@@ -183,16 +183,16 @@ impl McpClient {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("HTTP client not initialized"))?;
 
-        // 构建请求 URL
+        // Build request URL
         let request_url = format!("{}/mcp", url.trim_end_matches('/'));
 
-        // 将 arguments 转换为 HashMap
+        // Convert arguments to HashMap
         let args_map = arguments
             .as_object()
             .ok_or_else(|| anyhow::anyhow!("Arguments must be an object"))?
             .clone();
 
-        // 创建请求体
+        // Create request body
         let request_body = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -203,25 +203,25 @@ impl McpClient {
             }
         });
 
-        // 发送 POST 请求
+        // Send POST request
         let response = client.post(&request_url).json(&request_body).send().await?;
 
-        // 检查响应状态
+        // Check response status
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             return Err(anyhow::anyhow!("HTTP error {}: {}", status, text));
         }
 
-        // 解析响应
+        // Parse response
         let result: Value = response.json().await?;
 
-        // 检查错误
+        // Check for errors
         if let Some(error) = result.get("error") {
             return Err(anyhow::anyhow!("Tool call error: {}", error));
         }
 
-        // 提取结果
+        // Extract result
         if let Some(result_data) = result.get("result") {
             serde_json::from_value(result_data.clone())
                 .map_err(|e| anyhow::anyhow!("Failed to parse result: {}", e))
@@ -251,6 +251,6 @@ mod tests {
         assert!(client.is_ok());
     }
 
-    // 注意：实际的工具调用测试需要运行中的服务器
-    // 这些测试可以在集成测试中实现
+    // Note: actual tool call tests require a running server
+    // These tests can be implemented in integration tests
 }

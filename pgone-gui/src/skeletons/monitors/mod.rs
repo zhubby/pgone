@@ -9,7 +9,7 @@ pub mod statements;
 pub mod tables;
 pub mod window;
 
-/// 监控指标类型枚举
+/// Monitor metric type enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumString)]
 pub enum MonitorMetric {
     #[strum(serialize = "Activity")]
@@ -29,7 +29,7 @@ pub enum MonitorMetric {
 }
 
 impl MonitorMetric {
-    /// 获取监控指标的显示名称
+    /// Get display name for the monitor metric
     pub fn title(&self) -> &'static str {
         match self {
             MonitorMetric::Activity => "Activity (pg_stat_activity)",

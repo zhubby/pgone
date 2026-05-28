@@ -10,22 +10,22 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
 
-// 缓存 System 实例以提高性能，仅按需刷新当前进程信息。
+// Cache System instance for performance, only refresh current process info on demand.
 static SYSTEM: Lazy<Arc<Mutex<sysinfo::System>>> =
     Lazy::new(|| Arc::new(Mutex::new(sysinfo::System::new())));
 
-// 记录上次刷新时间，用于控制刷新频率（每秒一次）
+// Track last refresh time to control refresh frequency (once per second)
 static LAST_REFRESH: Lazy<Arc<Mutex<Option<Instant>>>> = Lazy::new(|| Arc::new(Mutex::new(None)));
 
-// 缓存数据库版本信息（按连接ID）
+// Cache database version info (by connection ID)
 static DB_VERSION_CACHE: Lazy<Arc<Mutex<HashMap<String, (String, Instant)>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 static DB_VERSION_PENDING: Lazy<Arc<Mutex<HashSet<String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
-// 刷新间隔：1秒
+// Refresh interval: 1 second
 const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
-// 数据库版本缓存有效期：30秒
+// Database version cache TTL: 30 seconds
 const VERSION_CACHE_TTL: Duration = Duration::from_secs(30);
 
 pub fn show_status_bar(
@@ -77,7 +77,7 @@ pub fn show_status_bar(
                                 });
                             });
 
-                            // 获取并显示数据库版本信息
+                            // Get and display database version info
                             let db_version =
                                 get_db_version(ctx, db.pools.clone(), &cfg.dsn, &cfg.id);
                             if let Some(version) = db_version {
@@ -93,9 +93,9 @@ pub fn show_status_bar(
                 }
             });
 
-            // 如果启用了监控，显示系统监控信息
+            // If monitoring is enabled, display system monitoring info
             if settings.enable_monitor {
-                // 检查是否需要刷新（每秒刷新一次）
+                // Check if refresh is needed (refresh once per second)
                 let should_refresh = {
                     let mut last_refresh = LAST_REFRESH.lock().unwrap();
                     let now = Instant::now();
@@ -105,7 +105,7 @@ pub fn show_status_bar(
 
                     if should {
                         *last_refresh = Some(now);
-                        // 请求在下次刷新间隔后重绘，确保持续更新
+                        // Request repaint after next refresh interval to ensure continuous updates
                         ctx.request_repaint_after(REFRESH_INTERVAL);
                     }
                     should
@@ -115,7 +115,7 @@ pub fn show_status_bar(
                     if let Ok(mut system) = SYSTEM.lock() {
                         let pid = sysinfo::Pid::from(std::process::id() as usize);
 
-                        // 只在需要时刷新当前进程的 CPU/内存，避免 UI 线程扫描全系统。
+                        // Only refresh current process CPU/memory when needed, avoid UI thread scanning entire system.
                         if should_refresh {
                             system.refresh_processes_specifics(
                                 ProcessesToUpdate::Some(&[pid]),
@@ -133,16 +133,16 @@ pub fn show_status_bar(
                             let memory_kb = process.memory() / 1024;
                             let memory_mb = memory_kb as f64 / 1024.0;
 
-                            // 格式化内存显示
+                            // Format memory display
                             let memory_str = if memory_mb >= 1.0 {
                                 format!("{:.2} MB", memory_mb)
                             } else {
                                 format!("{} KB", memory_kb)
                             };
 
-                            // 获取网络信息 - sysinfo 0.37 中网络信息获取方式可能不同
-                            // 暂时显示占位信息，后续可以根据实际 API 调整
-                            let network_info = "网络: 监控中".to_string();
+                            // Get network info - network info retrieval may differ in sysinfo 0.37
+                            // Temporarily display placeholder info, can be adjusted based on actual API later
+                            let network_info = "Network: Monitoring".to_string();
 
                             ui.label(egui_phosphor::regular::DESKTOP);
                             ui.label(format!("Process: {}", process_name));
@@ -166,29 +166,29 @@ pub fn show_status_bar(
     requested_theme
 }
 
-// 静态正则表达式，用于提取版本信息
+// Static regex for extracting version info
 static VERSION_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"PostgreSQL\s+(\d+\.\d+(?:\.\d+)?)").unwrap());
 
 static ARCH_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(64-bit|32-bit)\b").unwrap());
 
-/// 从 PostgreSQL version() 输出中提取关键版本信息
-/// 例如: "PostgreSQL 10.12 (Debian 10.12-1.pgdg90+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 6.3.0-18+deb9u1) 6.3.0 20170516, 64-bit"
-/// 提取为: "PostgreSQL 10.12 (64-bit)"
+/// Extract key version info from PostgreSQL version() output
+/// e.g.: "PostgreSQL 10.12 (Debian 10.12-1.pgdg90+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 6.3.0-18+deb9u1) 6.3.0 20170516, 64-bit"
+/// Extracted as: "PostgreSQL 10.12 (64-bit)"
 fn extract_version_info(full_version: &str) -> String {
-    // 提取版本号
+    // Extract version number
     let version_num = VERSION_RE
         .captures(full_version)
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str())
         .unwrap_or("");
 
-    // 提取架构信息
+    // Extract architecture info
     let arch = ARCH_RE.find(full_version).map(|m| m.as_str()).unwrap_or("");
 
-    // 组合结果
+    // Combine results
     if version_num.is_empty() && arch.is_empty() {
-        // 如果无法解析，返回原始字符串的前50个字符
+        // If unable to parse, return first 50 characters of original string
         full_version.chars().take(50).collect::<String>()
     } else if arch.is_empty() {
         format!("PostgreSQL {}", version_num)
@@ -197,12 +197,12 @@ fn extract_version_info(full_version: &str) -> String {
     }
 }
 
-/// 获取数据库版本信息，使用缓存机制避免频繁查询
+/// Get database version info, using cache to avoid frequent queries
 fn get_db_version(ctx: &Context, pools: PoolRegistry, dsn: &str, db_id: &str) -> Option<String> {
     let mut cache = DB_VERSION_CACHE.lock().unwrap();
     let now = Instant::now();
 
-    // 检查缓存
+    // Check cache
     if let Some((version, cached_time)) = cache.get(db_id) {
         if now.duration_since(*cached_time) < VERSION_CACHE_TTL {
             return Some(version.clone());

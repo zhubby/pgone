@@ -82,8 +82,8 @@ fn parse_json_cell(value: &str) -> Option<Value> {
 }
 
 impl ResultsTable {
-    /// 执行 SQL 查询并更新结果
-    /// 从 SqlCtx 获取数据库连接，执行 SQL 语句，并将结果存储到表格中
+    /// Execute SQL query and update results
+    /// Get database connection from SqlCtx, execute SQL statement, and store results in the table
     fn execute_sql(&mut self, sql: &str, ctxs: &mut SqlCtx) {
         let Some((dsn, sql)) = self.query_request(ctxs, sql.to_string()) else {
             return;
@@ -91,9 +91,9 @@ impl ResultsTable {
         self.start_query(ctxs.db.pools.clone(), dsn, sql);
     }
 
-    /// 渲染查询结果表格
-    /// 接收 SQL 语句和 SqlCtx，内部执行 SQL 并渲染结果
-    /// 支持主键列标识、CSV 导出和自动刷新
+    /// Render query results table
+    /// Accept SQL statement and SqlCtx, execute SQL internally and render results
+    /// Supports primary key column identification, CSV export, and auto-refresh
     pub fn ui_results_table(
         &mut self,
         ui: &mut egui::Ui,
@@ -103,9 +103,9 @@ impl ResultsTable {
     ) {
         self.poll_query_promise();
 
-        // 更新当前 SQL 语句（但不自动执行）
+        // Update current SQL statement (but do not auto-execute)
         if let Some(sql_str) = sql {
-            // 只更新当前 SQL，不自动执行
+            // Only update current SQL, do not auto-execute
             let sql_changed = self
                 .current_sql
                 .as_ref()
@@ -117,29 +117,29 @@ impl ResultsTable {
             }
         }
 
-        // 检查是否需要刷新
+        // Check if refresh is needed
         let should_refresh = self.refresh_requested;
         if should_refresh {
             self.refresh_requested = false;
         }
 
-        // 检查是否有执行请求（通过点击运行按钮触发）
+        // Check if there is an execution request (triggered by clicking the run button)
         let should_execute_requested = self.execute_sql_requested;
         if should_execute_requested {
             self.execute_sql_requested = false;
         }
 
-        // 执行 SQL（仅在点击运行按钮或刷新按钮时执行，不自动执行）
+        // Execute SQL (only when run button or refresh button is clicked, not auto-executed)
         if (should_refresh || should_execute_requested) && sql.is_some() {
             if let Some(ctxs) = ctxs {
                 self.execute_sql(sql.unwrap(), ctxs);
             }
         }
 
-        // 顶部工具栏：SQL 预览、刷新按钮、CSV 导出按钮
+        // Top toolbar: SQL preview, refresh button, CSV export button
         ui.horizontal(|ui| {
             if let Some(ref sql_str) = self.current_sql {
-                // 只显示第一行，最多 300 个字符
+                // Show only the first line, up to 300 characters
                 let first_line = sql_str.lines().next().unwrap_or("");
                 let truncated_sql = if first_line.chars().count() > 300 {
                     format!("{}...", first_line.chars().take(300).collect::<String>())
@@ -164,7 +164,7 @@ impl ResultsTable {
                 }
 
                 if let Some(ref explain_info) = self.explain_info {
-                    // 显示 EXPLAIN 信息：类型 | 成本 | 行数
+                    // Show EXPLAIN information: type | cost | rows
                     let info_text = format!(
                         "{} {} | Cost: {} | Rows: {}",
                         egui_phosphor::regular::INFO,
@@ -177,7 +177,7 @@ impl ResultsTable {
                             .color(egui::Color32::from_rgb(100, 150, 200)),
                     );
                 } else if let Some(ref error) = self.explain_error {
-                    // 显示 EXPLAIN 错误
+                    // Show EXPLAIN error
                     ui.label(
                         egui::RichText::new(format!(
                             "{} {}",
@@ -188,7 +188,7 @@ impl ResultsTable {
                         .small(),
                     );
                 } else {
-                    // 没有 EXPLAIN 信息时显示占位符
+                    // Show placeholder when no EXPLAIN information is available
                     ui.label(
                         egui::RichText::new(format!("{} No plan", egui_phosphor::regular::INFO))
                             .color(egui::Color32::GRAY)
@@ -199,7 +199,7 @@ impl ResultsTable {
         });
         ui.separator();
 
-        // 显示错误信息（如果有）
+        // Show error message (if any)
         if let Some(ref error) = self.sql_error {
             ui.horizontal(|ui| {
                 ui.label(
@@ -214,7 +214,7 @@ impl ResultsTable {
             ui.separator();
         }
 
-        // 如果没有查询结果，显示空状态
+        // Show empty state if no query results
         if self.query_columns.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
@@ -308,8 +308,8 @@ impl ResultsTable {
         }
     }
 
-    /// 导出查询结果为 CSV 文件
-    /// 使用文件对话框选择保存位置，然后将查询结果写入 CSV 文件
+    /// Export query results to CSV file
+    /// Use file dialog to select save location, then write query results to CSV file
     pub fn export_csv(&self, columns: &[String], rows: &[Vec<String>]) {
         if columns.is_empty() {
             return;

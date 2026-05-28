@@ -4,14 +4,14 @@ use super::types::{DbTree, DialogType, EditableColumn};
 
 fn column_names() -> &'static [&'static str] {
     &[
-        "名称",
-        "类型",
-        "长度",
-        "精度",
-        "小数位",
-        "可空",
-        "默认值",
-        "注释",
+        "Name",
+        "Type",
+        "Length",
+        "Precision",
+        "Scale",
+        "Nullable",
+        "Default",
+        "Comment",
     ]
 }
 
@@ -127,11 +127,11 @@ pub(super) fn show_dialogs(
             .open(&mut open)
             .default_pos(center)
             .pivot(egui::Align2::CENTER_CENTER)
-            .collapsible(false); // 所有对话框都不可折叠
+            .collapsible(false); // All dialogs are not collapsible
 
-        // 为 DesignTable 对话框设置合适的大小
+        // Set appropriate size for DesignTable dialog
         if matches!(dialog_type, DialogType::DesignTable { .. }) {
-            // 窗口高度设置为屏幕高度的一半
+            // Window height set to half the screen height
             let screen_height = ui.ctx().content_rect().height();
             let window_height = screen_height * 0.5;
 
@@ -142,7 +142,7 @@ pub(super) fn show_dialogs(
                 .min_size([600.0, 300.0]);
         }
 
-        // 为 ShowDdl 对话框设置合适的大小
+        // Set appropriate size for ShowDdl dialog
         if matches!(dialog_type, DialogType::ShowDdl { .. }) {
             window = window
                 .default_size([800.0, 300.0])
@@ -486,16 +486,16 @@ pub(super) fn show_dialogs(
                     schema,
                     name,
                 } => {
-                    // 检查当前对话框的表是否与已加载的表匹配
+                    // Check if the current dialog's table matches the loaded table
                     let current_table = (database.clone(), schema.clone(), name.clone());
                     if let Some(ref loaded_table) = tree.design_table_loaded {
                         if *loaded_table != current_table {
-                            // 表名不匹配，清空数据并触发重新加载
+                            // Table name mismatch, clear data and trigger reload
                             tree.design_table_detail = None;
                             tree.design_table_columns.clear();
                             tree.design_table_promise = None;
                             tree.design_table_loaded = None;
-                            // 触发重新加载
+                            // Trigger reload
                             use super::loading;
                             loading::load_table_detail_for_design(
                                 tree, db_manager, database, schema, name,
@@ -505,12 +505,12 @@ pub(super) fn show_dialogs(
                         }
                     }
 
-                    // 检查异步加载的表结构详情
+                    // Check async-loaded table structure details
                     if let Some(ref promise) = tree.design_table_promise {
                         if let Some(result) = promise.ready() {
                             match result {
                                 Ok(detail) => {
-                                    // 初始化可编辑列数据
+                                    // Initialize editable column data
                                     tree.design_table_detail = Some(detail.clone());
                                     tree.design_table_columns = detail
                                         .columns
@@ -541,7 +541,7 @@ pub(super) fn show_dialogs(
                             return;
                         }
                     } else if tree.design_table_detail.is_none() {
-                        // 没有 promise 且没有已加载的数据，触发加载
+                        // No promise and no loaded data, trigger loading
                         use super::loading;
                         loading::load_table_detail_for_design(
                             tree, db_manager, database, schema, name,
@@ -550,7 +550,7 @@ pub(super) fn show_dialogs(
                         return;
                     }
 
-                    // 显示表设计界面
+                    // Display table design interface
                     if tree.design_table_columns.is_empty() {
                         ui.label("No columns to display");
                     } else {
@@ -574,7 +574,7 @@ pub(super) fn show_dialogs(
                                     });
                             });
 
-                        // 右下角按钮
+                        // Bottom-right buttons
                         ui.separator();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Cancel").clicked() {
@@ -592,12 +592,12 @@ pub(super) fn show_dialogs(
                     schema: _,
                     name: _,
                 } => {
-                    // 检查异步加载的DDL
+                    // Check async-loaded DDL
                     if let Some(ref promise) = tree.ddl_promise {
                         if let Some(result) = promise.ready() {
                             match result {
                                 Ok(_) => {
-                                    // DDL已加载到dialog_ddl_content
+                                    // DDL has been loaded into dialog_ddl_content
                                 }
                                 Err(e) => {
                                     ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
@@ -610,9 +610,9 @@ pub(super) fn show_dialogs(
                         }
                     }
 
-                    // 显示DDL内容，使用SQL高亮
+                    // Display DDL content with SQL highlighting
                     let ddl_content = tree.dialog_ddl_content.clone();
-                    let available_height = ui.available_height() - 60.0; // 为按钮预留空间
+                    let available_height = ui.available_height() - 60.0; // Reserve space for buttons
 
                     egui::ScrollArea::vertical()
                         .auto_shrink([false; 2])
@@ -631,7 +631,7 @@ pub(super) fn show_dialogs(
                                     ),
                                     egui::TextEdit::multiline(ddl_text_ref)
                                         .desired_rows((available_height.max(200.0) / 20.0) as usize)
-                                        .interactive(false) // 设置为只读
+                                        .interactive(false) // Set as read-only
                                         .layouter(&mut move |ui, _text, wrap_width| {
                                             let mut job = crate::sql::highlight_sql(
                                                 &ddl_for_highlight,
@@ -644,7 +644,7 @@ pub(super) fn show_dialogs(
                             });
                         });
 
-                    // 关闭和复制按钮
+                    // Close and copy buttons
                     ui.separator();
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Close").clicked() {
@@ -652,7 +652,7 @@ pub(super) fn show_dialogs(
                         }
                         ui.add_space(8.0);
                         if ui.button("Copy").clicked() {
-                            // 复制 DDL 内容到剪贴板
+                            // Copy DDL content to clipboard
                             let ddl_to_copy = tree.dialog_ddl_content.clone();
                             ui.ctx().copy_text(ddl_to_copy);
                         }
@@ -666,7 +666,7 @@ pub(super) fn show_dialogs(
                     ui.colored_label(
                         egui::Color32::RED,
                         format!(
-                            "警告：此操作将清空表 '{}.{}' 中的所有数据，此操作不可撤销。",
+                            "Warning: This operation will clear all data in table '{}.{}'. This operation cannot be undone.",
                             schema, name
                         ),
                     );
@@ -887,15 +887,15 @@ pub(super) fn show_dialogs(
                                     &statements,
                                 );
                             } else {
-                                // 即使没有语句，也清除设计状态
+                                // Clear design state even if there are no statements
                                 tree.design_table_detail = None;
                                 tree.design_table_columns.clear();
                             }
                         }
-                        // 清空已加载表的记录，下次打开时会重新加载
+                        // Clear loaded table record so it reloads on next open
                         tree.design_table_loaded = None;
                         tree.design_table_promise = None;
-                        // 关闭对话框
+                        // Close dialog
                         tree.dialog = None;
                     }
                     DialogType::CreateDatabase

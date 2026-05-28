@@ -186,7 +186,7 @@ impl DbTree {
                         return;
                     }
 
-            // 收集需要加载表结构详情的表
+            // Collect tables that need to load structure details
             let mut pending_design_loads = Vec::new();
 
             let database_names = self
@@ -546,7 +546,7 @@ impl DbTree {
                                             self.pending_query_table = Some((db_name_clone.clone(), schema_name_clone.clone(), table_name_clone.clone()));
                                         }
 
-                                        // 克隆需要的值以避免借用冲突
+                                        // Clone needed values to avoid borrow conflicts
                                         let db_name_menu = db_name.clone();
                                         let schema_name_menu = schema_name.clone();
                                         let table_name_menu = table_name.clone();
@@ -664,7 +664,7 @@ impl DbTree {
                                             }
                                         });
 
-                                        // 收集需要加载的表设计信息
+                                        // Collect table design info that needs to be loaded
                                         use super::types::DialogType;
                                         if let Some(DialogType::DesignTable { database, schema, name }) = &self.dialog {
                                             if *database == db_name && *schema == schema_name && *name == table_name {
@@ -1117,7 +1117,7 @@ impl DbTree {
                 });
             }
 
-            // 在循环外处理异步加载，避免借用冲突
+            // Process async loads outside the loop to avoid borrow conflicts
             for (db_name, schema_name, table_name) in pending_design_loads {
                 loading::load_table_detail_for_design(self, db_manager, &db_name, &schema_name, &table_name);
             }

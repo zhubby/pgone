@@ -14,7 +14,7 @@ pub fn show_settings_window(
 
     let mut open = true;
     let mut should_save = false;
-    Window::new("设置")
+    Window::new("Settings")
         .id(Id::new("settings_window"))
         .open(&mut open)
         .default_pos(screen_center(ctx))
@@ -45,7 +45,7 @@ pub fn show_about_window(ctx: &Context, show_about: &mut bool) {
     }
 
     let mut open = true;
-    Window::new("关于")
+    Window::new("About")
         .id(Id::new("about_window"))
         .open(&mut open)
         .default_pos(screen_center(ctx))
@@ -57,27 +57,27 @@ pub fn show_about_window(ctx: &Context, show_about: &mut bool) {
                 ui.heading("PGone");
                 ui.add_space(10.0);
                 ui.label(
-                    egui::RichText::new(format!("版本 {}", env!("CARGO_PKG_VERSION"))).size(14.0),
+                    egui::RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION"))).size(14.0),
                 );
                 ui.add_space(20.0);
                 ui.separator();
                 ui.add_space(10.0);
                 ui.label(egui::RichText::new(
-                    "PGone 是一套围绕数据库智能化的本地开发工具集，包含桌面 GUI、MCP Server 以及本地存储层，旨在提供：",
+                    "PGone is a local development tool suite focused on database intelligence, including a desktop GUI, MCP Server, and local storage layer, providing:",
                 )
                 .size(12.0));
                 ui.add_space(10.0);
                 ui.label(
-                    egui::RichText::new("• 会话式图形交互与 SQL 试验台").size(12.0),
+                    egui::RichText::new("• Conversational graphical interface and SQL playground").size(12.0),
                 );
                 ui.label(
-                    egui::RichText::new("• 面向 Agent 的数据库能力暴露（MCP 协议）").size(12.0),
+                    egui::RichText::new("• Agent-oriented database capabilities (MCP protocol)").size(12.0),
                 );
                 ui.label(
-                    egui::RichText::new("• 轻量、本地可嵌入的持久化存储").size(12.0),
+                    egui::RichText::new("• Lightweight, locally embeddable persistent storage").size(12.0),
                 );
                 ui.add_space(20.0);
-                if ui.button("关闭").clicked() {
+                if ui.button("Close").clicked() {
                     *show_about = false;
                 }
             });
@@ -121,7 +121,7 @@ pub fn show_graph_window(
             if schema_info.is_some() {
                 graph.ui(ui, pools.clone(), dsn.as_deref());
             } else {
-                ui.label("请选择一个 schema");
+                ui.label("Please select a schema");
             }
         });
 

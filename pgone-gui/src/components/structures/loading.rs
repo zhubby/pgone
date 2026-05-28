@@ -567,24 +567,24 @@ pub(super) fn query_table_data(
         results_table.current_db_id = Some(connection_id);
     }
 
-    // 生成 SQL 查询语句，让表格组件自己执行查询
-    // 使用 LIMIT 100 限制结果数量，避免查询过大数据集
+    // Generate SQL query statement for the table component to execute
+    // Use LIMIT 100 to limit result size and avoid querying large datasets
     let sql = format!("SELECT * FROM \"{}\".\"{}\" LIMIT 100", schema, table);
 
-    // 设置 SQL 到表格组件的输入框
+    // Set the SQL into the table component's input
     results_table.sql_input = sql.clone();
 
-    // 设置选中的数据库，以便表格组件能够正确切换数据库连接
+    // Set the selected database so the table component can correctly switch database connections
     results_table.selected_database = Some(database.to_string());
 
-    // 设置当前 SQL 用于显示
+    // Set the current SQL for display
     results_table.current_sql = Some(sql);
 
-    // 请求执行 SQL，表格组件会在下次渲染时自动执行
+    // Request SQL execution; the table component will execute it on the next render
     results_table.execute_sql_requested = true;
 }
 
-/// 加载表结构详情用于设计对话框
+/// Load table structure details for the design dialog
 pub(super) fn load_table_detail_for_design(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
@@ -592,23 +592,23 @@ pub(super) fn load_table_detail_for_design(
     schema: &str,
     table: &str,
 ) {
-    // 检查是否是同一个表，如果不是，清空旧数据
+    // Check if it's the same table; if not, clear old data
     let current_table = (database.to_string(), schema.to_string(), table.to_string());
     if let Some(ref loaded_table) = tree.design_table_loaded {
         if *loaded_table != current_table {
-            // 切换了表，清空旧数据
+            // Switched tables, clear old data
             tree.design_table_detail = None;
             tree.design_table_columns.clear();
             tree.design_table_promise = None;
         } else if tree.design_table_promise.is_some() {
-            // 同一个表且正在加载中，不需要重新加载
+            // Same table and still loading, no need to reload
             return;
         } else if tree.design_table_detail.is_some() {
-            // 同一个表且已加载完成，不需要重新加载
+            // Same table and already loaded, no need to reload
             return;
         }
     } else if tree.design_table_promise.is_some() {
-        // 没有记录已加载的表，但 promise 存在，可能是第一次加载
+        // No record of loaded table, but promise exists - may be the first load
         return; // Already loading
     }
 
@@ -617,7 +617,7 @@ pub(super) fn load_table_detail_for_design(
         return;
     };
 
-    // 记录当前要加载的表
+    // Record the table currently being loaded
     tree.design_table_loaded = Some(current_table.clone());
 
     let pools = db_manager.pools.clone();
@@ -643,7 +643,7 @@ pub(super) fn load_table_detail_for_design(
     });
 }
 
-/// 加载表DDL
+/// Load table DDL
 pub(super) fn load_table_ddl(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,
@@ -672,19 +672,19 @@ pub(super) fn load_table_ddl(
             let pool = pools.get_or_create_pool(&dsn_clone).await?;
             let session = Session::from_pool(pool);
 
-            // 获取表结构详情
+            // Get table structure details
             let table_detail = session
                 .get_table_detail(&schema_clone, &table_clone)
                 .await
                 .map_err(|e| format!("Failed to get table detail: {}", e))?;
 
-            // 获取索引信息
+            // Get index information
             let indexes = session
                 .list_table_indexes(&schema_clone, &table_clone)
                 .await
                 .map_err(|e| format!("Failed to list indexes: {}", e))?;
 
-            // 生成DDL
+            // Generate DDL
             Ok(utils::generate_table_ddl(
                 &schema_clone,
                 &table_clone,
@@ -1039,8 +1039,8 @@ pub(super) fn query_foreign_key_detail(
             JOIN information_schema.constraint_column_usage ccu
               ON ccu.constraint_name = rc.unique_constraint_name
               AND ccu.constraint_schema = rc.unique_constraint_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY' 
-              AND tc.table_schema = $1 
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = $1
               AND tc.table_name = $2
               AND ccu.table_schema = $3
               AND ccu.table_name = $4
@@ -1092,7 +1092,7 @@ pub(super) fn query_foreign_key_detail(
             // Now get the full foreign key details
             let fk_row = sqlx::query(
                 r#"
-            SELECT 
+            SELECT
                 tc.constraint_name,
                 kcu.column_name,
                 ccu.table_schema AS ref_schema,
@@ -1108,8 +1108,8 @@ pub(super) fn query_foreign_key_detail(
             JOIN information_schema.constraint_column_usage ccu
               ON ccu.constraint_name = rc.unique_constraint_name
               AND ccu.constraint_schema = rc.unique_constraint_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY' 
-              AND tc.table_schema = $1 
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = $1
               AND tc.table_name = $2
               AND tc.constraint_name = $3
             ORDER BY kcu.ordinal_position
@@ -1157,8 +1157,8 @@ pub(super) fn query_foreign_key_detail(
             JOIN information_schema.constraint_column_usage ccu
               ON ccu.constraint_name = rc.unique_constraint_name
               AND ccu.constraint_schema = rc.unique_constraint_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY' 
-              AND tc.table_schema = $1 
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = $1
               AND tc.table_name = $2
               AND tc.constraint_name = $3
             ORDER BY kcu.ordinal_position

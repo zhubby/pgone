@@ -15,7 +15,7 @@ fn now_ts() -> i64 {
         .as_secs() as i64
 }
 
-/// 确保用户本地 data 目录存在，不存在则创建
+/// Ensure the user's local data directory exists; create it if it does not
 pub async fn ensure_data_dir() -> Result<()> {
     let data_path = data_dir();
     if !data_path.exists() {
@@ -26,13 +26,13 @@ pub async fn ensure_data_dir() -> Result<()> {
     Ok(())
 }
 
-/// 获取当前日期的文件夹名称（YYYY-MM-DD 格式）
+/// Get the folder name for the current date (YYYY-MM-DD format)
 fn get_date_folder() -> String {
     use chrono::Local;
     Local::now().format("%Y-%m-%d").to_string()
 }
 
-/// 生成文件路径：~/.pgone/data/YYYY-MM-DD/{uuid}.{ext}
+/// Generate file path: ~/.pgone/data/YYYY-MM-DD/{uuid}.{ext}
 fn generate_file_path(uuid: &str, extension: &str) -> PathBuf {
     let date_folder = get_date_folder();
     let filename = if extension.is_empty() {
@@ -43,7 +43,7 @@ fn generate_file_path(uuid: &str, extension: &str) -> PathBuf {
     data_file_path(Path::new(&date_folder).join(filename))
 }
 
-/// 获取文件扩展名
+/// Get file extension
 fn get_file_extension(path: &Path) -> String {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -51,20 +51,20 @@ fn get_file_extension(path: &Path) -> String {
         .to_string()
 }
 
-/// 检测文件的 MIME 类型
+/// Detect the MIME type of a file
 fn detect_mime_type(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path).context("Failed to read file for MIME type detection")?;
 
-    // 使用 infer 检测 MIME 类型
+    // Use infer to detect MIME type
     if let Some(kind) = infer::get(&bytes) {
         Ok(kind.mime_type().to_string())
     } else {
-        // 如果 infer 无法检测，尝试使用文件扩展名
+        // If infer cannot detect, try using file extension
         let ext = get_file_extension(path);
         if ext.is_empty() {
             Ok("application/octet-stream".to_string())
         } else {
-            // 简单的扩展名到 MIME 类型映射
+            // Simple extension to MIME type mapping
             let mime = match ext.to_lowercase().as_str() {
                 "txt" => "text/plain",
                 "pdf" => "application/pdf",
@@ -84,9 +84,9 @@ fn detect_mime_type(path: &Path) -> Result<String> {
     }
 }
 
-/// 复制文件到索引目录并记录到数据库
+/// Copy file to the index directory and record it in the database
 pub async fn copy_file_to_index(conn: &mut Connection, source_path: &str) -> Result<FileIndex> {
-    // 确保数据目录存在
+    // Ensure data directory exists
     ensure_data_dir().await?;
 
     let source = Path::new(source_path);
@@ -94,35 +94,35 @@ pub async fn copy_file_to_index(conn: &mut Connection, source_path: &str) -> Res
         anyhow::bail!("Source file does not exist: {}", source_path);
     }
 
-    // 获取文件元数据
+    // Get file metadata
     let metadata = tokio::fs::metadata(source)
         .await
         .context("Failed to get file metadata")?;
     let file_size = metadata.len() as i64;
 
-    // 检测 MIME 类型
+    // Detect MIME type
     let file_type = detect_mime_type(source)?;
 
-    // 获取文件扩展名
+    // Get file extension
     let extension = get_file_extension(source);
 
-    // 生成 UUID 和文件路径
+    // Generate UUID and file path
     let id = Uuid::new_v4().to_string();
     let dest_path = generate_file_path(&id, &extension);
 
-    // 确保目标目录存在
+    // Ensure destination directory exists
     if let Some(parent) = dest_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .context("Failed to create destination directory")?;
     }
 
-    // 复制文件
+    // Copy file
     tokio::fs::copy(source, &dest_path)
         .await
         .context("Failed to copy file")?;
 
-    // 获取相对路径（相对于 ~/.pgone/data）
+    // Get relative path (relative to ~/.pgone/data)
     let current_path = dest_path
         .strip_prefix(data_dir())
         .context("Failed to get relative path")?
@@ -131,7 +131,7 @@ pub async fn copy_file_to_index(conn: &mut Connection, source_path: &str) -> Res
 
     let now = now_ts();
 
-    // 插入数据库记录
+    // Insert database record
     conn.execute(
         "INSERT INTO file_index (id, current_path, original_path, file_size, file_type, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -159,12 +159,12 @@ pub async fn copy_file_to_index(conn: &mut Connection, source_path: &str) -> Res
     })
 }
 
-/// 删除文件索引和实际文件
+/// Delete file index and the actual file
 pub async fn delete_file(conn: &mut Connection, id: &str) -> Result<()> {
-    // 先获取文件信息
+    // Get file info first
     let file_index = get_file(conn, id).await?;
     if let Some(file) = file_index {
-        // 删除实际文件
+        // Delete the actual file
         let file_path = data_file_path(&file.current_path);
         if file_path.exists() {
             tokio::fs::remove_file(&file_path)
@@ -172,7 +172,7 @@ pub async fn delete_file(conn: &mut Connection, id: &str) -> Result<()> {
                 .context("Failed to delete file")?;
         }
 
-        // 删除数据库记录
+        // Delete database record
         conn.execute("DELETE FROM file_index WHERE id=?1", params![id])
             .await
             .context("Failed to delete file index record")?;
@@ -183,13 +183,13 @@ pub async fn delete_file(conn: &mut Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// 更新文件（替换文件内容）
+/// Update file (replace file content)
 pub async fn update_file(
     conn: &mut Connection,
     id: &str,
     new_source_path: &str,
 ) -> Result<FileIndex> {
-    // 获取现有文件信息
+    // Get existing file info
     let mut file_index = get_file(conn, id).await?.context("File index not found")?;
 
     let new_source = Path::new(new_source_path);
@@ -197,22 +197,22 @@ pub async fn update_file(
         anyhow::bail!("New source file does not exist: {}", new_source_path);
     }
 
-    // 获取新文件元数据
+    // Get new file metadata
     let metadata = tokio::fs::metadata(new_source)
         .await
         .context("Failed to get new file metadata")?;
     let file_size = metadata.len() as i64;
 
-    // 检测新文件的 MIME 类型
+    // Detect MIME type of the new file
     let file_type = detect_mime_type(new_source)?;
 
-    // 获取新文件扩展名
+    // Get new file extension
     let new_extension = get_file_extension(new_source);
     let old_extension = get_file_extension(Path::new(&file_index.current_path));
 
-    // 如果扩展名不同，需要更新文件名
+    // If extension differs, update the file name
     let current_path = if new_extension != old_extension {
-        // 删除旧文件
+        // Delete old file
         let old_path = data_file_path(&file_index.current_path);
         if old_path.exists() {
             tokio::fs::remove_file(&old_path)
@@ -220,7 +220,7 @@ pub async fn update_file(
                 .context("Failed to remove old file")?;
         }
 
-        // 生成新路径
+        // Generate new path
         let new_path = generate_file_path(id, &new_extension);
         if let Some(parent) = new_path.parent() {
             tokio::fs::create_dir_all(parent)
@@ -228,19 +228,19 @@ pub async fn update_file(
                 .context("Failed to create destination directory")?;
         }
 
-        // 复制新文件
+        // Copy new file
         tokio::fs::copy(new_source, &new_path)
             .await
             .context("Failed to copy new file")?;
 
-        // 获取相对路径
+        // Get relative path
         new_path
             .strip_prefix(data_dir())
             .context("Failed to get relative path")?
             .to_string_lossy()
             .to_string()
     } else {
-        // 扩展名相同，直接覆盖
+        // Same extension, overwrite directly
         let dest_path = data_file_path(&file_index.current_path);
         tokio::fs::copy(new_source, &dest_path)
             .await
@@ -250,7 +250,7 @@ pub async fn update_file(
 
     let updated_at = now_ts();
 
-    // 更新数据库记录
+    // Update database record
     conn.execute(
         "UPDATE file_index SET current_path=?2, original_path=?3, file_size=?4, file_type=?5, updated_at=?6
          WHERE id=?1",
@@ -275,7 +275,7 @@ pub async fn update_file(
     Ok(file_index)
 }
 
-/// 根据 ID 获取文件索引
+/// Get file index by ID
 pub async fn get_file(conn: &mut Connection, id: &str) -> Result<Option<FileIndex>> {
     let mut rows = conn
         .query(
@@ -300,7 +300,7 @@ pub async fn get_file(conn: &mut Connection, id: &str) -> Result<Option<FileInde
     }
 }
 
-/// 按路径查询文件索引
+/// Query file index by path
 pub async fn query_files_by_path(
     conn: &mut Connection,
     path: &str,
@@ -332,7 +332,7 @@ pub async fn query_files_by_path(
     Ok(results)
 }
 
-/// 按 MIME 类型查询文件索引
+/// Query file index by MIME type
 pub async fn query_files_by_type(conn: &mut Connection, mime_type: &str) -> Result<Vec<FileIndex>> {
     let mut rows = conn
         .query(
@@ -358,7 +358,7 @@ pub async fn query_files_by_type(conn: &mut Connection, mime_type: &str) -> Resu
     Ok(results)
 }
 
-/// 按创建时间范围查询文件索引
+/// Query file index by creation date range
 pub async fn query_files_by_date_range(
     conn: &mut Connection,
     start: Option<i64>,

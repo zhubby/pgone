@@ -6,13 +6,13 @@ pub struct SessionSelector;
 impl SessionSelector {
     pub fn ui(ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // Session 下拉框
+            // Session dropdown
             let current_session = ctxs
                 .state
                 .sessions
                 .get(ctxs.state.current_index)
                 .map(|s| s.title.clone())
-                .unwrap_or_else(|| "无会话".to_string());
+                .unwrap_or_else(|| "No sessions".to_string());
 
             let mut selected_index = ctxs.state.current_index;
             egui::ComboBox::from_id_salt("session_selector")
@@ -29,9 +29,9 @@ impl SessionSelector {
                     }
                 });
 
-            // 新建 Session 按钮
+            // New Session button
             if ui
-                .button(format!("{} 新建", egui_phosphor::regular::PLUS))
+                .button(format!("{} New", egui_phosphor::regular::PLUS))
                 .clicked()
             {
                 Self::create_new_session(ctxs);
@@ -48,9 +48,9 @@ impl SessionSelector {
         ctxs.state.sessions.push(new_session.clone());
         ctxs.state.current_index = ctxs.state.sessions.len() - 1;
 
-        // 保存到存储
+        // Save to storage
         if let Err(e) = ctxs.storage.save_session(&new_session) {
-            tracing::error!("保存新会话失败: {}", e);
+            tracing::error!("Failed to save new session: {}", e);
         }
     }
 }

@@ -16,20 +16,20 @@ pub struct ImportResult {
 
 #[derive(Default)]
 pub struct ImportWindow {
-    // 选择状态
+    // Selection state
     selected_database: Option<String>,
     selected_schema: Option<String>,
 
-    // 文件路径
+    // File path
     file_path: Option<PathBuf>,
 
-    // 数据加载
+    // Data loading
     databases: Vec<DatabaseInfo>,
     databases_promise: Option<Promise<Result<Vec<DatabaseInfo>, String>>>,
     schemas: Vec<SchemaInfo>,
     schemas_promise: Option<Promise<Result<Vec<SchemaInfo>, String>>>,
 
-    // 导入状态
+    // Import state
     import_promise: Option<Promise<Result<Vec<ImportResult>, String>>>,
     import_progress: f32, // 0.0 - 1.0
     import_status: String,
@@ -43,12 +43,12 @@ impl ImportWindow {
         ui.vertical(|ui| {
             ui.set_width(600.0);
 
-            // 数据库选择
+            // Database selection
             ui.horizontal(|ui| {
-                ui.label("数据库:");
+                ui.label("Database:");
                 self.load_databases_if_needed(db_manager);
 
-                // 检查数据库加载状态
+                // Check database loading state
                 if let Some(ref promise) = self.databases_promise {
                     if let Some(result) = promise.ready() {
                         match result {
@@ -56,13 +56,13 @@ impl ImportWindow {
                                 self.databases = databases.clone();
                             }
                             Err(e) => {
-                                ui.colored_label(egui::Color32::RED, format!("错误: {}", e));
+                                ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
                             }
                         }
                         self.databases_promise = None;
                     } else {
                         ui.spinner();
-                        ui.label("加载中...");
+                        ui.label("Loading...");
                     }
                 }
 
@@ -72,11 +72,11 @@ impl ImportWindow {
                         self.selected_database
                             .as_ref()
                             .map(|s| s.as_str())
-                            .unwrap_or("请选择数据库"),
+                            .unwrap_or("Please select a database"),
                     )
                     .show_ui(ui, |ui| {
                         if self.databases.is_empty() && self.databases_promise.is_none() {
-                            ui.label("没有可用的数据库");
+                            ui.label("No databases available");
                         } else {
                             for db in self.databases.iter() {
                                 if ui
@@ -87,7 +87,7 @@ impl ImportWindow {
                                     )
                                     .clicked()
                                 {
-                                    // 重置 schema
+                                    // Reset schema
                                     self.selected_schema = None;
                                     self.schemas.clear();
                                 }
@@ -96,7 +96,7 @@ impl ImportWindow {
                     });
             });
 
-            // Schema 选择
+            // Schema selection
             let db_name = self.selected_database.clone();
             if let Some(ref db_name) = db_name {
                 ui.horizontal(|ui| {
@@ -110,13 +110,13 @@ impl ImportWindow {
                                     self.schemas = schemas.clone();
                                 }
                                 Err(e) => {
-                                    ui.colored_label(egui::Color32::RED, format!("错误: {}", e));
+                                    ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
                                 }
                             }
                             self.schemas_promise = None;
                         } else {
                             ui.spinner();
-                            ui.label("加载中...");
+                            ui.label("Loading...");
                         }
                     }
 
@@ -126,7 +126,7 @@ impl ImportWindow {
                             self.selected_schema
                                 .as_ref()
                                 .map(|s| s.as_str())
-                                .unwrap_or("请选择 Schema"),
+                                .unwrap_or("Please select schema"),
                         )
                         .show_ui(ui, |ui| {
                             for schema in self.schemas.iter() {
@@ -147,9 +147,9 @@ impl ImportWindow {
 
             ui.separator();
 
-            // 文件路径选择
+            // File path selection
             ui.horizontal(|ui| {
-                ui.label("SQL文件:");
+                ui.label("SQL file:");
                 let mut path_text = self
                     .file_path
                     .as_ref()
@@ -163,7 +163,7 @@ impl ImportWindow {
                     }
                 }
 
-                if ui.button("浏览...").clicked() {
+                if ui.button("Browse...").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("SQL Files", &["sql"])
                         .add_filter("All Files", &["*"])
@@ -176,7 +176,7 @@ impl ImportWindow {
 
             ui.separator();
 
-            // 进度条和状态（导入中或已完成时都显示）
+            // Progress bar and status (show during import or when completed)
             if self.is_importing || self.import_progress > 0.0 {
                 ui.horizontal(|ui| {
                     if self.is_importing {
@@ -187,10 +187,10 @@ impl ImportWindow {
                 ui.add(egui::ProgressBar::new(self.import_progress));
             }
 
-            // 结果显示
+            // Results display
             if !self.results.is_empty() {
                 ui.separator();
-                ui.checkbox(&mut self.show_results, "显示详细结果");
+                ui.checkbox(&mut self.show_results, "Show detailed results");
 
                 if self.show_results {
                     egui::ScrollArea::vertical()
@@ -199,7 +199,7 @@ impl ImportWindow {
                             let success_count = self.results.iter().filter(|r| r.success).count();
                             let fail_count = self.results.len() - success_count;
 
-                            ui.label(format!("成功: {}, 失败: {}", success_count, fail_count));
+                            ui.label(format!("Success: {}, Failed: {}", success_count, fail_count));
                             ui.separator();
 
                             for (idx, result) in self.results.iter().enumerate() {
@@ -216,8 +216,8 @@ impl ImportWindow {
                                             "✓ {}",
                                             result
                                                 .rows_affected
-                                                .map(|r| format!("影响 {} 行", r))
-                                                .unwrap_or_else(|| "成功".to_string())
+                                                .map(|r| format!("Affected {} rows", r))
+                                                .unwrap_or_else(|| "Success".to_string())
                                         ));
                                     } else {
                                         ui.label(format!(
@@ -225,20 +225,20 @@ impl ImportWindow {
                                             result
                                                 .error
                                                 .as_ref()
-                                                .unwrap_or(&"未知错误".to_string())
+                                                .unwrap_or(&"Unknown error".to_string())
                                         ));
                                     }
                                 });
 
-                                if ui.small_button("查看SQL").clicked() {
-                                    // 可以显示SQL内容
+                                if ui.small_button("View SQL").clicked() {
+                                    // Can display SQL content
                                 }
                             }
                         });
                 }
             }
 
-            // 按钮
+            // Buttons
             ui.horizontal(|ui| {
                 let can_import = self.selected_database.is_some()
                     && self.selected_schema.is_some()
@@ -246,7 +246,7 @@ impl ImportWindow {
                     && !self.is_importing;
 
                 if ui
-                    .add_enabled(can_import, egui::Button::new("导入"))
+                    .add_enabled(can_import, egui::Button::new("Import"))
                     .clicked()
                 {
                     self.start_import(db_manager);
@@ -254,14 +254,14 @@ impl ImportWindow {
 
                 if ui
                     .button(if self.is_importing {
-                        "取消"
+                        "Cancel"
                     } else {
-                        "关闭"
+                        "Close"
                     })
                     .clicked()
                 {
                     if !self.is_importing {
-                        // 如果不在导入中，重置所有状态
+                        // If not importing, reset all state
                         *self = ImportWindow::default();
                     }
                 }
@@ -354,9 +354,9 @@ impl ImportWindow {
         for line in lines {
             let trimmed = line.trim();
 
-            // 检查是否是DDL或DML标记
+            // Check if it is a DDL or DML marker
             if trimmed.starts_with("-- DDL for table") {
-                // 如果之前有未完成的语句，先保存
+                // If there is an unfinished statement, save it first
                 if !current_statement.trim().is_empty() {
                     match current_section {
                         Some("DDL") => ddl_statements.push(current_statement.trim().to_string()),
@@ -368,7 +368,7 @@ impl ImportWindow {
                 current_section = Some("DDL");
                 continue;
             } else if trimmed.starts_with("-- DML for table") {
-                // 如果之前有未完成的语句，先保存
+                // If there is an unfinished statement, save it first
                 if !current_statement.trim().is_empty() {
                     match current_section {
                         Some("DDL") => ddl_statements.push(current_statement.trim().to_string()),
@@ -381,12 +381,12 @@ impl ImportWindow {
                 continue;
             }
 
-            // 跳过注释行（但不是字符串中的）
+            // Skip comment lines (but not those inside strings)
             if trimmed.starts_with("--") && !in_string {
                 continue;
             }
 
-            // 处理多行注释
+            // Handle multi-line comments
             if trimmed.contains("/*") {
                 in_comment = true;
             }
@@ -398,14 +398,14 @@ impl ImportWindow {
                 continue;
             }
 
-            // 处理字符串
+            // Handle strings
             for ch in line.chars() {
                 if !in_string && (ch == '\'' || ch == '"') {
                     in_string = true;
                     string_char = ch;
                     current_statement.push(ch);
                 } else if in_string && ch == string_char {
-                    // 检查是否是转义的引号
+                    // Check if it is an escaped quote
                     if current_statement.ends_with('\\') {
                         current_statement.push(ch);
                     } else {
@@ -414,14 +414,14 @@ impl ImportWindow {
                     }
                 } else if !in_string && ch == ';' {
                     current_statement.push(ch);
-                    // 语句结束
+                    // End of statement
                     let stmt = current_statement.trim().to_string();
                     if !stmt.is_empty() && !stmt.starts_with("--") {
                         match current_section {
                             Some("DDL") => ddl_statements.push(stmt),
                             Some("DML") => dml_statements.push(stmt),
                             _ => {
-                                // 如果没有明确的标记，根据语句类型判断
+                                // If no clear marker, determine by statement type
                                 let upper = stmt.to_uppercase();
                                 if upper.starts_with("CREATE")
                                     || upper.starts_with("ALTER")
@@ -444,13 +444,13 @@ impl ImportWindow {
                 }
             }
 
-            // 添加换行符（如果不在字符串中）
+            // Add newline (if not inside a string)
             if !in_string {
                 current_statement.push('\n');
             }
         }
 
-        // 处理最后一个语句
+        // Handle last statement
         if !current_statement.trim().is_empty() {
             let stmt = current_statement.trim().to_string();
             if !stmt.is_empty() && !stmt.starts_with("--") {
@@ -502,20 +502,20 @@ impl ImportWindow {
             return;
         };
 
-        // 读取文件内容
+        // Read file content
         let file_content = match fs::read_to_string(&file_path) {
             Ok(content) => content,
             Err(e) => {
-                self.import_status = format!("读取文件失败: {}", e);
+                self.import_status = format!("Failed to read file: {}", e);
                 return;
             }
         };
 
-        // 解析SQL文件
+        // Parse SQL file
         let (ddl_statements, dml_statements) = self.parse_sql_file(&file_content);
 
         if ddl_statements.is_empty() && dml_statements.is_empty() {
-            self.import_status = "SQL文件中没有找到有效的语句".to_string();
+            self.import_status = "No valid statements found in SQL file".to_string();
             return;
         }
 
@@ -526,7 +526,7 @@ impl ImportWindow {
         self.is_importing = true;
         self.import_progress = 0.0;
         self.import_status = format!(
-            "准备导入... (DDL: {}, DML: {})",
+            "Preparing to import... (DDL: {}, DML: {})",
             ddl_statements.len(),
             dml_statements.len()
         );
@@ -541,16 +541,16 @@ impl ImportWindow {
 
                 let mut results = Vec::new();
 
-                // 先执行DDL语句
+                // Execute DDL statements first
                 for (idx, sql) in ddl_statements.iter().enumerate() {
-                    let _progress_msg = format!("执行DDL ({}/{})...", idx + 1, ddl_statements.len());
+                    let _progress_msg = format!("Executing DDL ({}/{})...", idx + 1, ddl_statements.len());
 
-                    // 检查是否是CREATE TABLE语句，如果是，检查表是否已存在
+                    // Check if it is a CREATE TABLE statement; if so, check if table already exists
                     let sql_upper = sql.to_uppercase().trim().to_string();
                     if sql_upper.starts_with("CREATE TABLE") {
-                        // 提取表名
+                        // Extract table name
                         if let Some(table_name) = extract_table_name_from_create(&sql_upper) {
-                            // 检查表是否存在
+                            // Check if table exists
                             let check_sql = format!(
                                 "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = '{}' AND table_name = '{}')",
                                 schema_clone, table_name
@@ -563,20 +563,20 @@ impl ImportWindow {
                                         results.push(ImportResult {
                                             sql: sql.clone(),
                                             success: true,
-                                            error: Some("表已存在，跳过".to_string()),
+                                            error: Some("Table already exists, skipping".to_string()),
                                             rows_affected: None,
                                         });
                                         continue;
                                     }
                                 }
                                 Err(_) => {
-                                    // 如果检查失败，继续执行
+                                    // If check fails, continue execution
                                 }
                             }
                         }
                     }
 
-                    // 执行SQL语句
+                    // Execute SQL statement
                     match sqlx::query(sql).execute(&pool).await {
                         Ok(result) => {
                             results.push(ImportResult {
@@ -587,13 +587,13 @@ impl ImportWindow {
                             });
                         }
                         Err(e) => {
-                            // 如果是"表已存在"错误，跳过
+                            // If "already exists" error, skip
                             let error_msg = e.to_string();
-                            if error_msg.contains("already exists") || error_msg.contains("已存在") {
+                            if error_msg.contains("already exists") || error_msg.contains("already exists") {
                                 results.push(ImportResult {
                                     sql: sql.clone(),
                                     success: true,
-                                    error: Some("表已存在，跳过".to_string()),
+                                    error: Some("Table already exists, skipping".to_string()),
                                     rows_affected: None,
                                 });
                             } else {
@@ -608,9 +608,9 @@ impl ImportWindow {
                     }
                 }
 
-                // 然后执行DML语句
+                // Then execute DML statements
                 for (idx, sql) in dml_statements.iter().enumerate() {
-                    let _progress_msg = format!("执行DML ({}/{})...", idx + 1, dml_statements.len());
+                    let _progress_msg = format!("Executing DML ({}/{})...", idx + 1, dml_statements.len());
 
                     match sqlx::query(sql).execute(&pool).await {
                         Ok(result) => {
@@ -650,18 +650,18 @@ impl ImportWindow {
                         let success_count = results.iter().filter(|r| r.success).count();
                         let fail_count = results.len() - success_count;
                         self.import_status =
-                            format!("导入完成！成功: {}, 失败: {}", success_count, fail_count);
+                            format!("Import completed! Success: {}, Failed: {}", success_count, fail_count);
                         self.import_promise = None;
                         self.show_results = true;
                     }
                     Err(e) => {
                         self.is_importing = false;
-                        self.import_status = format!("导入失败: {}", e);
+                        self.import_status = format!("Import failed: {}", e);
                         self.import_promise = None;
                     }
                 }
             } else {
-                // 更新进度（简化版本）
+                // Update progress (simplified version)
                 if self.import_progress < 0.9 {
                     self.import_progress += 0.01;
                 }
@@ -674,15 +674,15 @@ impl ImportWindow {
     }
 }
 
-// 从CREATE TABLE语句中提取表名
+// Extract table name from CREATE TABLE statement
 fn extract_table_name_from_create(sql: &str) -> Option<String> {
-    // 简单的正则匹配：CREATE TABLE schema.table_name 或 CREATE TABLE table_name
-    // 处理可能的引号：CREATE TABLE "schema"."table_name" 或 CREATE TABLE schema.table_name
+    // Simple regex match: CREATE TABLE schema.table_name or CREATE TABLE table_name
+    // Handle possible quotes: CREATE TABLE "schema"."table_name" or CREATE TABLE schema.table_name
     let parts: Vec<&str> = sql.split_whitespace().collect();
     if parts.len() >= 3 && parts[0].to_uppercase() == "CREATE" && parts[1].to_uppercase() == "TABLE"
     {
         let mut table_part = parts[2];
-        // 移除可能的引号和分号
+        // Remove possible quotes and semicolons
         let mut table_name = table_part
             .trim_matches('"')
             .trim_matches('\'')
@@ -690,7 +690,7 @@ fn extract_table_name_from_create(sql: &str) -> Option<String> {
             .trim_end_matches('(')
             .to_string();
 
-        // 如果下一个部分是点号，说明是schema.table格式
+        // If next part is a dot, it is schema.table format
         if parts.len() > 3 && parts[3] == "." {
             if parts.len() > 4 {
                 table_name = parts[4]
@@ -701,7 +701,7 @@ fn extract_table_name_from_create(sql: &str) -> Option<String> {
                     .to_string();
             }
         } else if table_name.contains('.') {
-            // 如果包含点号，取最后一部分
+            // If contains a dot, take the last part
             if let Some(dot_pos) = table_name.rfind('.') {
                 table_name = table_name[dot_pos + 1..].to_string();
             }

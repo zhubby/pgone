@@ -1,7 +1,7 @@
 use super::types::EditableColumn;
 use pgone_sql::{ColumnDetail, TableDetail};
 
-/// 生成 ALTER TABLE 语句列表，对比原始结构和修改后的结构
+/// Generate ALTER TABLE statement list, comparing original and modified structures
 pub(super) fn generate_alter_statements(
     schema: &str,
     table_name: &str,
@@ -10,14 +10,14 @@ pub(super) fn generate_alter_statements(
 ) -> Vec<String> {
     let mut statements = Vec::new();
 
-    // 创建列名到原始列的映射
+    // Create a mapping from column names to original columns
     let original_columns_map: std::collections::HashMap<String, &ColumnDetail> = original
         .columns
         .iter()
         .map(|col| (col.name.clone(), col))
         .collect();
 
-    // 处理删除的列
+    // Handle deleted columns
     for col in modified {
         if col.is_deleted {
             let key = col.original_name.as_ref().unwrap_or(&col.name);
@@ -32,7 +32,7 @@ pub(super) fn generate_alter_statements(
         }
     }
 
-    // 处理新增的列
+    // Handle new columns
     for col in modified {
         if col.is_new && !col.is_deleted {
             statements.push(format!(
@@ -43,7 +43,7 @@ pub(super) fn generate_alter_statements(
                 build_column_type(&col)
             ));
 
-            // 设置可空性
+            // Set nullability
             if !col.nullable {
                 statements.push(format!(
                     "ALTER TABLE {}.{} ALTER COLUMN {} SET NOT NULL",
@@ -53,7 +53,7 @@ pub(super) fn generate_alter_statements(
                 ));
             }
 
-            // 设置默认值
+            // Set default value
             if let Some(ref default) = col.default {
                 if !default.trim().is_empty() {
                     statements.push(format!(
@@ -66,7 +66,7 @@ pub(super) fn generate_alter_statements(
                 }
             }
 
-            // 设置注释
+            // Set comment
             if let Some(ref comment) = col.comment {
                 if !comment.trim().is_empty() {
                     statements.push(format!(
@@ -81,12 +81,12 @@ pub(super) fn generate_alter_statements(
         }
     }
 
-    // 处理修改的列
+    // Handle modified columns
     for col in modified {
         if !col.is_new && !col.is_deleted {
             let original_name = col.original_name.as_ref().unwrap_or(&col.name);
             if let Some(original_col) = original_columns_map.get(original_name) {
-                // 检查列名是否改变
+                // Check if column name changed
                 if col.name != original_col.name {
                     statements.push(format!(
                         "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
@@ -97,7 +97,7 @@ pub(super) fn generate_alter_statements(
                     ));
                 }
 
-                // 检查类型是否改变
+                // Check if type changed
                 let original_type = build_column_type_from_detail(original_col);
                 let new_type = build_column_type(col);
                 if original_type != new_type {
@@ -110,7 +110,7 @@ pub(super) fn generate_alter_statements(
                     ));
                 }
 
-                // 检查可空性是否改变
+                // Check if nullability changed
                 if col.nullable != original_col.nullable {
                     if col.nullable {
                         statements.push(format!(
@@ -129,7 +129,7 @@ pub(super) fn generate_alter_statements(
                     }
                 }
 
-                // 检查默认值是否改变
+                // Check if default value changed
                 let original_default = original_col
                     .default
                     .as_ref()
@@ -159,7 +159,7 @@ pub(super) fn generate_alter_statements(
                     }
                 }
 
-                // 检查注释是否改变
+                // Check if comment changed
                 let original_comment = original_col
                     .comment
                     .as_ref()
@@ -195,7 +195,7 @@ pub(super) fn generate_alter_statements(
     statements
 }
 
-/// 从 EditableColumn 构建列类型字符串
+/// Build column type string from EditableColumn
 fn build_column_type(col: &EditableColumn) -> String {
     let base_type = col.data_type.to_lowercase();
 
@@ -253,13 +253,13 @@ fn build_column_type(col: &EditableColumn) -> String {
             _ => "INTERVAL".to_string(),
         },
         _ => {
-            // 对于其他类型，尝试使用 UDT 名称或原始类型
+            // For other types, try using the UDT name or original type
             col.data_type.to_uppercase()
         }
     }
 }
 
-/// 从 ColumnDetail 构建列类型字符串（用于对比）
+/// Build column type string from ColumnDetail (used for comparison)
 fn build_column_type_from_detail(col: &pgone_sql::ColumnDetail) -> String {
     let base_type = col.data_type.to_lowercase();
 
@@ -317,7 +317,7 @@ fn build_column_type_from_detail(col: &pgone_sql::ColumnDetail) -> String {
             _ => "INTERVAL".to_string(),
         },
         _ => {
-            // 对于其他类型，尝试使用 UDT 名称或原始类型
+            // For other types, try using the UDT name or original type
             if let Some(ref udt_name) = col.udt_name {
                 udt_name.to_uppercase()
             } else {
@@ -327,12 +327,12 @@ fn build_column_type_from_detail(col: &pgone_sql::ColumnDetail) -> String {
     }
 }
 
-/// 转义 SQL 标识符
+/// Escape SQL identifiers
 fn quote_ident(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
-/// 转义 SQL 字符串字面量
+/// Escape SQL string literals
 fn quote_literal(literal: &str) -> String {
     format!("'{}'", literal.replace('\'', "''"))
 }

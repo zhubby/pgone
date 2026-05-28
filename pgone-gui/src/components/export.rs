@@ -11,28 +11,28 @@ use std::path::PathBuf;
 
 #[derive(Default)]
 pub struct ExportWindow {
-    // 选择状态
+    // Selection state
     selected_database: Option<String>,
     selected_schema: Option<String>,
     selected_tables: HashSet<String>,
 
-    // 导出选项
+    // Export options
     export_ddl: bool,
     export_dml: bool,
 
-    // 文件路径
+    // File path
     file_path: Option<PathBuf>,
 
-    // 数据加载
+    // Data loading
     databases: Vec<DatabaseInfo>,
     databases_promise: Option<Promise<Result<Vec<DatabaseInfo>, String>>>,
     schemas: Vec<SchemaInfo>,
     schemas_promise: Option<Promise<Result<Vec<SchemaInfo>, String>>>,
     tables: Vec<TableInfo>,
     tables_promise: Option<Promise<Result<Vec<TableInfo>, String>>>,
-    tables_loaded: bool, // 标记表是否已加载（即使结果为空）
+    tables_loaded: bool, // Flag to indicate if tables are loaded (even if empty)
 
-    // 导出状态
+    // Export state
     export_promise: Option<Promise<Result<(), String>>>,
     export_progress: f32, // 0.0 - 1.0
     export_status: String,
@@ -44,12 +44,12 @@ impl ExportWindow {
         ui.vertical(|ui| {
             ui.set_width(500.0);
 
-            // 数据库选择
+            // Database selection
             ui.horizontal(|ui| {
-                ui.label("数据库:");
+                ui.label("Database:");
                 self.load_databases_if_needed(db_manager);
 
-                // 检查数据库加载状态
+                // Check database loading state
                 if let Some(ref promise) = self.databases_promise {
                     if let Some(result) = promise.ready() {
                         match result {
@@ -57,13 +57,13 @@ impl ExportWindow {
                                 self.databases = databases.clone();
                             }
                             Err(e) => {
-                                ui.colored_label(egui::Color32::RED, format!("错误: {}", e));
+                                ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
                             }
                         }
                         self.databases_promise = None;
                     } else {
                         ui.spinner();
-                        ui.label("加载中...");
+                        ui.label("Loading...");
                     }
                 }
 
@@ -73,11 +73,11 @@ impl ExportWindow {
                         self.selected_database
                             .as_ref()
                             .map(|s| s.as_str())
-                            .unwrap_or("请选择数据库"),
+                            .unwrap_or("Please select a database"),
                     )
                     .show_ui(ui, |ui| {
                         if self.databases.is_empty() && self.databases_promise.is_none() {
-                            ui.label("没有可用的数据库");
+                            ui.label("No databases available");
                         } else {
                             for db in self.databases.iter() {
                                 if ui
@@ -88,19 +88,19 @@ impl ExportWindow {
                                     )
                                     .clicked()
                                 {
-                                    // 重置 schema 和 tables
+                                    // Reset schema and tables
                                     self.selected_schema = None;
                                     self.selected_tables.clear();
                                     self.schemas.clear();
                                     self.tables.clear();
-                                    self.tables_loaded = false; // 重置加载状态
+                                    self.tables_loaded = false; // Reset loading state
                                 }
                             }
                         }
                     });
             });
 
-            // Schema 选择
+            // Schema selection
             let db_name = self.selected_database.clone();
             if let Some(ref db_name) = db_name {
                 ui.horizontal(|ui| {
@@ -114,13 +114,13 @@ impl ExportWindow {
                                     self.schemas = schemas.clone();
                                 }
                                 Err(e) => {
-                                    ui.colored_label(egui::Color32::RED, format!("错误: {}", e));
+                                    ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
                                 }
                             }
                             self.schemas_promise = None;
                         } else {
                             ui.spinner();
-                            ui.label("加载中...");
+                            ui.label("Loading...");
                         }
                     }
 
@@ -130,7 +130,7 @@ impl ExportWindow {
                             self.selected_schema
                                 .as_ref()
                                 .map(|s| s.as_str())
-                                .unwrap_or("请选择 Schema"),
+                                .unwrap_or("Please select schema"),
                         )
                         .show_ui(ui, |ui| {
                             for schema in self.schemas.iter() {
@@ -142,22 +142,22 @@ impl ExportWindow {
                                     )
                                     .clicked()
                                 {
-                                    // 重置 tables
+                                    // Reset tables
                                     self.selected_tables.clear();
                                     self.tables.clear();
-                                    self.tables_loaded = false; // 重置加载状态
+                                    self.tables_loaded = false; // Reset loading state
                                 }
                             }
                         });
                 });
             }
 
-            // 表选择（多选）
+            // Table selection (multiple)
             let schema_name = self.selected_schema.clone();
             let db_name = self.selected_database.clone();
             if let (Some(ref schema_name), Some(ref db_name)) = (schema_name, db_name) {
                 ui.horizontal(|ui| {
-                    ui.label("表:");
+                    ui.label("Tables:");
                     self.load_tables_if_needed(db_manager, db_name, schema_name);
 
                     if let Some(ref promise) = self.tables_promise {
@@ -165,27 +165,27 @@ impl ExportWindow {
                             match result {
                                 Ok(tables) => {
                                     self.tables = tables.clone();
-                                    self.tables_loaded = true; // 标记为已加载
+                                    self.tables_loaded = true; // Mark as loaded
                                 }
                                 Err(e) => {
-                                    ui.colored_label(egui::Color32::RED, format!("错误: {}", e));
-                                    self.tables_loaded = true; // 即使出错也标记为已加载，避免重复请求
+                                    ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
+                                    self.tables_loaded = true; // Mark as loaded even on error to avoid repeated requests
                                 }
                             }
                             self.tables_promise = None;
                         } else {
                             ui.spinner();
-                            ui.label("加载中...");
+                            ui.label("Loading...");
                         }
                     }
                 });
 
-                // 表多选列表
+                // Table multiple selection list
                 egui::ScrollArea::vertical()
                     .max_height(150.0)
                     .show(ui, |ui| {
                         if self.tables_loaded && self.tables.is_empty() {
-                            ui.label("该 Schema 中没有表");
+                            ui.label("No tables in this schema");
                         } else {
                             for table in self.tables.iter() {
                                 let mut is_selected = self.selected_tables.contains(&table.name);
@@ -203,18 +203,18 @@ impl ExportWindow {
 
             ui.separator();
 
-            // 导出类型选择
+            // Export type selection
             ui.horizontal(|ui| {
-                ui.label("导出类型:");
+                ui.label("Export type:");
                 ui.checkbox(&mut self.export_ddl, "DDL");
                 ui.checkbox(&mut self.export_dml, "DML");
             });
 
             ui.separator();
 
-            // 文件路径选择
+            // File path selection
             ui.horizontal(|ui| {
-                ui.label("保存路径:");
+                ui.label("Save path:");
                 let mut path_text = self
                     .file_path
                     .as_ref()
@@ -228,7 +228,7 @@ impl ExportWindow {
                     }
                 }
 
-                if ui.button("浏览...").clicked() {
+                if ui.button("Browse...").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .set_file_name("export.sql")
                         .add_filter("SQL Files", &["sql"])
@@ -242,7 +242,7 @@ impl ExportWindow {
 
             ui.separator();
 
-            // 进度条和状态（导出中或已完成时都显示）
+            // Progress bar and status (show during export or when completed)
             if self.is_exporting || self.export_progress > 0.0 {
                 ui.horizontal(|ui| {
                     if self.is_exporting {
@@ -253,7 +253,7 @@ impl ExportWindow {
                 ui.add(egui::ProgressBar::new(self.export_progress));
             }
 
-            // 按钮
+            // Buttons
             ui.horizontal(|ui| {
                 let can_export = self.selected_database.is_some()
                     && self.selected_schema.is_some()
@@ -263,7 +263,7 @@ impl ExportWindow {
                     && !self.is_exporting;
 
                 if ui
-                    .add_enabled(can_export, egui::Button::new("导出"))
+                    .add_enabled(can_export, egui::Button::new("Export"))
                     .clicked()
                 {
                     self.start_export(db_manager);
@@ -271,17 +271,17 @@ impl ExportWindow {
 
                 if ui
                     .button(if self.is_exporting {
-                        "取消"
+                        "Cancel"
                     } else {
-                        "关闭"
+                        "Close"
                     })
                     .clicked()
                 {
                     if !self.is_exporting {
-                        // 如果不在导出中，重置所有状态
+                        // If not exporting, reset all state
                         *self = ExportWindow::default();
                     }
-                    // 如果正在导出，取消按钮的行为可以在这里处理（目前只是关闭窗口）
+                    // If exporting, cancel button behavior can be handled here (currently just closes window)
                 }
             });
         });
@@ -358,7 +358,7 @@ impl ExportWindow {
     }
 
     fn load_tables_if_needed(&mut self, db_manager: &mut DbManager, database: &str, schema: &str) {
-        // 如果已经加载过或者正在加载，则不再加载
+        // If already loaded or loading, don't load again
         if self.tables_loaded || self.tables_promise.is_some() {
             return;
         }
@@ -431,14 +431,14 @@ impl ExportWindow {
 
         self.is_exporting = true;
         self.export_progress = 0.0;
-        self.export_status = "准备导出...".to_string();
+        self.export_status = "Preparing to export...".to_string();
 
         let (sender, promise) = Promise::new();
         self.export_promise = Some(promise);
 
         futures::spawn(async move {
             let result: Result<(), String> = async {
-                // 创建文件
+                // Create file
                 let mut file = OpenOptions::new()
                     .create(true)
                     .truncate(true)
@@ -446,7 +446,7 @@ impl ExportWindow {
                     .open(&file_path_clone)
                     .map_err(|e| format!("Failed to create file: {}", e))?;
 
-                // 写入文件头
+                // Write file header
                 writeln!(file, "-- Export generated by PGone")
                     .map_err(|e| format!("Failed to write: {}", e))?;
                 writeln!(file, "-- Database: {}", db_name_clone)
@@ -463,10 +463,10 @@ impl ExportWindow {
                 let total_tables = tables_clone.len();
 
                 for (table_idx, table_name) in tables_clone.iter().enumerate() {
-                    // 更新进度（注意：这里无法直接更新 UI，需要在 UI 线程中检查 promise）
+                    // Update progress (note: cannot directly update UI here, need to check promise in UI thread)
                     let _progress = (table_idx as f32) / (total_tables as f32);
 
-                    // 导出 DDL
+                    // Export DDL
                     if export_ddl {
                         match session.get_table_detail(&schema_clone, table_name).await {
                             Ok(table_detail) => {
@@ -506,12 +506,12 @@ impl ExportWindow {
                         }
                     }
 
-                    // 导出 DML
+                    // Export DML
                     if export_dml {
                         writeln!(file, "-- DML for table {}.{}", schema_clone, table_name)
                             .map_err(|e| format!("Failed to write: {}", e))?;
 
-                        // 分页查询数据
+                        // Paginated data query
                         const PAGE_SIZE: usize = 100;
                         let mut offset = 0;
                         let mut has_more = true;
@@ -519,7 +519,7 @@ impl ExportWindow {
                         let mut column_names = Vec::new();
 
                         while has_more {
-                            // 构建查询 SQL
+                            // Build query SQL
                             let query = format!(
                                 "SELECT * FROM {}.{} LIMIT {} OFFSET {}",
                                 structures::utils::quote_ident(&schema_clone),
@@ -536,7 +536,7 @@ impl ExportWindow {
                             if rows.is_empty() {
                                 has_more = false;
                             } else {
-                                // 获取列名（只在第一次）
+                                // Get column names (only on first time)
                                 if !columns_loaded {
                                     if let Some(first_row) = rows.first() {
                                         for col in first_row.columns() {
@@ -546,12 +546,12 @@ impl ExportWindow {
                                     }
                                 }
 
-                                // 转换行数据
+                                // Convert row data
                                 let mut row_data = Vec::new();
                                 for row in rows {
                                     let mut row_values = Vec::new();
                                     for i in 0..column_names.len() {
-                                        // 格式化单元格值
+                                        // Format cell value
                                         let value = if row.try_get::<String, _>(i).is_ok() {
                                             row.get::<String, _>(i)
                                         } else if row.try_get::<i64, _>(i).is_ok() {
@@ -561,7 +561,7 @@ impl ExportWindow {
                                         } else if row.try_get::<bool, _>(i).is_ok() {
                                             row.get::<bool, _>(i).to_string()
                                         } else {
-                                            // 尝试作为字符串获取，如果失败则使用 NULL
+                                            // Try to get as string, use NULL if it fails
                                             row.try_get::<Option<String>, _>(i)
                                                 .ok()
                                                 .flatten()
@@ -572,7 +572,7 @@ impl ExportWindow {
                                     row_data.push(row_values);
                                 }
 
-                                // 生成 DML
+                                // Generate DML
                                 let dml = structures::utils::generate_table_dml(
                                     &schema_clone,
                                     table_name,
@@ -614,17 +614,17 @@ impl ExportWindow {
                     Ok(()) => {
                         self.is_exporting = false;
                         self.export_progress = 1.0;
-                        self.export_status = "导出完成！".to_string();
+                        self.export_status = "Export completed!".to_string();
                         self.export_promise = None;
                     }
                     Err(e) => {
                         self.is_exporting = false;
-                        self.export_status = format!("导出失败: {}", e);
+                        self.export_status = format!("Export failed: {}", e);
                         self.export_promise = None;
                     }
                 }
             } else {
-                // 更新进度（简化版本，实际应该从异步任务中获取）
+                // Update progress (simplified version, should actually get from async task)
                 if self.export_progress < 0.9 {
                     self.export_progress += 0.01;
                 }

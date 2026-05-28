@@ -30,10 +30,10 @@ impl InputArea {
 
         ui.separator();
 
-        // 文件选择按钮
+        // File selection button
         ui.horizontal(|ui| {
             if ui
-                .button(format!("{} 选择图片", egui_phosphor::regular::IMAGE))
+                .button(format!("{} Select Image", egui_phosphor::regular::IMAGE))
                 .clicked()
             {
                 if let Some(path) = rfd::FileDialog::new()
@@ -45,7 +45,7 @@ impl InputArea {
             }
 
             if ui
-                .button(format!("{} 选择文件", egui_phosphor::regular::FILE))
+                .button(format!("{} Select File", egui_phosphor::regular::FILE))
                 .clicked()
             {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
@@ -54,20 +54,20 @@ impl InputArea {
             }
         });
 
-        // 资源列表显示
+        // Resource list display
         if !self.pending_resources.is_empty() {
             ui.separator();
             ui.group(|ui| {
-                ui.label("待发送的资源:");
+                ui.label("Resources to send:");
                 let mut to_remove = Vec::new();
                 for (idx, path) in self.pending_resources.iter().enumerate() {
                     ui.horizontal(|ui| {
                         let file_name = path
                             .file_name()
                             .and_then(|n| n.to_str())
-                            .unwrap_or("未知文件");
+                            .unwrap_or("Unknown file");
 
-                        // 如果是图片，尝试显示缩略图
+                        // If it is an image, try to show a thumbnail
                         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                             let is_image = matches!(
                                 ext.to_lowercase().as_str(),
@@ -96,7 +96,7 @@ impl InputArea {
                         }
                     });
                 }
-                // 从后往前删除，避免索引问题
+                // Delete from back to front to avoid index issues
                 for &idx in to_remove.iter().rev() {
                     self.pending_resources.remove(idx);
                 }
@@ -104,7 +104,7 @@ impl InputArea {
             ui.separator();
         }
 
-        // 输入框
+        // Input field
         let editor = ui.add_sized(
             egui::Vec2::new(ui.available_width(), ui.available_height()),
             egui::TextEdit::multiline(&mut self.input).desired_rows(4),
@@ -115,29 +115,29 @@ impl InputArea {
             let enter_pressed = input.key_pressed(egui::Key::Enter);
             let shift_pressed = input.modifiers.shift;
 
-            // Enter 发送，Shift+Enter 换行
+            // Enter sends, Shift+Enter inserts a newline
             if enter_pressed && !shift_pressed {
-                // 阻止默认的换行行为
+                // Prevent the default newline behavior
                 ui.ctx().input_mut(|i| {
                     i.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
                 });
-                // 移除可能已经插入的换行符
+                // Remove any newline that may have been inserted
                 if self.input.ends_with('\n') {
                     self.input.pop();
                 }
                 *should_send = true;
             }
-            // Shift+Enter 时允许默认换行行为（不处理，让 TextEdit 正常换行）
+            // Allow default newline behavior on Shift+Enter (let TextEdit handle the newline normally)
         }
     }
 
     pub fn send_resources(&mut self, ctxs: &mut ChatCtx) {
-        // 先收集所有资源路径
+        // First collect all resource paths
         let resources: Vec<PathBuf> = self.pending_resources.drain(..).collect();
 
-        // 发送每个资源
+        // Send each resource
         for path in resources {
-            // 检查是否是图片
+            // Check whether it is an image
             let is_image = path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -152,18 +152,18 @@ impl InputArea {
             if is_image {
                 self.add_image_message(ctxs, path);
             } else {
-                // 其他文件作为 Markdown 消息，包含文件路径
+                // Other files are sent as Markdown messages, including the file path
                 if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
                     let message = Message {
                         role: Role::User,
                         timestamp: Utc::now(),
-                        content: MessageContent::Markdown(format!("[文件] {}", path.display())),
+                        content: MessageContent::Markdown(format!("[File] {}", path.display())),
                     };
                     session.messages.push(message);
                     session.updated_at = Utc::now();
 
                     if let Err(e) = ctxs.storage.save_session(session) {
-                        tracing::error!("保存文件消息失败: {}", e);
+                        tracing::error!("Failed to save file message: {}", e);
                     }
                 }
             }
@@ -189,7 +189,7 @@ impl InputArea {
             session.updated_at = Utc::now();
 
             if let Err(e) = ctxs.storage.save_session(session) {
-                tracing::error!("保存图片消息失败: {}", e);
+                tracing::error!("Failed to save image message: {}", e);
             }
         }
     }

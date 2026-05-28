@@ -2,14 +2,14 @@ use crate::core::models::*;
 
 pub fn render_overview(db: &DatabaseSchema) -> String {
     let mut s = String::new();
-    s.push_str(&format!("数据库：{}\n\n", db.database));
+    s.push_str(&format!("Database: {}\n\n", db.database));
     for sch in &db.schemas {
-        s.push_str(&format!("模式 `{}`：\n", sch.name));
+        s.push_str(&format!("Schema `{}`:\n", sch.name));
         for t in &sch.tables {
             s.push_str(&render_table_line(t));
         }
         for v in &sch.views {
-            s.push_str(&format!("- 视图 `{}`\n", v.name));
+            s.push_str(&format!("- View `{}`\n", v.name));
         }
         s.push('\n');
     }
@@ -19,12 +19,12 @@ pub fn render_overview(db: &DatabaseSchema) -> String {
 fn render_table_line(t: &TableDetail) -> String {
     let mut s = String::new();
     if let Some(c) = &t.comment {
-        s.push_str(&format!("- 表 `{}`（{}）\n", t.name, c));
+        s.push_str(&format!("- Table `{}` ({})\n", t.name, c));
     } else {
-        s.push_str(&format!("- 表 `{}`\n", t.name));
+        s.push_str(&format!("- Table `{}`\n", t.name));
     }
     for col in &t.columns {
-        let null = if col.nullable { "可空" } else { "非空" };
+        let null = if col.nullable { "nullable" } else { "not null" };
         let def = col.default.as_deref().unwrap_or("");
         let comment = col.comment.as_deref().unwrap_or("");
         s.push_str(&format!(
@@ -32,16 +32,16 @@ fn render_table_line(t: &TableDetail) -> String {
             col.name,
             col.data_type,
             null,
-            if def.is_empty() { "" } else { "默认" },
+            if def.is_empty() { "" } else { "default" },
             comment
         ));
     }
     if let Some(pk) = &t.primary_key {
-        s.push_str(&format!("  - 主键：({})\n", pk.columns.join(", ")))
+        s.push_str(&format!("  - Primary key: ({})\n", pk.columns.join(", ")))
     }
     for fk in &t.foreign_keys {
         s.push_str(&format!(
-            "  - 外键：({}) → {}({})\n",
+            "  - Foreign key: ({}) → {}({})\n",
             fk.columns.join(", "),
             fk.ref_table,
             fk.ref_columns.join(", ")
@@ -54,7 +54,7 @@ fn render_table_line(t: &TableDetail) -> String {
             format!(" INCLUDE ({})", idx.include.join(", "))
         };
         s.push_str(&format!(
-            "  - 索引：{} ON ({}){}{}\n",
+            "  - Index: {} ON ({}){}{}\n",
             idx.name,
             idx.columns.join(", "),
             if idx.unique { " UNIQUE" } else { "" },

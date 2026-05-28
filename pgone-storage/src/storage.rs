@@ -238,14 +238,14 @@ pub async fn list_messages(
     Ok(out)
 }
 
-/// 查询 messages 表中指定 session_id 的记录，按创建时间从近到远排序，返回前 10 条
+/// Query messages by session_id, ordered by creation time (newest first), returning up to 10 rows.
 ///
-/// # 参数
-/// - `conn`: 数据库连接
-/// - `session_id`: session 的 id（必需）
+/// # Parameters
+/// - `conn`: database connection
+/// - `session_id`: session id (required)
 ///
-/// # 返回
-/// 返回 Message 数组，按 timestamp 降序排列，最新的记录在前，最多 10 条
+/// # Returns
+/// A list of Messages ordered by timestamp descending (newest first), up to 10 rows.
 pub async fn query_messages_by_session(
     conn: &mut Connection,
     session_id: &str,

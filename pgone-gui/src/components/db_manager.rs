@@ -281,7 +281,10 @@ impl DbManager {
             return;
         }
 
-        tracing::info!("正在关闭 {} 个 GUI 数据库连接池", pools.len());
+        tracing::info!(
+            "Shutting down {} GUI database connection pools",
+            pools.len()
+        );
         futures::block_on_async(async move {
             let close_futures = pools
                 .into_iter()
@@ -296,8 +299,8 @@ impl DbManager {
             )
             .await
             {
-                Ok(_) => tracing::info!("GUI 数据库连接池已关闭"),
-                Err(_) => tracing::warn!("关闭 GUI 数据库连接池超时"),
+                Ok(_) => tracing::info!("GUI database connection pools closed"),
+                Err(_) => tracing::warn!("Timeout closing GUI database connection pools"),
             }
         });
     }
@@ -521,9 +524,9 @@ impl DbManager {
                             self.edit_db_form.ssl_rootcert_file_id = Some(file_id);
                         }
                     }
-                    notify::info(format!("文件已上传: {}", result.file.original_path));
+                    notify::info(format!("File uploaded: {}", result.file.original_path));
                 }
-                Err(error) => notify::error(format!("上传文件失败: {}", error)),
+                Err(error) => notify::error(format!("Failed to upload file: {}", error)),
             }
         }
     }
@@ -583,7 +586,7 @@ impl DbManager {
                 .pivot(egui::Align2::CENTER_CENTER)
                 .collapsible(false)
                 .show(ctx, |ui| {
-                    // 使用固定宽度的标签来对齐文本框
+                    // Use fixed-width labels to align text boxes
                     let label_width = 80.0;
 
                     ui.horizontal(|ui| {
@@ -656,7 +659,7 @@ impl DbManager {
                             ui.set_width(label_width);
                             ui.label("SSL");
                         });
-                        ui.checkbox(&mut self.add_db_form.ssl_enabled, "启用SSL");
+                        ui.checkbox(&mut self.add_db_form.ssl_enabled, "Enable SSL");
                     });
 
                     if self.add_db_form.ssl_enabled {
@@ -694,15 +697,15 @@ impl DbManager {
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_width(label_width);
-                                    ui.label("客户端证书");
+                                    ui.label("Client Certificate");
                                 },
                             );
-                            if ui.button("选择文件").clicked() {
+                            if ui.button("Select File").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::AddSslCert);
                             }
                             if let Some(ref file_id) = self.add_db_form.ssl_cert_file_id {
                                 if let Some(file_name) = self.get_file_name(file_id) {
-                                    ui.label(format!("已选择: {}", file_name));
+                                    ui.label(format!("Selected: {}", file_name));
                                 }
                             }
                         });
@@ -712,15 +715,15 @@ impl DbManager {
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_width(label_width);
-                                    ui.label("客户端密钥");
+                                    ui.label("Client Key");
                                 },
                             );
-                            if ui.button("选择文件").clicked() {
+                            if ui.button("Select File").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::AddSslKey);
                             }
                             if let Some(ref file_id) = self.add_db_form.ssl_key_file_id {
                                 if let Some(file_name) = self.get_file_name(file_id) {
-                                    ui.label(format!("已选择: {}", file_name));
+                                    ui.label(format!("Selected: {}", file_name));
                                 }
                             }
                         });
@@ -730,15 +733,15 @@ impl DbManager {
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_width(label_width);
-                                    ui.label("根证书");
+                                    ui.label("Root Certificate");
                                 },
                             );
-                            if ui.button("选择文件").clicked() {
+                            if ui.button("Select File").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::AddSslRootcert);
                             }
                             if let Some(ref file_id) = self.add_db_form.ssl_rootcert_file_id {
                                 if let Some(file_name) = self.get_file_name(file_id) {
-                                    ui.label(format!("已选择: {}", file_name));
+                                    ui.label(format!("Selected: {}", file_name));
                                 }
                             }
                         });
@@ -748,9 +751,9 @@ impl DbManager {
                         ui.colored_label(egui::Color32::RED, err);
                     }
 
-                    // 按钮布局：Test Connection 在左下角，Save 在右下角
+                    // Button layout: Test Connection on the left, Save on the right
                     ui.horizontal(|ui| {
-                        // 左侧：测试连接按钮和状态标记
+                        // Left side: Test Connection button and status indicator
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             let test_button = egui::Button::new(
                                 egui::RichText::new("Test Connection").color(egui::Color32::RED),
@@ -759,7 +762,7 @@ impl DbManager {
                                 self.test_connection();
                             }
 
-                            // 显示测试结果标记
+                            // Show test result indicator
                             if let Some(success) = self.add_db_form.test_status {
                                 if success {
                                     ui.colored_label(egui::Color32::GREEN, "✓");
@@ -769,7 +772,7 @@ impl DbManager {
                             }
                         });
 
-                        // 右侧：Save 和 Cancel 按钮
+                        // Right side: Save and Cancel buttons
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Save").clicked() {
                                 if let Err(e) = self.save_new_database() {
@@ -883,7 +886,7 @@ impl DbManager {
                             ui.set_width(label_width);
                             ui.label("SSL");
                         });
-                        ui.checkbox(&mut self.edit_db_form.ssl_enabled, "启用SSL");
+                        ui.checkbox(&mut self.edit_db_form.ssl_enabled, "Enable SSL");
                     });
 
                     if self.edit_db_form.ssl_enabled {
@@ -921,15 +924,15 @@ impl DbManager {
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_width(label_width);
-                                    ui.label("客户端证书");
+                                    ui.label("Client Certificate");
                                 },
                             );
-                            if ui.button("选择文件").clicked() {
+                            if ui.button("Select File").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::EditSslCert);
                             }
                             if let Some(ref file_id) = self.edit_db_form.ssl_cert_file_id {
                                 if let Some(file_name) = self.get_file_name(file_id) {
-                                    ui.label(format!("已选择: {}", file_name));
+                                    ui.label(format!("Selected: {}", file_name));
                                 }
                             }
                         });
@@ -939,15 +942,15 @@ impl DbManager {
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_width(label_width);
-                                    ui.label("客户端密钥");
+                                    ui.label("Client Key");
                                 },
                             );
-                            if ui.button("选择文件").clicked() {
+                            if ui.button("Select File").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::EditSslKey);
                             }
                             if let Some(ref file_id) = self.edit_db_form.ssl_key_file_id {
                                 if let Some(file_name) = self.get_file_name(file_id) {
-                                    ui.label(format!("已选择: {}", file_name));
+                                    ui.label(format!("Selected: {}", file_name));
                                 }
                             }
                         });
@@ -957,15 +960,15 @@ impl DbManager {
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_width(label_width);
-                                    ui.label("根证书");
+                                    ui.label("Root Certificate");
                                 },
                             );
-                            if ui.button("选择文件").clicked() {
+                            if ui.button("Select File").clicked() {
                                 self.select_and_upload_file(FilePickerTarget::EditSslRootcert);
                             }
                             if let Some(ref file_id) = self.edit_db_form.ssl_rootcert_file_id {
                                 if let Some(file_name) = self.get_file_name(file_id) {
-                                    ui.label(format!("已选择: {}", file_name));
+                                    ui.label(format!("Selected: {}", file_name));
                                 }
                             }
                         });
@@ -1030,7 +1033,7 @@ impl DbManager {
         let id_to_delete = self.delete_confirm_id.clone();
         let center = ctx.content_rect().center();
 
-        egui::Window::new("确认删除")
+        egui::Window::new("Confirm Delete")
             .id(egui::Id::new("confirm_delete_database_window"))
             .open(&mut open)
             .default_pos(center)
@@ -1038,17 +1041,20 @@ impl DbManager {
             .collapsible(false)
             .show(ctx, |ui| {
                 if let Some(ref id) = id_to_delete {
-                    ui.label(format!("确定要删除数据库配置 '{}' 吗？", id));
-                    ui.label("此操作不可撤销。");
+                    ui.label(format!(
+                        "Are you sure you want to delete database configuration '{}'?",
+                        id
+                    ));
+                    ui.label("This action cannot be undone.");
                     ui.add_space(10.0);
 
                     ui.horizontal(|ui| {
-                        if ui.button("取消").clicked() {
+                        if ui.button("Cancel").clicked() {
                             self.show_delete_confirm = false;
                             self.delete_confirm_id = None;
                         }
                         if ui
-                            .button(egui::RichText::new("确认删除").color(egui::Color32::RED))
+                            .button(egui::RichText::new("Confirm Delete").color(egui::Color32::RED))
                             .clicked()
                         {
                             if let Some(ref storage) = self.storage {
@@ -1082,7 +1088,7 @@ impl DbManager {
     }
 
     pub fn test_connection(&mut self) {
-        // 验证必填字段
+        // Validate required fields
         if self.add_db_form.host.trim().is_empty() {
             self.add_db_form.test_status = Some(false);
             self.add_db_form.error = Some("Host is required".into());
@@ -1102,7 +1108,7 @@ impl DbManager {
             return;
         }
 
-        // 解析端口
+        // Parse port
         let port: u16 = match self.add_db_form.port.parse() {
             Ok(p) if p > 0 => p,
             _ => {
@@ -1116,7 +1122,7 @@ impl DbManager {
             }
         };
 
-        // 构建 DSN
+        // Build DSN
         let dsn = match Self::build_dsn(
             self.add_db_form.engine.as_str(),
             &self.add_db_form.user,
@@ -1140,7 +1146,7 @@ impl DbManager {
             }
         };
 
-        // 获取数据库名称用于通知
+        // Get database name for notification
         let db_name = if self.add_db_form.name.trim().is_empty() {
             format!(
                 "{}@{}:{}",
@@ -1152,7 +1158,7 @@ impl DbManager {
             self.add_db_form.name.trim().to_string()
         };
 
-        // 测试连接
+        // Test connection
         self.add_db_form.error = None;
         self.add_db_form.test_status = None;
         self.add_test_receiver = Some(spawn_connection_test(db_name, dsn));

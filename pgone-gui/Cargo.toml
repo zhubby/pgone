@@ -77,7 +77,7 @@ pgone-storage = { workspace = true }
 pgone-mcp = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-async-rw"] }
 
-# 添加以下配置
+# Add the following configuration
 [package.metadata.bundle]
 name = "PGone"
 identifier = "com.github.zhubby"

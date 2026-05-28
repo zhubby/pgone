@@ -366,7 +366,7 @@ pub(super) fn rename_table(
     loading::load_tables(tree, db_manager, &database, &schema);
 }
 
-/// 执行表设计变更，使用事务确保原子性
+/// Execute table design changes, using a transaction to ensure atomicity
 pub(super) fn design_table(
     tree: &mut DbTree,
     db_manager: &mut crate::components::DbManager,

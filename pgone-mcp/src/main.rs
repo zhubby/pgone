@@ -6,9 +6,9 @@ use tracing::info;
 
 #[derive(ValueEnum, Clone, Debug)]
 enum Protocol {
-    /// STDIO 模式：通过标准输入输出进行通信
+    /// STDIO mode: communication via standard input/output
     Stdio,
-    /// Streamable HTTP 模式：通过 HTTP 服务器提供 MCP 服务
+    /// Streamable HTTP mode: provides MCP service via HTTP server
     Streamable,
 }
 
@@ -16,19 +16,19 @@ enum Protocol {
 #[command(name = "pgone-mcp-server")]
 #[command(about = "PostgreSQL introspection MCP server", long_about = None)]
 struct Args {
-    /// 协议类型：stdio 或 streamable
+    /// Protocol type: stdio or streamable
     #[arg(long, value_enum)]
     protocol: Option<Protocol>,
 
-    /// Streamable HTTP 服务器绑定地址（仅在 streamable 模式下有效）
+    /// Streamable HTTP server bind address (only effective in streamable mode)
     #[arg(long, default_value = "127.0.0.1:3000")]
     addr: String,
 
-    /// 日志级别 (trace, debug, info, warn, error)
+    /// Log level (trace, debug, info, warn, error)
     #[arg(long, default_value = "info")]
     log_level: String,
 
-    /// 数据库配置 ID（必填）
+    /// Database config ID (required)
     #[arg(long)]
     dbconfig_id: String,
 }
@@ -37,8 +37,8 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // 确定协议类型
-    // 优先级：命令行参数 > 环境变量 > 默认 streamable
+    // Determine protocol type
+    // Priority: CLI args > env var > default streamable
     let protocol = if let Some(protocol) = args.protocol {
         protocol
     } else if let Ok(protocol_str) = env::var("PGONE_MCP_PROTOCOL") {
@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
             "streamable" => Protocol::Streamable,
             _ => {
                 eprintln!(
-                    "警告: 无效的协议类型 '{}'，使用默认值 streamable",
+                    "Warning: invalid protocol type '{}', using default streamable",
                     protocol_str
                 );
                 Protocol::Streamable
@@ -59,24 +59,24 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = args.addr.clone();
 
-    // 初始化日志（使用 pgone-util 的 log 模块）
+    // Initialize logging (using pgone-util log module)
     init_log_simple(&args.log_level)?;
 
-    info!("pgone-mcp-server 启动中...");
+    info!("pgone-mcp-server starting...");
 
     let dbconfig_id = args.dbconfig_id.clone();
 
-    // 根据协议类型启动相应的服务器
+    // Start the appropriate server based on protocol type
     match protocol {
         Protocol::Stdio => {
-            info!("启动 STDIO 模式...");
-            info!("使用数据库配置 ID: {}", dbconfig_id);
+            info!("Starting STDIO mode...");
+            info!("Using database config ID: {}", dbconfig_id);
             mcp::run_stdio(dbconfig_id).await?;
         }
         Protocol::Streamable => {
-            info!("启动 Streamable HTTP 模式...");
-            info!("监听地址: {}", addr);
-            info!("使用数据库配置 ID: {}", dbconfig_id);
+            info!("Starting Streamable HTTP mode...");
+            info!("Listening address: {}", addr);
+            info!("Using database config ID: {}", dbconfig_id);
             mcp::run_streamable(&addr, dbconfig_id).await?;
         }
     }

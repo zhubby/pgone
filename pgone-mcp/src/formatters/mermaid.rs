@@ -15,7 +15,7 @@ pub fn render_er(db: &DatabaseSchema) -> String {
     for sch in &db.schemas {
         for t in &sch.tables {
             for fk in &t.foreign_keys {
-                // 显示为 多对一 关系
+                // Display as many-to-one relationship
                 s.push_str(&format!(
                     "  {}_{} }}o--|| {} : FK\n",
                     sch.name,

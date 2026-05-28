@@ -67,7 +67,7 @@ impl MessageList {
                     }
                     ui.separator();
                 }
-                // 如果需要滚动到底部，在最后添加一个标记并滚动到它
+                // If we need to scroll to the bottom, add a marker at the end and scroll to it
                 if should_scroll {
                     ui.allocate_space(egui::Vec2::ZERO);
                     ui.scroll_to_cursor(Some(egui::Align::BOTTOM));

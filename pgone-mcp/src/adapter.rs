@@ -10,11 +10,11 @@ use pgone_sql::models::{
     TriggerInfo as SqlTriggerInfo, ViewInfo as SqlViewInfo,
 };
 
-/// 将 pgone-sql 的模型转换为 core::models
+/// Converts pgone-sql models to core::models
 pub struct ModelAdapter;
 
 impl ModelAdapter {
-    /// 将 SqlTableDetail 转换为 TableDetail
+    /// Converts SqlTableDetail to TableDetail
     pub fn table_detail(sql: SqlTableDetail, indexes: Vec<SqlIndexInfo>) -> TableDetail {
         TableDetail {
             schema: sql.schema,
@@ -31,7 +31,7 @@ impl ModelAdapter {
         }
     }
 
-    /// 将 SqlColumnDetail 转换为 Column
+    /// Converts SqlColumnDetail to Column
     pub fn column(sql: SqlColumnDetail) -> Column {
         Column {
             name: sql.name,
@@ -46,14 +46,14 @@ impl ModelAdapter {
         }
     }
 
-    /// 将 SqlPrimaryKeyDetail 转换为 PrimaryKey
+    /// Converts SqlPrimaryKeyDetail to PrimaryKey
     pub fn primary_key(sql: SqlPrimaryKeyDetail) -> PrimaryKey {
         PrimaryKey {
             columns: sql.columns,
         }
     }
 
-    /// 将 SqlForeignKeyDetail 转换为 ForeignKey
+    /// Converts SqlForeignKeyDetail to ForeignKey
     pub fn foreign_key(sql: SqlForeignKeyDetail) -> ForeignKey {
         ForeignKey {
             columns: sql.columns,
@@ -64,18 +64,18 @@ impl ModelAdapter {
         }
     }
 
-    /// 将 SqlIndexInfo 转换为 Index
+    /// Converts SqlIndexInfo to Index
     pub fn index(sql: SqlIndexInfo) -> Index {
         Index {
             name: sql.name,
             unique: sql.unique,
             columns: sql.columns,
-            include: Vec::new(), // pgone-sql 的 IndexInfo 没有 include 字段
+            include: Vec::new(), // pgone-sql's IndexInfo has no include field
             definition: sql.definition,
         }
     }
 
-    /// 将 SqlViewInfo 转换为 ViewDetail
+    /// Converts SqlViewInfo to ViewDetail
     pub fn view_detail(sql: SqlViewInfo) -> ViewDetail {
         ViewDetail {
             schema: sql.schema,
@@ -85,7 +85,7 @@ impl ModelAdapter {
         }
     }
 
-    /// 将 SqlTriggerInfo 转换为 TriggerDetail
+    /// Converts SqlTriggerInfo to TriggerDetail
     pub fn trigger_detail(sql: SqlTriggerInfo) -> TriggerDetail {
         TriggerDetail {
             schema: sql.schema,
@@ -98,23 +98,23 @@ impl ModelAdapter {
         }
     }
 
-    /// 将 SqlFunctionInfo 转换为 RoutineDetail
-    /// 注意：pgone-sql 的 FunctionInfo 不包含参数信息，需要单独查询
+    /// Converts SqlFunctionInfo to RoutineDetail
+    /// Note: pgone-sql's FunctionInfo does not include parameter info, requires separate query
     pub fn routine_detail(sql: SqlFunctionInfo) -> RoutineDetail {
         RoutineDetail {
             schema: sql.schema,
             name: sql.name,
-            kind: RoutineKind::Function, // 默认，需要根据实际情况判断
+            kind: RoutineKind::Function, // Default, needs to be determined based on actual situation
             language: sql.language,
             return_type: sql.return_type,
-            params: Vec::new(), // 需要单独查询参数
+            params: Vec::new(), // Parameters need to be queried separately
             definition: sql.definition,
             comment: sql.description,
         }
     }
 }
 
-/// 使用 pgone-sql::Session 实现数据库自省
+/// Database introspector implementation using pgone-sql::Session
 pub struct SqlSessionIntrospector {
     session: Session,
 }
@@ -124,7 +124,7 @@ impl SqlSessionIntrospector {
         Self { session }
     }
 
-    /// 自省整个数据库
+    /// Introspects the entire database
     pub async fn introspect_database(
         &self,
         opts: IntrospectOptions,
@@ -134,7 +134,7 @@ impl SqlSessionIntrospector {
         let schemas_to_query = if let Some(ref schemas) = opts.schemas {
             schemas.clone()
         } else {
-            // 获取所有 schema
+            // Get all schemas
             let all_tables = self.session.list_tables(None).await?;
             let mut schema_set = std::collections::BTreeSet::new();
             for table in all_tables {
@@ -146,7 +146,7 @@ impl SqlSessionIntrospector {
         let mut schemas_vec = Vec::new();
         for schema_name in schemas_to_query {
             let tables = if opts.with_indexes {
-                // 需要获取详细的表信息（包含索引）
+                // Need to get detailed table info (including indexes)
                 let table_infos = self.session.list_tables(Some(&schema_name)).await?;
                 let mut table_details = Vec::new();
                 for table_info in table_infos {
@@ -194,13 +194,13 @@ impl SqlSessionIntrospector {
         })
     }
 
-    /// 列出表
+    /// Lists tables
     pub async fn list_tables(&self, schema: Option<&str>) -> anyhow::Result<Vec<(String, String)>> {
         let tables = self.session.list_tables(schema).await?;
         Ok(tables.into_iter().map(|t| (t.schema, t.name)).collect())
     }
 
-    /// 获取表详情
+    /// Gets table details
     pub async fn get_table(&self, schema: &str, table: &str) -> anyhow::Result<TableDetail> {
         let detail = self.session.get_table_detail(schema, table).await?;
         let indexes = self
@@ -211,13 +211,13 @@ impl SqlSessionIntrospector {
         Ok(ModelAdapter::table_detail(detail, indexes))
     }
 
-    /// 列出视图
+    /// Lists views
     pub async fn list_views(&self, schema: Option<&str>) -> anyhow::Result<Vec<ViewDetail>> {
         let views = self.session.list_views(schema).await?;
         Ok(views.into_iter().map(ModelAdapter::view_detail).collect())
     }
 
-    /// 列出触发器
+    /// Lists triggers
     pub async fn list_triggers(&self, schema: Option<&str>) -> anyhow::Result<Vec<TriggerDetail>> {
         let triggers = self.session.list_triggers(schema).await?;
         Ok(triggers
@@ -226,8 +226,8 @@ impl SqlSessionIntrospector {
             .collect())
     }
 
-    /// 列出例程（函数/过程）
-    /// 注意：pgone-sql 只有 list_functions，需要适配为 routines
+    /// Lists routines (functions/procedures)
+    /// Note: pgone-sql only has list_functions, needs to be adapted to routines
     pub async fn list_routines(
         &self,
         schema: Option<&str>,
@@ -248,15 +248,15 @@ impl SqlSessionIntrospector {
         Ok(routines)
     }
 
-    /// 列出类型
-    /// 注意：pgone-sql 可能没有直接的类型查询方法，需要实现
+    /// Lists types
+    /// Note: pgone-sql may not have a direct type query method, needs implementation
     pub async fn list_types(
         &self,
         _schema: Option<&str>,
         _kind: Option<TypeKind>,
     ) -> anyhow::Result<Vec<TypeDetail>> {
-        // TODO: 实现类型查询
-        // 这可能需要直接使用 SQL 查询 pg_type 等系统表
+        // TODO: Implement type query
+        // This may require directly querying system tables like pg_type via SQL
         Ok(Vec::new())
     }
 }

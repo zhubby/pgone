@@ -9,8 +9,8 @@ use sqlx::postgres::PgRow;
 use sqlx::{Column, Row, TypeInfo, ValueRef};
 use std::collections::HashSet;
 
-/// PostgreSQL 关键字集合（基于 PostgreSQL 9.3+ 官方文档）
-/// 包含保留字和非保留字，按字母顺序排列
+/// PostgreSQL keyword set (based on PostgreSQL 9.3+ official documentation)
+/// Contains reserved and non-reserved words, sorted alphabetically
 static PG_KEYWORDS: &[&str] = &[
     // A
     "ABORT",
@@ -687,7 +687,7 @@ static PG_KEYWORDS: &[&str] = &[
     "ZONE",
 ];
 
-// 关键字集合（小写），用于语法高亮
+// Keyword set (lowercase) for syntax highlighting
 static KEYWORD_SET: Lazy<HashSet<String>> = Lazy::new(|| {
     PG_KEYWORDS
         .iter()
@@ -695,8 +695,8 @@ static KEYWORD_SET: Lazy<HashSet<String>> = Lazy::new(|| {
         .collect()
 });
 
-/// 从文本和光标位置提取当前词
-/// 返回 (词内容, 起始位置, 结束位置)
+/// Extract the current word from text and cursor position.
+/// Returns (word content, start position, end position)
 pub fn extract_current_word(text: &str, cursor_pos: usize) -> (String, usize, usize) {
     if cursor_pos > text.len() {
         return (String::new(), cursor_pos, cursor_pos);
@@ -706,7 +706,7 @@ pub fn extract_current_word(text: &str, cursor_pos: usize) -> (String, usize, us
     let mut start = cursor_pos;
     let mut end = cursor_pos;
 
-    // 向前查找词的起始位置
+    // Search backward for the start of the word
     while start > 0 {
         let ch = bytes[start - 1] as char;
         if ch.is_alphanumeric() || ch == '_' || ch == '$' {
@@ -716,7 +716,7 @@ pub fn extract_current_word(text: &str, cursor_pos: usize) -> (String, usize, us
         }
     }
 
-    // 向后查找词的结束位置
+    // Search forward for the end of the word
     while end < bytes.len() {
         let ch = bytes[end] as char;
         if ch.is_alphanumeric() || ch == '_' || ch == '$' {
@@ -735,8 +735,8 @@ pub fn extract_current_word(text: &str, cursor_pos: usize) -> (String, usize, us
     (word, start, end)
 }
 
-/// 根据前缀匹配关键字
-/// 不区分大小写匹配，返回大写的关键字列表（按字母顺序排序）
+/// Match keywords by prefix.
+/// Case-insensitive matching, returns uppercase keyword list (sorted alphabetically)
 pub fn match_keywords(prefix: &str) -> Vec<String> {
     if prefix.is_empty() {
         return Vec::new();
@@ -749,42 +749,42 @@ pub fn match_keywords(prefix: &str) -> Vec<String> {
         .map(|kw| kw.to_string())
         .collect();
 
-    // 按字母顺序排序（关键字已经是大写，直接排序）
+    // Sort alphabetically (keywords are already uppercase, just sort)
     matches.sort();
 
-    // 限制最多返回 10 个结果
+    // Limit to at most 10 results
     matches.truncate(10);
 
     matches
 }
 
-/// SQL 高亮函数，支持 PostgreSQL 标准
+/// SQL highlighting function, supports PostgreSQL standard
 pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
     let mut job = LayoutJob::default();
 
-    // 定义文本格式
+    // Define text formats
     let normal = TextFormat {
         color: visuals.text_color(),
         ..Default::default()
     };
     let kw = TextFormat {
-        color: egui::Color32::from_rgb(198, 120, 221), // 紫色 - 关键字
+        color: egui::Color32::from_rgb(198, 120, 221), // Purple - keywords
         ..Default::default()
     };
     let string = TextFormat {
-        color: egui::Color32::from_rgb(152, 195, 121), // 绿色 - 字符串
+        color: egui::Color32::from_rgb(152, 195, 121), // Green - strings
         ..Default::default()
     };
     let number = TextFormat {
-        color: egui::Color32::from_rgb(209, 154, 102), // 橙色 - 数字
+        color: egui::Color32::from_rgb(209, 154, 102), // Orange - numbers
         ..Default::default()
     };
     let comment = TextFormat {
-        color: egui::Color32::from_rgb(128, 128, 128), // 灰色 - 注释
+        color: egui::Color32::from_rgb(128, 128, 128), // Gray - comments
         ..Default::default()
     };
     let operator = TextFormat {
-        color: egui::Color32::from_rgb(180, 180, 180), // 浅灰色 - 操作符
+        color: egui::Color32::from_rgb(180, 180, 180), // Light gray - operators
         ..Default::default()
     };
 
@@ -794,14 +794,14 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
     while i < bytes.len() {
         let c = bytes[i] as char;
 
-        // 处理空白字符
+        // Handle whitespace characters
         if c.is_whitespace() {
             job.append(&text[i..i + 1], 0.0, normal.clone());
             i += 1;
             continue;
         }
 
-        // 处理单行注释 --
+        // Handle single-line comments --
         if i + 1 < bytes.len() && c == '-' && bytes[i + 1] as char == '-' {
             let start = i;
             i += 2;
@@ -812,7 +812,7 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
             continue;
         }
 
-        // 处理多行注释 /* */
+        // Handle multi-line comments /* */
         if i + 1 < bytes.len() && c == '/' && bytes[i + 1] as char == '*' {
             let start = i;
             i += 2;
@@ -827,14 +827,14 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
             continue;
         }
 
-        // 处理单引号字符串（PostgreSQL 字符串字面量）
+        // Handle single-quoted strings (PostgreSQL string literals)
         if c == '\'' {
             let start = i;
             i += 1;
             while i < bytes.len() {
                 let ch = bytes[i] as char;
                 if ch == '\'' {
-                    // 检查是否是转义的单引号 ''
+                    // Check if it's an escaped single quote ''
                     if i + 1 < bytes.len() && bytes[i + 1] as char == '\'' {
                         i += 2;
                     } else {
@@ -842,7 +842,7 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
                         break;
                     }
                 } else if ch == '\\' && i + 1 < bytes.len() {
-                    // 处理转义字符
+                    // Handle escape characters
                     i += 2;
                 } else {
                     i += 1;
@@ -852,14 +852,14 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
             continue;
         }
 
-        // 处理双引号标识符（PostgreSQL 区分大小写的标识符）
+        // Handle double-quoted identifiers (PostgreSQL case-sensitive identifiers)
         if c == '"' {
             let start = i;
             i += 1;
             while i < bytes.len() {
                 if bytes[i] as char == '"' {
                     if i + 1 < bytes.len() && bytes[i + 1] as char == '"' {
-                        // 转义的双引号
+                        // Escaped double quotes
                         i += 2;
                     } else {
                         i += 1;
@@ -873,19 +873,19 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
             continue;
         }
 
-        // 处理数字（包括小数和科学计数法）
+        // Handle numbers (including decimals and scientific notation)
         if c.is_ascii_digit()
             || (c == '.' && i + 1 < bytes.len() && (bytes[i + 1] as char).is_ascii_digit())
         {
             let start = i;
             i += 1;
 
-            // 整数部分
+            // Integer part
             while i < bytes.len() && (bytes[i] as char).is_ascii_digit() {
                 i += 1;
             }
 
-            // 小数部分
+            // Decimal part
             if i < bytes.len() && bytes[i] as char == '.' {
                 i += 1;
                 while i < bytes.len() && (bytes[i] as char).is_ascii_digit() {
@@ -893,7 +893,7 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
                 }
             }
 
-            // 科学计数法
+            // Scientific notation
             if i < bytes.len() && (bytes[i] as char == 'e' || bytes[i] as char == 'E') {
                 i += 1;
                 if i < bytes.len() && (bytes[i] as char == '+' || bytes[i] as char == '-') {
@@ -908,14 +908,14 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
             continue;
         }
 
-        // 处理操作符
+        // Handle operators
         if matches!(
             c,
             '+' | '-' | '*' | '/' | '%' | '=' | '<' | '>' | '!' | '&' | '|' | '^' | '~'
         ) {
             let start = i;
             i += 1;
-            // 处理多字符操作符如 <=, >=, !=, <>, <<, >>, ||, :: 等
+            // Handle multi-character operators such as <=, >=, !=, <>, <<, >>, ||, ::, etc.
             if i < bytes.len() {
                 let next = bytes[i] as char;
                 if matches!(
@@ -944,14 +944,14 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
             continue;
         }
 
-        // 处理其他标点符号
+        // Handle other punctuation
         if matches!(c, '(' | ')' | ',' | ';' | '[' | ']' | '{' | '}' | '.' | ':') {
             job.append(&text[i..i + 1], 0.0, normal.clone());
             i += 1;
             continue;
         }
 
-        // 处理标识符和关键字
+        // Handle identifiers and keywords
         let start = i;
         while i < bytes.len() {
             let ch = bytes[i] as char;
@@ -973,7 +973,7 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
 
             job.append(token, 0.0, fmt);
         } else {
-            // 未知字符，按普通文本处理
+            // Unknown character, treat as plain text
             job.append(&text[i..i + 1], 0.0, normal.clone());
             i += 1;
         }
@@ -982,29 +982,29 @@ pub fn highlight_sql(text: &str, visuals: &egui::Visuals) -> LayoutJob {
     job
 }
 
-/// 美化 SQL 语句，添加适当的缩进和换行
-/// 使用基于字符串的格式化方法，避免复杂的 AST 操作
+/// Beautify SQL statements with appropriate indentation and line breaks.
+/// Uses a string-based formatting approach to avoid complex AST manipulation.
 pub fn format_sql(sql: &str) -> String {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
     let dialect = PostgreSqlDialect {};
 
-    // 尝试解析 SQL 以验证语法
+    // Try to parse SQL to validate syntax
     match Parser::parse_sql(&dialect, sql) {
         Ok(_) => {
-            // 解析成功，进行格式化
+            // Parse succeeded, proceed with formatting
             format_sql_string(sql)
         }
         Err(e) => {
             tracing::error!("Failed to format SQL: {}", e);
-            // 解析失败时，返回原 SQL（可能包含 sqlparser 不支持的语法）
+            // Parse failed, return original SQL (may contain syntax not supported by sqlparser)
             sql.to_string()
         }
     }
 }
 
-/// 基于字符串的 SQL 格式化
+/// String-based SQL formatting
 fn format_sql_string(sql: &str) -> String {
     let mut result = String::new();
     let mut chars = sql.chars().peekable();
@@ -1047,7 +1047,7 @@ fn format_sql_string(sql: &str) -> String {
         if in_string {
             result.push(ch);
             if ch == string_char {
-                // 检查是否是转义的引号
+                // Check if it's an escaped quote
                 if (ch == '\'' && chars.peek() == Some(&'\''))
                     || (ch == '"' && chars.peek() == Some(&'"'))
                 {
@@ -1057,7 +1057,7 @@ fn format_sql_string(sql: &str) -> String {
                     string_char = '\0';
                 }
             } else if ch == '\\' && chars.peek().is_some() {
-                // 转义字符
+                // Escape character
                 result.push(chars.next().unwrap());
             }
             continue;
@@ -1118,7 +1118,7 @@ fn format_sql_string(sql: &str) -> String {
                 }
             }
             ' ' | '\t' => {
-                // 压缩多个空格为一个
+                // Compress multiple spaces into one
                 if let Some(&next) = chars.peek() {
                     if !next.is_whitespace() && next != ',' && next != ';' && next != ')' {
                         result.push(' ');
@@ -1131,7 +1131,7 @@ fn format_sql_string(sql: &str) -> String {
         }
     }
 
-    // 格式化关键字后的换行
+    // Format newlines after keywords
     let keywords = [
         "SELECT",
         "FROM",
@@ -1227,13 +1227,13 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
         return v.to_string();
     }
 
-    // JSON/JSONB 类型 - 尝试直接获取（如果 sqlx 支持）
-    // 注意：如果 sqlx 未启用 json 特性，这会失败并继续尝试其他类型
+    // JSON/JSONB type - try direct fetch (if sqlx supports it)
+    // Note: if sqlx json feature is not enabled, this will fail and continue to try other types
     if let Ok(v) = row.try_get::<serde_json::Value, _>(idx) {
         return serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string());
     }
 
-    // 数组类型 - 尝试常见元素类型（在字符串之前处理，避免误判）
+    // Array type - try common element types (processed before strings to avoid misidentification)
     if let Ok(v) = row.try_get::<Vec<i32>, _>(idx) {
         return format!(
             "{{{}}}",
@@ -1280,7 +1280,7 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
         );
     }
 
-    // 数值类型
+    // Numeric types
     if let Ok(v) = row.try_get::<i16, _>(idx) {
         return v.to_string();
     }
@@ -1297,39 +1297,39 @@ pub fn format_cell(row: &PgRow, idx: usize) -> String {
         return v.to_string();
     }
 
-    // 布尔类型
+    // Boolean type
     if let Ok(v) = row.try_get::<bool, _>(idx) {
         return v.to_string();
     }
 
-    // 字节类型 (BYTEA) - 在字符串之前处理
+    // Byte type (BYTEA) - processed before strings
     if let Ok(v) = row.try_get::<Vec<u8>, _>(idx) {
         return format!("\\x{}", hex::encode(v));
     }
 
-    // 字符串类型 - 尝试解析为日期时间、UUID等
+    // String type - try to parse as datetime, UUID, etc.
     if let Ok(v) = row.try_get::<String, _>(idx) {
         if let Some(formatted) = format_temporal_string(&v) {
             return formatted;
         }
-        // 尝试解析为 UUID
+        // Try to parse as UUID
         if let Ok(u) = uuid::Uuid::parse_str(&v) {
             return u.to_string();
         }
-        // 尝试解析为 JSON（如果字符串看起来像 JSON）
+        // Try to parse as JSON (if the string looks like JSON)
         if (v.starts_with('{') && v.ends_with('}')) || (v.starts_with('[') && v.ends_with(']')) {
             if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&v) {
-                // 不使用pretty，行内不需要格式
+                // Don't use pretty, inline format doesn't need it
                 if let Ok(pretty) = serde_json::to_string(&json_val) {
                     return pretty;
                 }
             }
         }
-        // 返回原始字符串
+        // Return original string
         return v;
     }
 
-    // 最后的回退
+    // Final fallback
     "<unfmt>".to_string()
 }
 
@@ -1412,15 +1412,15 @@ fn format_temporal_string(v: &str) -> Option<String> {
     None
 }
 
-/// 将 SQL 语句转换为 sea_query::Query 对象
+/// Convert a SQL statement to a sea_query::Query object.
 ///
-/// # 参数
-/// * `sql` - 要转换的 SQL 语句字符串
+/// # Parameters
+/// * `sql` - The SQL statement string to convert
 ///
-/// # 返回
-/// * `Result<Query>` - 成功时返回 sea_query::Query 对象
+/// # Returns
+/// * `Result<Query>` - On success, returns a sea_query::Query object
 ///
-/// # 示例
+/// # Example
 /// ```rust
 /// use pgone_gui::sql::sql_to_sea_query;
 ///
@@ -1452,14 +1452,14 @@ pub fn sql_to_sea_query(sql: &str) -> Result<SelectStatement> {
     }
 }
 
-/// 将 sqlparser 的 Query 转换为 sea_query::Query
+/// Convert sqlparser's Query to sea_query::Query
 fn convert_query_to_sea_query(query: &sqlparser::ast::Query) -> Result<SelectStatement> {
     let mut sea_query = Query::select();
 
-    // 处理 SELECT 子句 - 需要从 SetExpr 中提取
+    // Handle SELECT clause - need to extract from SetExpr
     match query.body.as_ref() {
         SetExpr::Select(select) => {
-            // 处理 SELECT 列
+            // Handle SELECT columns
             for item in &select.projection {
                 match item {
                     SelectItem::UnnamedExpr(expr) => {
@@ -1481,12 +1481,12 @@ fn convert_query_to_sea_query(query: &sqlparser::ast::Query) -> Result<SelectSta
                 }
             }
 
-            // 处理 FROM 子句
+            // Handle FROM clause
             if let Some(from) = select.from.first() {
                 convert_table_with_joins(from, &mut sea_query)?;
             }
 
-            // 处理 WHERE 子句
+            // Handle WHERE clause
             if let Some(where_clause) = &select.selection {
                 let sea_expr = convert_expr_to_sea_expr(where_clause)?;
                 sea_query.cond_where(sea_expr);
@@ -1497,11 +1497,11 @@ fn convert_query_to_sea_query(query: &sqlparser::ast::Query) -> Result<SelectSta
         }
     }
 
-    // 处理 ORDER BY 子句
-    // 注意：sea_query 的 order_by 需要 IntoColumnRef，这里简化处理
-    // 对于复杂表达式，可能需要使用其他方法
+    // Handle ORDER BY clause
+    // Note: sea_query's order_by requires IntoColumnRef, simplified here
+    // For complex expressions, other approaches may be needed
     for order_by_elem in &query.order_by {
-        // 尝试将表达式转换为列名，如果失败则跳过
+        // Try to convert expression to column name, skip if it fails
         if let sqlparser::ast::Expr::Identifier(id) = &order_by_elem.expr {
             let col_name = id.value.clone();
             if order_by_elem.asc.unwrap_or(true) {
@@ -1510,17 +1510,17 @@ fn convert_query_to_sea_query(query: &sqlparser::ast::Query) -> Result<SelectSta
                 sea_query.order_by(col_name, sea_query::Order::Desc);
             }
         }
-        // 对于复杂表达式，暂时跳过（可以后续扩展）
+        // For complex expressions, skip for now (can be extended later)
     }
 
-    // 处理 LIMIT 子句
+    // Handle LIMIT clause
     if let Some(limit) = &query.limit {
         if let Ok(limit_value) = extract_numeric_value(limit) {
             sea_query.limit(limit_value);
         }
     }
 
-    // 处理 OFFSET 子句
+    // Handle OFFSET clause
     if let Some(offset) = &query.offset {
         if let Ok(offset_value) = extract_numeric_value(&offset.value) {
             sea_query.offset(offset_value);
@@ -1530,12 +1530,12 @@ fn convert_query_to_sea_query(query: &sqlparser::ast::Query) -> Result<SelectSta
     Ok(sea_query)
 }
 
-/// 转换 sqlparser 的 TableWithJoins 到 sea_query
+/// Convert sqlparser's TableWithJoins to sea_query
 fn convert_table_with_joins(
     table_with_joins: &TableWithJoins,
     sea_query: &mut SelectStatement,
 ) -> Result<()> {
-    // 处理主表
+    // Handle main table
     match &table_with_joins.relation {
         TableFactor::Table { name, alias, .. } => {
             let table_name = name.to_string();
@@ -1575,7 +1575,7 @@ fn convert_table_with_joins(
         }
     }
 
-    // 处理 JOIN
+    // Handle JOINs
     for join in &table_with_joins.joins {
         match &join.join_operator {
             JoinOperator::Inner(constraint) => {
@@ -1605,7 +1605,7 @@ fn convert_table_with_joins(
             JoinOperator::CrossJoin => {
                 if let TableFactor::Table { name, .. } = &join.relation {
                     let table_name = name.to_string();
-                    // Cross join 不需要条件，使用一个恒真条件
+                    // Cross join doesn't need a condition, use a always-true condition
                     sea_query.join(
                         sea_query::JoinType::CrossJoin,
                         table_name,
@@ -1622,20 +1622,20 @@ fn convert_table_with_joins(
     Ok(())
 }
 
-/// JOIN 条件结构
+/// JOIN condition structure
 struct JoinCondition {
     table: String,
     on: Expr,
 }
 
-/// 提取 JOIN 条件
+/// Extract JOIN condition
 fn extract_join_condition(
     constraint: &sqlparser::ast::JoinConstraint,
     relation: &TableFactor,
 ) -> Result<Option<JoinCondition>> {
     match constraint {
         sqlparser::ast::JoinConstraint::On(expr) => {
-            // 获取表名
+            // Get table name
             let table_name = match relation {
                 TableFactor::Table { name, alias, .. } => {
                     if let Some(alias) = alias {
@@ -1647,7 +1647,7 @@ fn extract_join_condition(
                 _ => return Err(anyhow!("Unsupported table factor in JOIN")),
             };
 
-            // 转换表达式
+            // Convert expression
             let sea_expr = convert_expr_to_sea_expr(expr)?;
             Ok(Some(JoinCondition {
                 table: table_name,
@@ -1658,7 +1658,7 @@ fn extract_join_condition(
     }
 }
 
-/// 将 sqlparser 的 Expr 转换为 sea_query 的 Expr
+/// Convert sqlparser's Expr to sea_query's Expr
 fn convert_expr_to_sea_expr(expr: &sqlparser::ast::Expr) -> Result<Expr> {
     match expr {
         sqlparser::ast::Expr::Identifier(id) => Ok(Expr::col(id.value.clone())),
@@ -1691,8 +1691,8 @@ fn convert_expr_to_sea_expr(expr: &sqlparser::ast::Expr) -> Result<Expr> {
             _ => Err(anyhow!("Unsupported value type")),
         },
         sqlparser::ast::Expr::BinaryOp { left, op, right } => {
-            // 对于二元操作符，使用 Expr::cust 来构建表达式
-            // 使用 Box::leak 来创建静态字符串
+            // For binary operators, use Expr::cust to build the expression
+            // Use Box::leak to create static strings
             let left_str = format!("{}", left);
             let right_str = format!("{}", right);
             let op_str = match op {
@@ -1727,22 +1727,22 @@ fn convert_expr_to_sea_expr(expr: &sqlparser::ast::Expr) -> Result<Expr> {
             Ok(Expr::cust(leaked))
         }
         sqlparser::ast::Expr::Function(func) => {
-            // 处理函数调用 - 使用 Expr::cust 来简化实现
-            // 这样可以避免复杂的 FunctionArguments 处理
+            // Handle function calls - use Expr::cust to simplify
+            // This avoids complex FunctionArguments handling
             let func_str = format!("{}", func);
             let leaked: &'static str = String::leak(func_str);
             Ok(Expr::cust(leaked))
         }
         sqlparser::ast::Expr::Cast { expr, .. } => {
             let sea_expr = convert_expr_to_sea_expr(expr)?;
-            // sea_query 的 cast 需要类型信息，这里简化处理
-            Ok(sea_expr) // TODO: 实现完整的 CAST 转换
+            // sea_query's cast requires type info, simplified here
+            Ok(sea_expr) // TODO: Implement complete CAST conversion
         }
         _ => Err(anyhow!("Unsupported expression type: {:?}", expr)),
     }
 }
 
-/// 从表达式中提取数值
+/// Extract numeric value from expression
 fn extract_numeric_value(expr: &sqlparser::ast::Expr) -> Result<u64> {
     match expr {
         sqlparser::ast::Expr::Value(sqlparser::ast::Value::Number(n, _)) => n
@@ -1767,7 +1767,7 @@ mod tests {
         let sql = "SELECT * FROM users";
         let job = highlight_sql(sql, &visuals);
 
-        // 验证函数不会 panic 并且返回了 LayoutJob
+        // Verify the function doesn't panic and returns a LayoutJob
         assert!(!job.sections.is_empty());
     }
 
@@ -1777,7 +1777,7 @@ mod tests {
         let sql = "SELECT id, name FROM users WHERE active = true";
         let job = highlight_sql(sql, &visuals);
 
-        // 验证关键字被识别（通过检查 sections 不为空）
+        // Verify keywords are recognized (by checking sections are not empty)
         assert!(!job.sections.is_empty());
     }
 
@@ -1793,7 +1793,7 @@ mod tests {
     #[test]
     fn test_highlight_sql_escaped_strings() {
         let visuals = create_test_visuals();
-        // 测试转义的单引号
+        // Test escaped single quotes
         let sql = "SELECT 'O''Reilly' AS name";
         let job = highlight_sql(sql, &visuals);
 
@@ -1803,7 +1803,7 @@ mod tests {
     #[test]
     fn test_highlight_sql_double_quoted_identifiers() {
         let visuals = create_test_visuals();
-        // PostgreSQL 双引号标识符
+        // PostgreSQL double-quoted identifiers
         let sql = r#"SELECT "User Name" FROM "My Table""#;
         let job = highlight_sql(sql, &visuals);
 
@@ -1822,12 +1822,12 @@ mod tests {
     #[test]
     fn test_highlight_sql_comments() {
         let visuals = create_test_visuals();
-        // 单行注释
+        // Single-line comment
         let sql = "SELECT * FROM users -- This is a comment";
         let job = highlight_sql(sql, &visuals);
         assert!(!job.sections.is_empty());
 
-        // 多行注释
+        // Multi-line comment
         let sql = "SELECT * /* This is a\nmulti-line comment */ FROM users";
         let job = highlight_sql(sql, &visuals);
         assert!(!job.sections.is_empty());
@@ -1845,7 +1845,7 @@ mod tests {
     #[test]
     fn test_highlight_sql_postgres_operators() {
         let visuals = create_test_visuals();
-        // PostgreSQL 特有操作符
+        // PostgreSQL-specific operators
         let sql = "SELECT '{}'::jsonb, data->>'key', array[1,2,3]";
         let job = highlight_sql(sql, &visuals);
 
@@ -1880,7 +1880,7 @@ mod tests {
         let sql = "";
         let job = highlight_sql(sql, &visuals);
 
-        // 空字符串应该返回空的或只有默认格式的 job
+        // Empty string should return an empty or default-formatted job
         assert!(job.sections.is_empty() || !job.sections.is_empty());
     }
 
@@ -1890,7 +1890,7 @@ mod tests {
         let sql = "   \n\t  ";
         let job = highlight_sql(sql, &visuals);
 
-        // 应该能处理空白字符
+        // Should handle whitespace characters
         assert!(!job.sections.is_empty() || job.sections.is_empty());
     }
 
@@ -1899,7 +1899,7 @@ mod tests {
         let sql = "SELECT id, name FROM users";
         let formatted = format_sql(sql);
 
-        // 格式化后的 SQL 应该包含原 SQL 的关键部分
+        // Formatted SQL should contain key parts of the original SQL
         assert!(formatted.contains("SELECT"));
         assert!(formatted.contains("FROM"));
     }
@@ -1967,7 +1967,7 @@ mod tests {
         let sql = "SELECT * FROM users -- comment\nWHERE id = 1";
         let formatted = format_sql(sql);
 
-        // 注释应该被保留
+        // Comments should be preserved
         assert!(formatted.contains("-- comment") || formatted.contains("comment"));
     }
 
@@ -1976,7 +1976,7 @@ mod tests {
         let sql = "SELECT * FROM WHERE INVALID SQL SYNTAX";
         let formatted = format_sql(sql);
 
-        // 无效 SQL 应该返回原 SQL
+        // Invalid SQL should return the original SQL
         assert_eq!(formatted, sql);
     }
 
@@ -1993,7 +1993,7 @@ mod tests {
         let sql = "SELECT * FROM users; SELECT * FROM posts;";
         let formatted = format_sql(sql);
 
-        // 应该包含两个 SELECT
+        // Should contain two SELECTs
         let select_count = formatted.matches("SELECT").count();
         assert!(select_count >= 2);
     }
@@ -2003,14 +2003,14 @@ mod tests {
         let sql = "SELECT 'test string' AS name FROM users";
         let formatted = format_sql(sql);
 
-        // 字符串应该被保留
+        // Strings should be preserved
         assert!(formatted.contains("'test string'"));
     }
 
     #[test]
     fn test_format_sql_complex_query() {
         let sql = r#"
-            SELECT 
+            SELECT
                 u.id,
                 u.name,
                 COUNT(p.id) as post_count
@@ -2033,7 +2033,7 @@ mod tests {
     #[test]
     fn test_highlight_sql_case_insensitive_keywords() {
         let visuals = create_test_visuals();
-        // 测试大小写不敏感的关键字识别
+        // Test case-insensitive keyword recognition
         let sql = "select ID, name from users where active = true";
         let job = highlight_sql(sql, &visuals);
 
@@ -2043,7 +2043,7 @@ mod tests {
     #[test]
     fn test_highlight_sql_special_characters() {
         let visuals = create_test_visuals();
-        // 测试特殊字符处理
+        // Test special character handling
         let sql = "SELECT $1, $2 FROM test WHERE id = ANY($3)";
         let job = highlight_sql(sql, &visuals);
 
@@ -2053,7 +2053,7 @@ mod tests {
     #[test]
     fn test_highlight_sql_json_operators() {
         let visuals = create_test_visuals();
-        // PostgreSQL JSON 操作符
+        // PostgreSQL JSON operators
         let sql =
             r#"SELECT data->>'key', data->'nested'->>'value', data @> '{"key": "value"}'::jsonb"#;
         let job = highlight_sql(sql, &visuals);
@@ -2075,7 +2075,7 @@ mod tests {
         let sql = "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')";
         let formatted = format_sql(sql);
 
-        // INSERT 语句可能无法被 sqlparser 0.48 完全解析，但应该不会 panic
+        // INSERT statements may not be fully parsed by sqlparser 0.48, but should not panic
         assert!(!formatted.is_empty());
     }
 }

@@ -5,7 +5,7 @@ pub mod yaml;
 
 use eframe::egui::Context;
 
-/// 获取屏幕中心位置
+/// Get screen center position
 pub(crate) fn screen_center(ctx: &Context) -> eframe::egui::Pos2 {
     ctx.content_rect().center()
 }

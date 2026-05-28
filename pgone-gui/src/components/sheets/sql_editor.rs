@@ -77,14 +77,14 @@ impl ResultsTable {
         let current_sql = self.sql_input.clone();
         let available_height = ui.available_height() - 4.0;
 
-        // 添加左右边距（各 5）
+        // Add left and right padding (5 each)
         ui.horizontal(|ui| {
             ui.add_space(5.0);
 
             let editor_id = ui.make_persistent_id("sql_editor");
 
-            // 清除待设置的光标位置标记（不再使用添加空格的方法）
-            // TextEdit 在替换文本后会自动将光标放在替换范围的末尾
+            // Clear the pending cursor position marker (no longer using the space-adding method)
+            // TextEdit automatically places the cursor at the end of the replacement range after replacing text
             let _ = self.pending_cursor_pos.take();
 
             let editor = ui.add_sized(
@@ -108,27 +108,27 @@ impl ResultsTable {
                 self.sql_error = None;
             }
 
-            // 处理自动补全
+            // Handle auto-completion
             if editor.has_focus() {
                 self.handle_completion(ui, &editor, text_changed);
             } else {
-                // 失去焦点时关闭补全窗口
+                // Close completion window when losing focus
                 self.show_completion = false;
             }
         });
     }
 
-    /// 处理自动补全逻辑
+    /// Handle auto-completion logic
     fn handle_completion(
         &mut self,
         ui: &mut egui::Ui,
         editor: &egui::Response,
         text_changed: bool,
     ) {
-        // 获取输入状态
+        // Get input state
         let input = ui.input(|i| i.clone());
 
-        // 处理键盘事件
+        // Handle keyboard events
         if self.show_completion && !self.completion_suggestions.is_empty() {
             if input.key_pressed(egui::Key::ArrowDown) {
                 self.completion_selected_index =
@@ -161,16 +161,16 @@ impl ResultsTable {
             }
         }
 
-        // 当文本改变时，更新补全建议
+        // When text changes, update completion suggestions
         if text_changed {
             let text = &self.sql_input;
 
-            // 检测文本变化位置（光标位置）
+            // Detect text change position (cursor position)
             let cursor_pos = if text.len() > self.previous_sql_input.len() {
-                // 文本增加了，光标应该在新增字符之后
+                // Text increased, cursor should be after the new characters
                 text.len()
             } else if text.len() < self.previous_sql_input.len() {
-                // 文本减少了（删除），找到第一个不同的位置
+                // Text decreased (deletion), find the first differing position
                 let mut pos = 0;
                 let old_bytes = self.previous_sql_input.as_bytes();
                 let new_bytes = text.as_bytes();
@@ -180,7 +180,7 @@ impl ResultsTable {
                 }
                 pos
             } else {
-                // 文本长度相同，可能是替换，找到第一个不同的位置
+                // Text length is the same, might be a replacement, find the first differing position
                 let mut pos = 0;
                 let old_bytes = self.previous_sql_input.as_bytes();
                 let new_bytes = text.as_bytes();
@@ -188,7 +188,7 @@ impl ResultsTable {
                 while pos < min_len && old_bytes[pos] == new_bytes[pos] {
                     pos += 1;
                 }
-                // 找到变化结束的位置
+                // Find the position where the change ends
                 while pos < new_bytes.len()
                     && pos < old_bytes.len()
                     && old_bytes[pos] != new_bytes[pos]
@@ -198,10 +198,10 @@ impl ResultsTable {
                 pos
             };
 
-            // 从光标位置提取当前词
+            // Extract the current word from the cursor position
             let (word, word_start, word_end) = sql::extract_current_word(text, cursor_pos);
 
-            // 检查是否在字符串或注释中（简单检查）
+            // Check if inside a string or comment (simple check)
             let in_string = self.is_in_string_or_comment(text, cursor_pos);
 
             if !in_string
@@ -210,7 +210,7 @@ impl ResultsTable {
                     .chars()
                     .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
             {
-                // 提取到有效的词，匹配关键字
+                // Extract valid word, match keywords
                 let suggestions = sql::match_keywords(&word);
                 if !suggestions.is_empty() {
                     self.completion_suggestions = suggestions;
@@ -227,21 +227,21 @@ impl ResultsTable {
                 self.show_completion = false;
             }
 
-            // 更新上一次的文本
+            // Update previous text
             self.previous_sql_input = text.clone();
         }
 
-        // 显示补全弹出窗口
+        // Show completion popup
         if self.show_completion && !self.completion_suggestions.is_empty() {
             let popup_id = ui.make_persistent_id("completion_popup");
             let editor_rect = editor.rect;
 
-            // 计算光标在屏幕上的位置
-            // 由于 egui 的 TextEdit 不直接提供光标位置，我们通过文本布局来计算
+            // Calculate cursor position on screen
+            // Since egui TextEdit does not directly provide cursor position, we calculate through text layout
             let cursor_screen_pos =
                 self.calculate_cursor_screen_pos(ui, editor, self.completion_cursor_pos);
 
-            // 计算弹出窗口位置（在光标位置下方）
+            // Calculate popup position (below cursor position)
             let popup_pos =
                 cursor_screen_pos + egui::vec2(0.0, ui.text_style_height(&egui::TextStyle::Body));
             let popup_width = editor_rect.width().min(300.0);
@@ -274,7 +274,7 @@ impl ResultsTable {
                                     }
                                 }
 
-                                // 在循环外处理点击，避免借用冲突
+                                // Handle clicks outside the loop to avoid borrow conflicts
                                 if let Some(idx) = clicked_index {
                                     self.completion_selected_index = idx;
                                     self.insert_completion();
@@ -285,7 +285,7 @@ impl ResultsTable {
         }
     }
 
-    /// 计算光标在屏幕上的位置
+    /// Calculate cursor position on screen
     fn calculate_cursor_screen_pos(
         &self,
         ui: &egui::Ui,
@@ -299,14 +299,14 @@ impl ResultsTable {
             return editor_rect.min + egui::vec2(5.0, ui.text_style_height(&egui::TextStyle::Body));
         }
 
-        // 获取文本到光标位置的部分
+        // Get text up to cursor position
         let text_before_cursor = &text[..cursor_pos.min(text.len())];
 
-        // 计算文本的布局
+        // Calculate text layout
         let text_style = egui::TextStyle::Body;
         let font_height = ui.text_style_height(&text_style);
 
-        // 获取字体（使用与 TextEdit 相同的字体）
+        // Get font (use the same font as TextEdit)
         let font_id = ui
             .style()
             .text_styles
@@ -314,10 +314,10 @@ impl ResultsTable {
             .cloned()
             .unwrap_or_else(|| egui::FontId::new(font_height, egui::FontFamily::Proportional));
 
-        // 计算文本布局（使用与 TextEdit 相同的 wrap_width 和 layouter）
-        let wrap_width = editor_rect.width() - 10.0; // 减去左右边距
+        // Calculate text layout (use the same wrap_width and layouter as TextEdit)
+        let wrap_width = editor_rect.width() - 10.0; // Subtract left and right padding
 
-        // 使用与 TextEdit 相同的布局逻辑（包括语法高亮）
+        // Use the same layout logic as TextEdit (including syntax highlighting)
         let current_sql = text_before_cursor.to_string();
         let galley = ui.fonts_mut(|f| {
             let mut job = crate::sql::highlight_sql(&current_sql, ui.visuals());
@@ -325,7 +325,7 @@ impl ResultsTable {
             f.layout_job(job)
         });
 
-        // 计算光标所在的行和列
+        // Calculate the line and column where the cursor is
         let mut line_start = 0;
         let mut line_index = 0;
 
@@ -340,11 +340,11 @@ impl ResultsTable {
             }
         }
 
-        // 获取当前行的文本（到光标位置）
+        // Get the current line text (up to cursor position)
         let line_text = &text_before_cursor[line_start..];
         let cursor_in_line = cursor_pos - line_start;
 
-        // 计算光标在该行中的 x 位置
+        // Calculate the cursor x position within this line
         let cursor_text = &line_text[..cursor_in_line.min(line_text.len())];
         let cursor_x = ui.fonts_mut(|f| {
             cursor_text
@@ -353,20 +353,20 @@ impl ResultsTable {
                 .sum::<f32>()
         });
 
-        // 计算 y 位置
-        // 使用 galley 的行信息来获取准确的行高
+        // Calculate y position
+        // Use galley row information to get accurate row height
         let cursor_y = if line_index < galley.rows.len() {
             let row = &galley.rows[line_index];
             row.rect().min.y - galley.rect.min.y + font_height
         } else {
-            // 如果行索引超出范围，使用估算值
+            // If line index is out of range, use estimated value
             line_index as f32 * font_height + font_height
         };
 
         editor_rect.min + egui::vec2(5.0 + cursor_x, cursor_y)
     }
 
-    /// 检查光标位置是否在字符串或注释中
+    /// Check if cursor position is inside a string or comment
     fn is_in_string_or_comment(&self, text: &str, pos: usize) -> bool {
         if pos > text.len() {
             return false;
@@ -378,19 +378,19 @@ impl ResultsTable {
         while i < pos.min(bytes.len()) {
             let c = bytes[i] as char;
 
-            // 检查单行注释
+            // Check single-line comment
             if i + 1 < bytes.len() && c == '-' && bytes[i + 1] as char == '-' {
-                // 找到下一个换行符
+                // Find next newline character
                 while i < bytes.len() && bytes[i] as char != '\n' {
                     if i >= pos {
-                        return true; // 在注释中
+                        return true; // Inside comment
                     }
                     i += 1;
                 }
                 continue;
             }
 
-            // 检查多行注释
+            // Check multi-line comment
             if i + 1 < bytes.len() && c == '/' && bytes[i + 1] as char == '*' {
                 i += 2;
                 while i + 1 < bytes.len() {
@@ -399,20 +399,20 @@ impl ResultsTable {
                         break;
                     }
                     if i >= pos {
-                        return true; // 在注释中
+                        return true; // Inside comment
                     }
                     i += 1;
                 }
                 continue;
             }
 
-            // 检查单引号字符串
+            // Check single-quoted string
             if c == '\'' {
                 i += 1;
                 while i < bytes.len() {
                     let ch = bytes[i] as char;
                     if ch == '\'' {
-                        // 检查是否是转义的单引号 ''
+                        // Check if it is an escaped single quote ''
                         if i + 1 < bytes.len() && bytes[i + 1] as char == '\'' {
                             i += 2;
                         } else {
@@ -420,10 +420,10 @@ impl ResultsTable {
                             break;
                         }
                     } else if ch == '\\' && i + 1 < bytes.len() {
-                        i += 2; // 转义字符
+                        i += 2; // Escape character
                     } else {
                         if i >= pos {
-                            return true; // 在字符串中
+                            return true; // Inside string
                         }
                         i += 1;
                     }
@@ -431,20 +431,20 @@ impl ResultsTable {
                 continue;
             }
 
-            // 检查双引号标识符
+            // Check double-quoted identifier
             if c == '"' {
                 i += 1;
                 while i < bytes.len() {
                     if bytes[i] as char == '"' {
                         if i + 1 < bytes.len() && bytes[i + 1] as char == '"' {
-                            i += 2; // 转义的双引号
+                            i += 2; // Escaped double quote
                         } else {
                             i += 1;
                             break;
                         }
                     } else {
                         if i >= pos {
-                            return true; // 在标识符中
+                            return true; // Inside identifier
                         }
                         i += 1;
                     }
@@ -458,16 +458,16 @@ impl ResultsTable {
         false
     }
 
-    /// 插入选中的补全项
+    /// Insert selected completion item
     fn insert_completion(&mut self) {
         if self.completion_selected_index < self.completion_suggestions.len() {
             let selected = self.completion_suggestions[self.completion_selected_index].clone();
 
-            // 替换当前词为选中的关键字
+            // Replace current word with selected keyword
             if self.completion_word_start < self.sql_input.len()
                 && self.completion_word_end <= self.sql_input.len()
             {
-                // 检查关键字后面是否已经有空格或换行符
+                // Check if there is already a space or newline after the keyword
                 let after_pos = self.completion_word_start + selected.len();
                 let needs_space = after_pos < self.sql_input.len()
                     && !self.sql_input[after_pos..]
@@ -476,25 +476,25 @@ impl ResultsTable {
                         .map(|c| c.is_whitespace())
                         .unwrap_or(true);
 
-                // 构建要插入的文本（关键字 + 可选的空格）
+                // Build text to insert (keyword + optional space)
                 let text_to_insert = if needs_space {
                     format!("{} ", selected)
                 } else {
                     selected
                 };
 
-                // 使用 replace_range 替换文本
-                // TextEdit 会自动将光标放在替换范围的末尾
+                // Use replace_range to replace text
+                // TextEdit automatically places the cursor at the end of the replacement range
                 self.sql_input.replace_range(
                     self.completion_word_start..self.completion_word_end,
                     &text_to_insert,
                 );
 
-                // 立即更新上一次的文本，这样下次检测文本变化时不会误判
+                // Immediately update previous text so next text change detection is not misjudged
                 self.previous_sql_input = self.sql_input.clone();
             }
 
-            // 关闭补全窗口
+            // Close completion window
             self.show_completion = false;
             self.completion_suggestions.clear();
         }

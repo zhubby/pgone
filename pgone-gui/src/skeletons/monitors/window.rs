@@ -9,7 +9,7 @@ use super::tables;
 use crate::components::DbManager;
 use eframe::egui::{Align2, Context, Id, Window};
 
-/// 显示监控窗口
+/// Show monitor window
 pub fn show_monitor_window(
     ctx: &Context,
     show_monitor: &mut Option<MonitorMetric>,
@@ -23,7 +23,7 @@ pub fn show_monitor_window(
     let mut open = true;
     let title = metric.title();
 
-    // 获取当前数据库的DSN
+    // Get current database DSN
     let dsn = get_dsn(db_manager);
     let pools = db_manager.pools.clone();
 
@@ -63,7 +63,7 @@ pub fn show_monitor_window(
     }
 }
 
-/// 获取当前活动数据库的DSN
+/// Get current active database DSN
 fn get_dsn(db_manager: &mut DbManager) -> Option<String> {
     db_manager.active_dsn()
 }
