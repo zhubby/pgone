@@ -1,204 +1,134 @@
 # pgone-mcp
 
-A database introspection module based on MCP (Model Context Protocol), including server and client implementations. The server currently supports PostgreSQL, with features:
-- List/describe tables, views (including materialized views), triggers, routines (functions/procedures/aggregates), types (enums/domains/composites)
-- Output structured JSON and LLM-friendly Markdown summaries
-- Generate ER diagrams (Mermaid) and DBML text
-- Multi-database: managed with a fixed `connectionId`; built-in caching and per-table refresh
+`pgone-mcp` owns PGone's agent-facing PostgreSQL introspection surface.
 
-> More databases can be added in the future by implementing a new adapter for the unified introspection interface.
+The crate has two responsibilities:
 
----
+1. expose read-only database introspection as MCP tools, and
+2. provide shared introspection models, adapters, and renderers that other PGone crates can reuse without speaking MCP.
 
-## Quick Start
+It is not a general database UI layer, SQL execution layer, storage layer, or agent runtime.
 
-### MCP STDIO Mode (Recommended)
-1) Optional: prepare a YAML connection configuration
-```yaml
-connections:
-  - id: main
-    engine: postgres
-    dsn: postgres://user:pass@host:5432/dbname
-```
-2) Start (run from the workspace root or this module's directory)
-```bash
-PGONE_CONNECTIONS_PATH=/path/to/connections.yaml PGONE_MCP_STDIO=1 cargo run -p pgone-mcp --bin pgone-mcp-server
-```
-The compatible executable name is still `pgone-mcp-server`, provided by the `pgone-mcp` crate.
-```bash
-PGONE_CONNECTIONS_PATH=/path/to/connections.yaml PGONE_MCP_STDIO=1 cargo run --bin pgone-mcp-server
-```
-You can also start via the unified CLI:
+## Current Role In The Workspace
+
+`pgone-mcp` is used by:
+
+- `pgone-cli`, which starts the MCP server through the `mcp-server` subcommand.
+- `pgone-agent`, which reuses the `SqlSessionIntrospector`, core models, and ER/DBML formatters for local tool execution.
+- `pgone-gui`, which contains a currently inactive MCP client manager path. GUI screens should prefer direct `pgone-sql` or `pgone-agent` integration unless the feature specifically needs an MCP transport boundary.
+
+## Owned Capabilities
+
+The crate owns these areas:
+
+- MCP server implementation for PGone database tools.
+- MCP tool metadata, request validation, and tool dispatch.
+- STDIO and Streamable HTTP MCP server transports.
+- Read-only PostgreSQL introspection adapters built on `pgone-sql::Session`.
+- Agent-facing database schema models under `core`.
+- Renderers for agent-friendly formats such as Markdown, Mermaid ER diagrams, and DBML.
+- A compatibility binary named `pgone-mcp-server`.
+
+The current tool set includes:
+
+- `introspect_all`
+- `get_table`
+- `list_triggers`
+- `list_routines`
+- `list_types`
+- `render_er`
+- `render_dbml`
+- `health_check`
+
+## Explicit Non-Goals
+
+Do not put these responsibilities in `pgone-mcp`:
+
+- GUI state, panels, layouts, or user interaction flows.
+- Chat session state, model-provider integration, prompt orchestration, or agent turn management.
+- Persistent application settings or database connection storage schema.
+- General SQL query execution, mutation workflows, or query result table rendering.
+- PostgreSQL protocol/session primitives that belong in `pgone-sql`.
+- Desktop process lifecycle policy that belongs in `pgone-gui` or `pgone-cli`.
+
+## Dependency Direction
+
+`pgone-mcp` may depend on:
+
+- `pgone-sql` for PostgreSQL sessions and metadata queries.
+- `pgone-storage` to resolve stored database configurations for server runs.
+- `pgone-util` for shared application utilities.
+- MCP transport/protocol crates such as `rmcp`.
+
+Other crates may depend on `pgone-mcp` when they need its agent-facing introspection contract or its MCP server/client types.
+
+Avoid making `pgone-mcp` depend on `pgone-agent`, `pgone-gui`, or `pgone-cli`. Those crates are consumers of this module, not owners of the introspection protocol.
+
+## Public API Guidance
+
+Use the crate APIs this way:
+
+- Use `pgone_mcp::mcp::run_stdio` or `pgone_mcp::mcp::run_streamable` to start a real MCP server.
+- Use `pgone_mcp::mcp::PgoneMcpServer::call_tool_direct` only when a caller wants the same tool behavior without an MCP transport.
+- Use `pgone_mcp::adapter::SqlSessionIntrospector` when an internal crate needs read-only schema introspection without MCP.
+- Use `pgone_mcp::formatters` when an internal crate needs the same Markdown, Mermaid, or DBML output as MCP tools.
+- Treat `pgone_mcp::client::McpClient` as incomplete for STDIO client use. The server transports are the production path today.
+
+## Running The MCP Server
+
+The preferred entrypoint is the unified CLI:
+
 ```bash
 cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio
 ```
-3) Exchange "one JSON per line" messages with the process via STDIO.
 
-### One-shot Quick Introspection (Non-MCP)
+Streamable HTTP mode:
+
 ```bash
-PGONE_PG_DSN='postgres://user:pass@host:5432/dbname' cargo run -p pgone-mcp --bin pgone-mcp-server
+cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol streamable --addr 127.0.0.1:3000
 ```
-Prints the database schema JSON after running.
 
----
+The compatibility binary remains available:
 
-## Interaction and Conventions
-- Each request/response is a single line of JSON text.
-- Request example:
+```bash
+cargo run -p pgone-mcp --bin pgone-mcp-server -- --dbconfig-id default --protocol stdio
+```
+
+The server resolves the selected database through PGone storage using `--dbconfig-id`; DSNs should stay in local configuration or storage, not in source-controlled examples.
+
+## Tool Contract Notes
+
+MCP tool arguments are tool-specific and do not require a `connectionId`. The active database is selected by the server's `dbconfig_id` at startup.
+
+Examples:
+
 ```json
-{"id":1,"method":"list_connections","params":{}}
+{"schemas":["public"],"with_indexes":true,"with_routines":true,"format":"markdown"}
 ```
-- Success response: `{"id":1,"result":...}`; failure response: `{"id":1,"error":{"code":...,"message":"..."}}`
-- Parameter naming uses camelCase; connections are identified by a fixed `connectionId`.
 
----
-
-## Methods
-
-- register_connection
-  - Input: `{ id: string, engine: 'postgres', dsn: string }`
-  - Output: `{ ok: true }`
-
-- list_connections
-  - Input: `{}`
-  - Output: `[{ id: string, engine: 'postgres' }]`
-
-- remove_connection
-  - Input: `{ id: string }`
-  - Output: `{ removed: boolean }`
-
-- health_check
-  - Input: `{ id: string }`
-  - Output: `{ ok: boolean }`
-
-- introspect_all
-  - Input: `{ connectionId: string, schemas?: string[], withIndexes?: boolean, withRoutines?: boolean, withTypes?: boolean, withTriggers?: boolean, page?: number, pageSize?: number, format?: 'markdown' }`
-  - Output:
-    - Markdown: `{ markdown: string }`
-    - JSON: `DatabaseSchema` (paginated responses include `pageInfo: { page, pageSize, total }`)
-
-- list_triggers
-  - Input: `{ connectionId: string, schema?: string }`
-  - Output: `TriggerDetail[]`
-
-- list_routines
-  - Input: `{ connectionId: string, schema?: string, kind?: 'function'|'procedure'|'aggregate' }`
-  - Output: `RoutineDetail[]`
-
-- list_types
-  - Input: `{ connectionId: string, schema?: string, kind?: 'enum'|'domain'|'composite'|'base' }`
-  - Output: `TypeDetail[]`
-
-- get_table
-  - Input: `{ connectionId: string, schema: string, table: string, format?: 'markdown' }`
-  - Output: Markdown: `{ markdown: string }` or JSON: `TableDetail`
-
-- refresh_cache
-  - Input: `{ id: string, scope?: 'table', schema?: string, table?: string }`
-  - Output: `{ refreshed: true }`
-
-- reload_connections
-  - Input: `{ path: string }`
-  - Output: `{ ok: true }`
-
-- render_er
-  - Input: `{ connectionId: string, schemas?: string[] }`
-  - Output: `{ mermaid: string }`
-
-- render_dbml
-  - Input: `{ connectionId: string, schemas?: string[] }`
-  - Output: `{ dbml: string }`
-
----
-
-## Examples (STDIO)
-
-- List connections
 ```json
-{"id":1,"method":"list_connections","params":{}}
+{"schema":"public","table":"orders","format":"markdown"}
 ```
 
-- Health check
 ```json
-{"id":2,"method":"health_check","params":{"id":"main"}}
+{"schemas":["public"]}
 ```
 
-- Full database Markdown summary
-```json
-{"id":3,"method":"introspect_all","params":{"connectionId":"main","format":"markdown","withRoutines":true,"withTypes":true,"withTriggers":true}}
-```
+Tool responses are returned as MCP `CallToolResult` text content containing serialized JSON. Direct tool calls return `serde_json::Value`.
 
-- Paginated response (JSON)
-```json
-{"id":4,"method":"introspect_all","params":{"connectionId":"main","page":1,"pageSize":50}}
-```
+## Safety
 
-- Get a single table (Markdown)
-```json
-{"id":5,"method":"get_table","params":{"connectionId":"main","schema":"public","table":"orders","format":"markdown"}}
-```
+The MCP tools are intended to be read-only. They should inspect catalog metadata, render summaries, and check connectivity. Do not add tools here that mutate database data or schema unless the module's charter is explicitly revised.
 
-- Generate ER diagram (Mermaid)
-```json
-{"id":6,"method":"render_er","params":{"connectionId":"main","schemas":["public"]}}
-```
+Generated examples and diagnostics must not expose credentials. DSNs should be read from PGone's local storage or environment-specific configuration and scrubbed from logs and error messages where practical.
 
-- Generate DBML
-```json
-{"id":7,"method":"render_dbml","params":{"connectionId":"main","schemas":["public"]}}
-```
+## Known Gaps
 
-- Per-table cache refresh
-```json
-{"id":8,"method":"refresh_cache","params":{"id":"main","scope":"table","schema":"public","table":"orders"}}
-```
-
----
-
-## Data Models (Excerpt)
-
-- DatabaseSchema (abbreviated)
-```json
-{
-  "database": "dbname",
-  "schemas": [
-    {
-      "name": "public",
-      "tables": [
-        {
-          "schema": "public",
-          "name": "orders",
-          "comment": "Main orders table",
-          "columns": [
-            { "name": "id", "dataType": "uuid", "nullable": false, "default": "gen_random_uuid()", "comment": "Order ID" }
-          ],
-          "primaryKey": { "columns": ["id"] },
-          "foreignKeys": [ { "columns": ["user_id"], "refTable": "public.users", "refColumns": ["id"], "onDelete": "CASCADE" } ],
-          "indexes": [ { "name": "orders_user_id_idx", "unique": false, "columns": ["user_id"], "include": [], "definition": "CREATE INDEX ..." } ]
-        }
-      ],
-      "views": [ { "schema": "public", "name": "v_orders" } ]
-    }
-  ]
-}
-```
-
----
-
-## Security and Performance
-- Read-only: only executes introspection queries
-- Caching: in-memory cache (default TTL 5 minutes), supports per-table/full refresh
-- Filtering: excludes `pg_catalog` / `information_schema` by default
-- Timeout/concurrency: recommended to control via connection pools and external gateways
-
----
-
-## Known Limitations
-- Currently only supports PostgreSQL; other databases will be added later
-- `introspect_all` pagination is at the "table" granularity; routines/types/triggers summaries are appended on demand
-- Complex index expressions and include columns are supported with basic parsing; edge cases with extreme dialects may exist
-
----
+- The README documents the current implementation, not a future connection registry protocol.
+- `McpClient` does not yet implement full STDIO JSON-RPC communication.
+- The GUI MCP client manager exists, but the main GUI app currently does not initialize it.
+- Introspection currently targets PostgreSQL through `pgone-sql`.
 
 ## License
+
 Same as the repository.
