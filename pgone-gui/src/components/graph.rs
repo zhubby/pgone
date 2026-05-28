@@ -8,14 +8,12 @@ use egui_snarl::{
 };
 use pgone_sql::{ColumnDetail, ForeignKeyDetail, PrimaryKeyDetail, Session, TableDetail};
 use poll_promise::Promise;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 const TABLE_NODE_WIDTH: f32 = 280.0;
-const TABLE_NODE_X_GAP: f32 = 380.0;
-const TABLE_NODE_Y_GAP: f32 = 56.0;
-const TABLE_HEADER_HEIGHT: f32 = 42.0;
-const TABLE_COLUMN_HEIGHT: f32 = 22.0;
-const TABLE_COMMENT_HEIGHT: f32 = 34.0;
+const TABLE_NODE_X_GAP: f32 = 340.0;
+const TABLE_NODE_Y_GAP: f32 = 300.0;
+const TABLE_NODES_PER_ROW: usize = 3;
 
 #[derive(Clone, Debug)]
 pub struct TableGraphNode {
@@ -145,9 +143,14 @@ impl TableGraphModel {
     fn into_snarl(self) -> Snarl<TableGraphNode> {
         let mut snarl = Snarl::new();
         let mut node_ids = Vec::with_capacity(self.nodes.len());
-        let positions = self.initial_positions();
 
-        for (node, pos) in self.nodes.into_iter().zip(positions) {
+        for (index, node) in self.nodes.into_iter().enumerate() {
+            let row = index / TABLE_NODES_PER_ROW;
+            let col = index % TABLE_NODES_PER_ROW;
+            let pos = egui::pos2(
+                (col as f32) * TABLE_NODE_X_GAP,
+                (row as f32) * TABLE_NODE_Y_GAP,
+            );
             node_ids.push(snarl.insert_node(pos, node));
         }
 
@@ -171,82 +174,6 @@ impl TableGraphModel {
         }
 
         snarl
-    }
-
-    fn initial_positions(&self) -> Vec<egui::Pos2> {
-        let levels = self.dependency_levels();
-        let mut nodes_by_level = BTreeMap::<usize, Vec<usize>>::new();
-
-        for (node_index, level) in levels.into_iter().enumerate() {
-            nodes_by_level.entry(level).or_default().push(node_index);
-        }
-
-        for indexes in nodes_by_level.values_mut() {
-            indexes
-                .sort_by(|&left, &right| self.node_sort_key(right).cmp(&self.node_sort_key(left)));
-        }
-
-        let mut positions = vec![egui::Pos2::ZERO; self.nodes.len()];
-        for (level, indexes) in nodes_by_level {
-            let mut y = 0.0;
-            for node_index in indexes {
-                positions[node_index] = egui::pos2(level as f32 * TABLE_NODE_X_GAP, y);
-                y += estimated_node_height(&self.nodes[node_index]) + TABLE_NODE_Y_GAP;
-            }
-        }
-
-        positions
-    }
-
-    fn dependency_levels(&self) -> Vec<usize> {
-        let mut children = vec![BTreeSet::<usize>::new(); self.nodes.len()];
-        let mut parent_count = vec![0_usize; self.nodes.len()];
-
-        for wire in &self.wires {
-            if children[wire.to_table].insert(wire.from_table) {
-                parent_count[wire.from_table] += 1;
-            }
-        }
-
-        let mut levels = vec![0_usize; self.nodes.len()];
-        let mut queue = parent_count
-            .iter()
-            .enumerate()
-            .filter_map(|(index, count)| (*count == 0).then_some(index))
-            .collect::<VecDeque<_>>();
-        let mut visited = vec![false; self.nodes.len()];
-
-        while let Some(parent) = queue.pop_front() {
-            visited[parent] = true;
-            for &child in &children[parent] {
-                levels[child] = levels[child].max(levels[parent] + 1);
-                parent_count[child] = parent_count[child].saturating_sub(1);
-                if parent_count[child] == 0 {
-                    queue.push_back(child);
-                }
-            }
-        }
-
-        let fallback_level = levels.iter().copied().max().unwrap_or(0);
-        for (index, was_visited) in visited.into_iter().enumerate() {
-            if !was_visited && self.nodes.len() > 1 {
-                levels[index] = fallback_level + 1;
-            }
-        }
-
-        levels
-    }
-
-    fn node_sort_key(&self, node_index: usize) -> (usize, String) {
-        let relationship_count = self
-            .wires
-            .iter()
-            .filter(|wire| wire.from_table == node_index || wire.to_table == node_index)
-            .count();
-        (
-            relationship_count,
-            self.nodes[node_index].table.name.to_lowercase(),
-        )
     }
 }
 
@@ -428,9 +355,7 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         snarl: &mut Snarl<TableGraphNode>,
     ) -> PinInfo {
         let column = snarl[pin.id.node].input_column(pin.id.input).unwrap_or("");
-        ui.push_id(("input", pin.id.node, pin.id.input), |ui| {
-            ui.label(egui::RichText::new(column).monospace().small());
-        });
+        ui.label(egui::RichText::new(column).monospace().small());
         PinInfo::circle()
             .with_fill(egui::Color32::from_rgb(75, 168, 120))
             .with_wire_color(egui::Color32::from_rgb(75, 168, 120))
@@ -451,10 +376,8 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         let column = snarl[pin.id.node]
             .output_column(pin.id.output)
             .unwrap_or("");
-        ui.push_id(("output", pin.id.node, pin.id.output), |ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new(column).monospace().small());
-            });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(column).monospace().small());
         });
         PinInfo::circle()
             .with_fill(egui::Color32::from_rgb(245, 159, 52))
@@ -476,7 +399,7 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
     ) {
         let node = &snarl[node];
         ui.set_min_width(TABLE_NODE_WIDTH);
-        ui.push_id(("body", stable_table_key(&node.table)), |ui| {
+        ui.vertical(|ui| {
             if let Some(comment) = &node.table.comment {
                 ui.label(egui::RichText::new(comment).small().italics().weak());
                 ui.separator();
@@ -507,11 +430,9 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         ui: &mut egui::Ui,
         snarl: &mut Snarl<TableGraphNode>,
     ) {
-        ui.push_id(("header", stable_table_key(&snarl[node].table)), |ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui_phosphor::regular::TABLE);
-                ui.strong(&snarl[node].table.name);
-            });
+        ui.horizontal(|ui| {
+            ui.label(egui_phosphor::regular::TABLE);
+            ui.strong(&snarl[node].table.name);
         });
     }
 
@@ -525,56 +446,49 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
 }
 
 fn show_column_row(ui: &mut egui::Ui, table: &TableDetail, column: &ColumnDetail) {
-    ui.push_id(
-        ("column", stable_table_key(table), column.name.as_str()),
-        |ui| {
-            ui.set_min_width(TABLE_NODE_WIDTH - 24.0);
-            if is_primary_key(&table.primary_key, &column.name) {
-                ui.label(
-                    egui::RichText::new(egui_phosphor::regular::KEY)
-                        .color(egui::Color32::from_rgb(245, 159, 52)),
-                );
-            } else {
-                ui.add_space(14.0);
-            }
-
-            if is_foreign_key(&table.foreign_keys, &column.name) {
-                ui.label(
-                    egui::RichText::new(egui_phosphor::regular::LINK)
-                        .color(egui::Color32::from_rgb(75, 168, 120)),
-                );
-            } else {
-                ui.add_space(14.0);
-            }
-
+    ui.horizontal(|ui| {
+        ui.set_min_width(TABLE_NODE_WIDTH - 24.0);
+        if is_primary_key(&table.primary_key, &column.name) {
             ui.label(
-                egui::RichText::new(&column.name)
-                    .monospace()
-                    .small()
-                    .strong(),
+                egui::RichText::new(egui_phosphor::regular::KEY)
+                    .color(egui::Color32::from_rgb(245, 159, 52)),
             );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let mut details = column.data_type.clone();
-                if !column.nullable {
-                    details.push_str(" not null");
-                }
-                if column.default.is_some() {
-                    details.push_str(" default");
-                }
-                ui.label(egui::RichText::new(details).small().weak());
-            });
-        },
-    );
+        } else {
+            ui.add_space(14.0);
+        }
+
+        if is_foreign_key(&table.foreign_keys, &column.name) {
+            ui.label(
+                egui::RichText::new(egui_phosphor::regular::LINK)
+                    .color(egui::Color32::from_rgb(75, 168, 120)),
+            );
+        } else {
+            ui.add_space(14.0);
+        }
+
+        ui.label(
+            egui::RichText::new(&column.name)
+                .monospace()
+                .small()
+                .strong(),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut details = column.data_type.clone();
+            if !column.nullable {
+                details.push_str(" not null");
+            }
+            if column.default.is_some() {
+                details.push_str(" default");
+            }
+            ui.label(egui::RichText::new(details).small().weak());
+        });
+    });
 }
 
 fn snarl_style(ui: &egui::Ui) -> SnarlStyle {
     let visuals = ui.visuals();
     SnarlStyle {
-        node_layout: Some(
-            NodeLayout::coil()
-                .with_min_pin_row_height(20.0)
-                .with_equal_pin_rows(),
-        ),
+        node_layout: Some(NodeLayout::coil().with_min_pin_row_height(20.0)),
         pin_placement: Some(PinPlacement::Edge),
         pin_size: Some(8.0),
         wire_width: Some(2.0),
@@ -642,20 +556,6 @@ fn referenced_table_index(
 
 fn qualified_table_name(table: &TableDetail) -> String {
     format!("{}.{}", table.schema, table.name)
-}
-
-fn stable_table_key(table: &TableDetail) -> String {
-    qualified_table_name(table)
-}
-
-fn estimated_node_height(node: &TableGraphNode) -> f32 {
-    TABLE_HEADER_HEIGHT
-        + node.table.columns.len() as f32 * TABLE_COLUMN_HEIGHT
-        + node
-            .table
-            .comment
-            .as_ref()
-            .map_or(0.0, |_| TABLE_COMMENT_HEIGHT)
 }
 
 fn sorted_columns(columns: &[ColumnDetail], selected: &HashSet<String>) -> Vec<String> {
