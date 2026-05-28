@@ -346,13 +346,15 @@ Help the user inspect and understand PostgreSQL database metadata from inside Pg
 Use tools to inspect real database metadata before making factual claims about schemas, tables, columns, indexes, triggers, routines, types, or relationships.
 
 Current UI context:
-- Database config id: {dbconfig_id}
-- Database name: {database}
+- Database config id: {dbconfig_id} (PostgreSQL instance connection identity)
+- Default target database name: {database}
 - Selected schema: {selected_schema}
 - Selected table: {selected_table}
 
 Available behavior:
 - Prefer read-only database metadata inspection tools.
+- Metadata and query tools can target a database with database_name. When the user names a database, pass that name explicitly instead of relying only on the default target database.
+- Use list_databases to discover available databases on the selected PostgreSQL instance when the target database is unclear.
 - Do not claim you changed schema, data, permissions, or configuration; mutating tools are not available.
 - When you have completed the user's request, call complete_task with a concise summary.
 - If you are blocked, call complete_task with status "blocked" and explain what is missing.
@@ -436,13 +438,25 @@ mod tests {
 
     #[async_trait]
     impl AgentToolServices for DummyServices {
-        async fn health_check(&self, _dbconfig_id: &str) -> Result<Value> {
+        async fn health_check(
+            &self,
+            _dbconfig_id: &str,
+            _database_name: Option<&str>,
+        ) -> Result<Value> {
             Ok(json!({"ok": true}))
+        }
+
+        async fn list_databases(
+            &self,
+            _dbconfig_id: &str,
+        ) -> Result<Vec<pgone_sql::models::DatabaseInfo>> {
+            Ok(Vec::new())
         }
 
         async fn introspect_database(
             &self,
             _dbconfig_id: &str,
+            _database_name: Option<&str>,
             _opts: pgone_mcp::core::models::IntrospectOptions,
         ) -> Result<DatabaseSchema> {
             Ok(database_schema())
@@ -451,6 +465,7 @@ mod tests {
         async fn get_table(
             &self,
             _dbconfig_id: &str,
+            _database_name: Option<&str>,
             _schema: &str,
             _table: &str,
         ) -> Result<TableDetail> {
@@ -460,6 +475,7 @@ mod tests {
         async fn list_triggers(
             &self,
             _dbconfig_id: &str,
+            _database_name: Option<&str>,
             _schema: Option<&str>,
         ) -> Result<Vec<TriggerDetail>> {
             Ok(Vec::new())
@@ -468,6 +484,7 @@ mod tests {
         async fn list_routines(
             &self,
             _dbconfig_id: &str,
+            _database_name: Option<&str>,
             _schema: Option<&str>,
             _kind: Option<RoutineKind>,
         ) -> Result<Vec<RoutineDetail>> {
@@ -477,6 +494,7 @@ mod tests {
         async fn list_types(
             &self,
             _dbconfig_id: &str,
+            _database_name: Option<&str>,
             _schema: Option<&str>,
             _kind: Option<TypeKind>,
         ) -> Result<Vec<TypeDetail>> {
@@ -486,6 +504,7 @@ mod tests {
         async fn render_er(
             &self,
             _dbconfig_id: &str,
+            _database_name: Option<&str>,
             _schemas: Option<Vec<String>>,
         ) -> Result<RenderedDiagram> {
             Ok(RenderedDiagram {
@@ -496,6 +515,7 @@ mod tests {
         async fn render_dbml(
             &self,
             _dbconfig_id: &str,
+            _database_name: Option<&str>,
             _schemas: Option<Vec<String>>,
         ) -> Result<RenderedDiagram> {
             Ok(RenderedDiagram {

@@ -152,7 +152,11 @@ impl ResultsTable {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Export CSV...").clicked() {
+                if ui
+                    .button(egui_phosphor::regular::DOWNLOAD_SIMPLE)
+                    .on_hover_text("Export CSV")
+                    .clicked()
+                {
                     self.export_csv(&self.query_columns, &self.query_rows);
                 }
 

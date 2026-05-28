@@ -150,7 +150,10 @@ impl Tool for HealthCheckTool {
         let args: DatabaseTargetArgs = parse_args(args)?;
         json_output(
             &services
-                .health_check(dbconfig_id, target_database(args.database_name.as_deref(), context))
+                .health_check(
+                    dbconfig_id,
+                    target_database(args.database_name.as_deref(), context),
+                )
                 .await?,
         )
     }
@@ -673,6 +676,16 @@ where
     })
 }
 
+fn target_database<'a>(
+    argument_database: Option<&'a str>,
+    context: &'a AgentContext,
+) -> Option<&'a str> {
+    argument_database
+        .filter(|database| !database.trim().is_empty())
+        .or_else(|| context.database_name.as_deref())
+        .filter(|database| !database.trim().is_empty())
+}
+
 pub fn validate_readonly_sql(sql: &str) -> Result<()> {
     let sql = sql.trim();
     if sql.is_empty() {
@@ -752,6 +765,13 @@ fn string_property(name: &'static str, description: &'static str) -> SchemaPrope
     }
 }
 
+fn database_name_property() -> SchemaProperty {
+    string_property(
+        "database_name",
+        "Target database name on the selected PostgreSQL instance; omit to use the current UI database",
+    )
+}
+
 fn string_enum_property(
     name: &'static str,
     description: &'static str,
@@ -818,25 +838,58 @@ mod tests {
         Column, DatabaseSchema, ForeignKey, Index, PrimaryKey, RoutineDetail, RoutineKind, Schema,
         TableDetail, TriggerDetail, TypeDetail, TypeKind, ViewDetail,
     };
+    use pgone_sql::models::DatabaseInfo;
     use serde_json::json;
+    use tokio::sync::Mutex;
 
     use super::*;
     use crate::{RenderedDiagram, Result};
 
-    #[derive(Clone)]
-    struct MockServices;
+    #[derive(Default)]
+    struct MockServices {
+        seen_database_name: Mutex<Option<Option<String>>>,
+    }
+
+    impl MockServices {
+        async fn record_database_name(&self, database_name: Option<&str>) {
+            *self.seen_database_name.lock().await = Some(database_name.map(ToOwned::to_owned));
+        }
+
+        async fn seen_database_name(&self) -> Option<Option<String>> {
+            self.seen_database_name.lock().await.clone()
+        }
+    }
 
     #[async_trait]
     impl AgentToolServices for MockServices {
-        async fn health_check(&self, _dbconfig_id: &str) -> Result<Value> {
+        async fn health_check(
+            &self,
+            _dbconfig_id: &str,
+            database_name: Option<&str>,
+        ) -> Result<Value> {
+            self.record_database_name(database_name).await;
             Ok(json!({"ok": true, "database": "app"}))
+        }
+
+        async fn list_databases(&self, _dbconfig_id: &str) -> Result<Vec<DatabaseInfo>> {
+            Ok(vec![DatabaseInfo {
+                name: "app".to_owned(),
+                owner: "postgres".to_owned(),
+                encoding: "UTF8".to_owned(),
+                collate: None,
+                ctype: None,
+                size: None,
+                description: None,
+            }])
         }
 
         async fn introspect_database(
             &self,
             _dbconfig_id: &str,
+            database_name: Option<&str>,
             _opts: IntrospectOptions,
         ) -> Result<DatabaseSchema> {
+            self.record_database_name(database_name).await;
             Ok(DatabaseSchema {
                 database: "app".to_owned(),
                 schemas: vec![Schema {
@@ -850,9 +903,11 @@ mod tests {
         async fn get_table(
             &self,
             _dbconfig_id: &str,
+            database_name: Option<&str>,
             schema: &str,
             table: &str,
         ) -> Result<TableDetail> {
+            self.record_database_name(database_name).await;
             assert_eq!(schema, "public");
             assert_eq!(table, "users");
             Ok(table_detail())
@@ -861,34 +916,42 @@ mod tests {
         async fn list_triggers(
             &self,
             _dbconfig_id: &str,
+            database_name: Option<&str>,
             _schema: Option<&str>,
         ) -> Result<Vec<TriggerDetail>> {
+            self.record_database_name(database_name).await;
             Ok(Vec::new())
         }
 
         async fn list_routines(
             &self,
             _dbconfig_id: &str,
+            database_name: Option<&str>,
             _schema: Option<&str>,
             _kind: Option<RoutineKind>,
         ) -> Result<Vec<RoutineDetail>> {
+            self.record_database_name(database_name).await;
             Ok(Vec::new())
         }
 
         async fn list_types(
             &self,
             _dbconfig_id: &str,
+            database_name: Option<&str>,
             _schema: Option<&str>,
             _kind: Option<TypeKind>,
         ) -> Result<Vec<TypeDetail>> {
+            self.record_database_name(database_name).await;
             Ok(Vec::new())
         }
 
         async fn render_er(
             &self,
             _dbconfig_id: &str,
+            database_name: Option<&str>,
             _schemas: Option<Vec<String>>,
         ) -> Result<RenderedDiagram> {
+            self.record_database_name(database_name).await;
             Ok(RenderedDiagram {
                 content: "erDiagram".to_owned(),
             })
@@ -897,8 +960,10 @@ mod tests {
         async fn render_dbml(
             &self,
             _dbconfig_id: &str,
+            database_name: Option<&str>,
             _schemas: Option<Vec<String>>,
         ) -> Result<RenderedDiagram> {
+            self.record_database_name(database_name).await;
             Ok(RenderedDiagram {
                 content: "Table public.users {}".to_owned(),
             })
@@ -909,6 +974,8 @@ mod tests {
             _dbconfig_id: &str,
             request: ReadonlySqlRequest,
         ) -> Result<crate::ReadonlySqlResult> {
+            self.record_database_name(request.database_name.as_deref())
+                .await;
             assert!(request.database_name.is_some());
             Ok(crate::ReadonlySqlResult {
                 columns: vec!["id".to_owned()],
@@ -962,6 +1029,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(definitions.contains(&"health_check".to_owned()));
+        assert!(definitions.contains(&"list_databases".to_owned()));
         assert!(definitions.contains(&"introspect_database".to_owned()));
         assert!(definitions.contains(&"get_table".to_owned()));
         assert!(definitions.contains(&"list_triggers".to_owned()));
@@ -988,18 +1056,23 @@ mod tests {
     #[tokio::test]
     async fn get_table_executes_against_services() {
         let tool = ToolRegistry::pgone_readonly().get("get_table").unwrap();
+        let services = Arc::new(MockServices::default());
         let output = tool
             .execute(
                 json!({"schema": "public", "table": "users"}),
                 "local",
                 &context(),
-                Arc::new(MockServices),
+                services.clone(),
             )
             .await
             .unwrap();
 
         assert!(output.content.contains("\"name\": \"users\""));
         assert!(output.completion.is_none());
+        assert_eq!(
+            services.seen_database_name().await,
+            Some(Some("app".to_owned()))
+        );
     }
 
     #[tokio::test]
@@ -1008,11 +1081,75 @@ mod tests {
             .get("introspect_database")
             .unwrap();
         let output = tool
-            .execute(json!({}), "local", &context(), Arc::new(MockServices))
+            .execute(
+                json!({}),
+                "local",
+                &context(),
+                Arc::new(MockServices::default()),
+            )
             .await
             .unwrap();
 
         assert!(output.content.contains("\"database\": \"app\""));
+    }
+
+    #[tokio::test]
+    async fn metadata_tool_database_argument_overrides_context_database() {
+        let tool = ToolRegistry::pgone_readonly()
+            .get("introspect_database")
+            .unwrap();
+        let services = Arc::new(MockServices::default());
+
+        tool.execute(
+            json!({"database_name": "doro"}),
+            "local",
+            &context(),
+            services.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            services.seen_database_name().await,
+            Some(Some("doro".to_owned()))
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_tool_without_database_context_falls_back_to_config_dsn() {
+        let tool = ToolRegistry::pgone_readonly().get("get_table").unwrap();
+        let services = Arc::new(MockServices::default());
+        let mut context = context();
+        context.database_name = None;
+
+        tool.execute(
+            json!({"schema": "public", "table": "users"}),
+            "local",
+            &context,
+            services.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(services.seen_database_name().await, Some(None));
+    }
+
+    #[tokio::test]
+    async fn list_databases_executes_against_instance_services() {
+        let tool = ToolRegistry::pgone_readonly()
+            .get("list_databases")
+            .unwrap();
+        let output = tool
+            .execute(
+                json!({}),
+                "local",
+                &context(),
+                Arc::new(MockServices::default()),
+            )
+            .await
+            .unwrap();
+
+        assert!(output.content.contains("\"name\": \"app\""));
     }
 
     #[tokio::test]
@@ -1023,7 +1160,7 @@ mod tests {
                 json!({"schemas": ["public"]}),
                 "local",
                 &context(),
-                Arc::new(MockServices),
+                Arc::new(MockServices::default()),
             )
             .await
             .unwrap();
@@ -1068,17 +1205,22 @@ mod tests {
         let tool = ToolRegistry::pgone_readonly()
             .get("execute_readonly_sql")
             .unwrap();
+        let services = Arc::new(MockServices::default());
         let output = tool
             .execute(
                 json!({"sql": "SELECT 1", "max_rows": 1}),
                 "local",
                 &context(),
-                Arc::new(MockServices),
+                services.clone(),
             )
             .await
             .unwrap();
 
         assert!(output.content.contains("\"columns\""));
         assert!(output.content.contains("\"truncated\": false"));
+        assert_eq!(
+            services.seen_database_name().await,
+            Some(Some("app".to_owned()))
+        );
     }
 }
