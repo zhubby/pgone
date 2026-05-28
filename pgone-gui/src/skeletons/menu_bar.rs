@@ -1,6 +1,7 @@
 use crate::components::DbManager;
 use crate::skeletons::monitors::MonitorMetric;
 use eframe::egui::{Panel, Ui};
+#[cfg(target_os = "macos")]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 pub fn show_menu_bar(
@@ -116,7 +117,9 @@ pub fn show_menu_bar(
                     ui.id().with("title_bar_drag_region"),
                     egui::Sense::click_and_drag(),
                 );
-                if drag_response.drag_started() {
+                if drag_response.drag_started()
+                    && !crate::pointer_in_linux_window_resize_zone(ui.ctx())
+                {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
             }

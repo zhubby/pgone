@@ -349,6 +349,7 @@ impl eframe::App for AppFrame {
         let mut reset_dock_layout = false;
         self.apply_pending_theme_preference(ui, &ctx);
         self.apply_storage_updates();
+        handle_linux_window_resize(&ctx);
 
         // Menu bar
         skeletons::menu_bar::show_menu_bar(
@@ -451,6 +452,98 @@ impl Drop for AppFrame {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn handle_linux_window_resize(ctx: &Context) {
+    let (viewport, content_rect, pointer_pos, primary_pressed) = ctx.input(|input| {
+        (
+            input.viewport().clone(),
+            input.content_rect(),
+            input.pointer.latest_pos(),
+            input.pointer.button_pressed(egui::PointerButton::Primary),
+        )
+    });
+    if viewport.fullscreen == Some(true) || viewport.maximized == Some(true) {
+        return;
+    }
+
+    let Some(pointer_pos) = pointer_pos else {
+        return;
+    };
+    let Some(direction) = linux_window_resize_direction(pointer_pos, content_rect) else {
+        return;
+    };
+    ctx.set_cursor_icon(resize_cursor_icon(direction));
+    if primary_pressed {
+        ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn handle_linux_window_resize(_: &Context) {}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn pointer_in_linux_window_resize_zone(ctx: &Context) -> bool {
+    ctx.input(|input| {
+        input
+            .pointer
+            .latest_pos()
+            .is_some_and(|pos| linux_window_resize_direction(pos, input.content_rect()).is_some())
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn pointer_in_linux_window_resize_zone(_: &Context) -> bool {
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn linux_window_resize_direction(
+    pos: egui::Pos2,
+    rect: egui::Rect,
+) -> Option<egui::viewport::ResizeDirection> {
+    use egui::viewport::ResizeDirection;
+
+    const HIT_ZONE: f32 = 6.0;
+
+    if !rect.contains(pos) {
+        return None;
+    }
+
+    let near_left = pos.x <= rect.left() + HIT_ZONE;
+    let near_right = pos.x >= rect.right() - HIT_ZONE;
+    let near_top = pos.y <= rect.top() + HIT_ZONE;
+    let near_bottom = pos.y >= rect.bottom() - HIT_ZONE;
+
+    match (near_left, near_right, near_top, near_bottom) {
+        (true, _, true, _) => Some(ResizeDirection::NorthWest),
+        (_, true, true, _) => Some(ResizeDirection::NorthEast),
+        (true, _, _, true) => Some(ResizeDirection::SouthWest),
+        (_, true, _, true) => Some(ResizeDirection::SouthEast),
+        (true, _, _, _) => Some(ResizeDirection::West),
+        (_, true, _, _) => Some(ResizeDirection::East),
+        (_, _, true, _) => Some(ResizeDirection::North),
+        (_, _, _, true) => Some(ResizeDirection::South),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn resize_cursor_icon(direction: egui::viewport::ResizeDirection) -> egui::CursorIcon {
+    use egui::CursorIcon;
+    use egui::viewport::ResizeDirection;
+
+    match direction {
+        ResizeDirection::North => CursorIcon::ResizeNorth,
+        ResizeDirection::South => CursorIcon::ResizeSouth,
+        ResizeDirection::East => CursorIcon::ResizeEast,
+        ResizeDirection::West => CursorIcon::ResizeWest,
+        ResizeDirection::NorthEast => CursorIcon::ResizeNorthEast,
+        ResizeDirection::SouthEast => CursorIcon::ResizeSouthEast,
+        ResizeDirection::NorthWest => CursorIcon::ResizeNorthWest,
+        ResizeDirection::SouthWest => CursorIcon::ResizeSouthWest,
+    }
+}
+
 pub fn run() -> anyhow::Result<()> {
     let file = BufReader::new(File::open(asset_path("icon.icns"))?);
     let icon_family = IconFamily::read(file).unwrap();
@@ -466,6 +559,7 @@ pub fn run() -> anyhow::Result<()> {
             .with_app_id("com.github.zhubby.pgone")
             .with_maximized(true)
             .with_icon(icon)
+            .with_resizable(true)
             .with_decorations(false),
         ..Default::default()
     };
