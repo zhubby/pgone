@@ -204,7 +204,10 @@ impl ImportWindow {
                             let success_count = self.results.iter().filter(|r| r.success).count();
                             let fail_count = self.results.len() - success_count;
 
-                            ui.label(format!("Success: {}, Failed: {}", success_count, fail_count));
+                            ui.label(format!(
+                                "Success: {}, Failed: {}",
+                                success_count, fail_count
+                            ));
                             ui.separator();
 
                             for (idx, result) in self.results.iter().enumerate() {
@@ -258,11 +261,7 @@ impl ImportWindow {
                 }
 
                 if ui
-                    .button(if self.is_importing {
-                        "Cancel"
-                    } else {
-                        "Close"
-                    })
+                    .button(if self.is_importing { "Cancel" } else { "Close" })
                     .clicked()
                 {
                     if !self.is_importing {
@@ -665,8 +664,10 @@ impl ImportWindow {
                         self.results = results.clone();
                         let success_count = results.iter().filter(|r| r.success).count();
                         let fail_count = results.len() - success_count;
-                        self.import_status =
-                            format!("Import completed! Success: {}, Failed: {}", success_count, fail_count);
+                        self.import_status = format!(
+                            "Import completed! Success: {}, Failed: {}",
+                            success_count, fail_count
+                        );
                         self.import_promise = None;
                         self.import_cancel = None;
                         self.show_results = true;

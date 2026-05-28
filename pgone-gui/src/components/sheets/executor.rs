@@ -93,7 +93,11 @@ impl ResultsTable {
     }
 
     pub(super) fn start_page_query(&mut self, ctxs: &mut SqlCtx, page: usize) {
-        let Some(sql) = self.paged_base_sql.clone().or_else(|| self.current_sql.clone()) else {
+        let Some(sql) = self
+            .paged_base_sql
+            .clone()
+            .or_else(|| self.current_sql.clone())
+        else {
             return;
         };
         let Some((dsn, sql)) = self.query_request(ctxs, sql) else {
@@ -219,7 +223,9 @@ pub(super) fn build_paginated_sql(
     let offset = (page - 1).saturating_mul(page_size);
     let base_sql = sql.trim().trim_end_matches(';').trim();
     Some(PaginatedSql {
-        query_sql: format!("SELECT * FROM ({base_sql}) pgone_page LIMIT {page_size} OFFSET {offset}"),
+        query_sql: format!(
+            "SELECT * FROM ({base_sql}) pgone_page LIMIT {page_size} OFFSET {offset}"
+        ),
         count_sql: format!("SELECT COUNT(*) FROM ({base_sql}) pgone_count"),
     })
 }
@@ -437,7 +443,10 @@ mod tests {
             "DELETE FROM users",
             "this is not sql",
         ] {
-            assert!(build_paginated_sql(sql, 1, DEFAULT_RESULTS_PAGE_SIZE).is_none(), "{sql}");
+            assert!(
+                build_paginated_sql(sql, 1, DEFAULT_RESULTS_PAGE_SIZE).is_none(),
+                "{sql}"
+            );
         }
     }
 }

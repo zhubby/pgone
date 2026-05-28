@@ -5,7 +5,8 @@ use eframe::egui::{Align2, Context, TextFormat, Window};
 /// Format TOML text
 pub fn format_toml(text: &str) -> Result<String, String> {
     // Attempt to parse TOML
-    let value: toml::Value = toml::from_str(text).map_err(|e| format!("TOML parse error: {}", e))?;
+    let value: toml::Value =
+        toml::from_str(text).map_err(|e| format!("TOML parse error: {}", e))?;
 
     // Format output
     toml::to_string_pretty(&value).map_err(|e| format!("TOML format error: {}", e))

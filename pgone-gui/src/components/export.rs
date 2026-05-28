@@ -275,11 +275,7 @@ impl ExportWindow {
                 }
 
                 if ui
-                    .button(if self.is_exporting {
-                        "Cancel"
-                    } else {
-                        "Close"
-                    })
+                    .button(if self.is_exporting { "Cancel" } else { "Close" })
                     .clicked()
                 {
                     if !self.is_exporting {

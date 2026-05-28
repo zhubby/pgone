@@ -294,7 +294,10 @@ impl SettingsTabViewer<'_> {
         });
 
         ui.add_space(12.0);
-        ui.checkbox(&mut self.settings.enable_monitor, "Enable system monitoring");
+        ui.checkbox(
+            &mut self.settings.enable_monitor,
+            "Enable system monitoring",
+        );
         ui.label("Show CPU, memory, and network usage of the current process in the status bar");
     }
 

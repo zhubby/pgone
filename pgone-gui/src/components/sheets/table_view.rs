@@ -379,7 +379,10 @@ impl ResultsTable {
                 .unwrap_or(self.has_next_page);
 
         if ui
-            .add_enabled(next_enabled, egui::Button::new(egui_phosphor::regular::CARET_RIGHT).small())
+            .add_enabled(
+                next_enabled,
+                egui::Button::new(egui_phosphor::regular::CARET_RIGHT).small(),
+            )
             .on_hover_text("Next page")
             .clicked()
         {
@@ -392,7 +395,10 @@ impl ResultsTable {
         ui.label(egui::RichText::new(page_label).small());
 
         if ui
-            .add_enabled(previous_enabled, egui::Button::new(egui_phosphor::regular::CARET_LEFT).small())
+            .add_enabled(
+                previous_enabled,
+                egui::Button::new(egui_phosphor::regular::CARET_LEFT).small(),
+            )
             .on_hover_text("Previous page")
             .clicked()
         {

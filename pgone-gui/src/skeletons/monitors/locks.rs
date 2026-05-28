@@ -229,11 +229,7 @@ impl LocksMonitor {
                             } else {
                                 egui::Color32::RED
                             },
-                            if item.granted {
-                                "Granted"
-                            } else {
-                                "Waiting"
-                            },
+                            if item.granted { "Granted" } else { "Waiting" },
                         );
                         ui.end_row();
                     }
