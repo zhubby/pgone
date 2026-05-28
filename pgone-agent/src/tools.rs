@@ -60,6 +60,7 @@ impl ToolRegistry {
         Self {
             tools: vec![
                 Arc::new(HealthCheckTool),
+                Arc::new(ListDatabasesTool),
                 Arc::new(IntrospectDatabaseTool),
                 Arc::new(GetTableTool),
                 Arc::new(ListTriggersTool),
@@ -120,6 +121,11 @@ impl ToolExecutionRecord {
 
 struct HealthCheckTool;
 
+#[derive(Deserialize)]
+struct DatabaseTargetArgs {
+    database_name: Option<String>,
+}
+
 #[async_trait]
 impl Tool for HealthCheckTool {
     fn name(&self) -> &'static str {
@@ -127,7 +133,39 @@ impl Tool for HealthCheckTool {
     }
 
     fn description(&self) -> &'static str {
-        "Check whether the selected PostgreSQL database configuration can be reached."
+        "Check whether the selected PostgreSQL instance and target database can be reached."
+    }
+
+    fn parameters(&self) -> Value {
+        object_schema(vec![database_name_property().optional()])
+    }
+
+    async fn execute(
+        &self,
+        args: Value,
+        dbconfig_id: &str,
+        context: &AgentContext,
+        services: Arc<dyn AgentToolServices>,
+    ) -> Result<ToolOutput> {
+        let args: DatabaseTargetArgs = parse_args(args)?;
+        json_output(
+            &services
+                .health_check(dbconfig_id, target_database(args.database_name.as_deref(), context))
+                .await?,
+        )
+    }
+}
+
+struct ListDatabasesTool;
+
+#[async_trait]
+impl Tool for ListDatabasesTool {
+    fn name(&self) -> &'static str {
+        "list_databases"
+    }
+
+    fn description(&self) -> &'static str {
+        "List databases available on the selected PostgreSQL instance."
     }
 
     fn parameters(&self) -> Value {
@@ -141,7 +179,7 @@ impl Tool for HealthCheckTool {
         _context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
-        json_output(&services.health_check(dbconfig_id).await?)
+        json_output(&services.list_databases(dbconfig_id).await?)
     }
 }
 
@@ -149,6 +187,7 @@ struct IntrospectDatabaseTool;
 
 #[derive(Deserialize)]
 struct IntrospectDatabaseArgs {
+    database_name: Option<String>,
     schemas: Option<Vec<String>>,
     #[serde(default = "default_true")]
     with_indexes: bool,
@@ -174,6 +213,7 @@ impl Tool for IntrospectDatabaseTool {
 
     fn parameters(&self) -> Value {
         object_schema(vec![
+            database_name_property().optional(),
             array_string_property(
                 "schemas",
                 "Schema names to inspect; omit to inspect all user schemas",
@@ -200,13 +240,14 @@ impl Tool for IntrospectDatabaseTool {
         &self,
         args: Value,
         dbconfig_id: &str,
-        _context: &AgentContext,
+        context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: IntrospectDatabaseArgs = parse_args(args)?;
         let db = services
             .introspect_database(
                 dbconfig_id,
+                target_database(args.database_name.as_deref(), context),
                 IntrospectOptions {
                     schemas: args.schemas,
                     with_indexes: args.with_indexes,
@@ -226,6 +267,7 @@ struct GetTableTool;
 
 #[derive(Deserialize)]
 struct GetTableArgs {
+    database_name: Option<String>,
     schema: String,
     table: String,
 }
@@ -242,6 +284,7 @@ impl Tool for GetTableTool {
 
     fn parameters(&self) -> Value {
         object_schema(vec![
+            database_name_property().optional(),
             string_property("schema", "Schema name"),
             string_property("table", "Table name"),
         ])
@@ -251,12 +294,17 @@ impl Tool for GetTableTool {
         &self,
         args: Value,
         dbconfig_id: &str,
-        _context: &AgentContext,
+        context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: GetTableArgs = parse_args(args)?;
         let table = services
-            .get_table(dbconfig_id, &args.schema, &args.table)
+            .get_table(
+                dbconfig_id,
+                target_database(args.database_name.as_deref(), context),
+                &args.schema,
+                &args.table,
+            )
             .await?;
         json_output(&table)
     }
@@ -266,6 +314,7 @@ struct ListTriggersTool;
 
 #[derive(Deserialize)]
 struct SchemaFilterArgs {
+    database_name: Option<String>,
     schema: Option<String>,
 }
 
@@ -280,19 +329,26 @@ impl Tool for ListTriggersTool {
     }
 
     fn parameters(&self) -> Value {
-        object_schema(vec![string_property("schema", "Schema name").optional()])
+        object_schema(vec![
+            database_name_property().optional(),
+            string_property("schema", "Schema name").optional(),
+        ])
     }
 
     async fn execute(
         &self,
         args: Value,
         dbconfig_id: &str,
-        _context: &AgentContext,
+        context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: SchemaFilterArgs = parse_args(args)?;
         let triggers = services
-            .list_triggers(dbconfig_id, args.schema.as_deref())
+            .list_triggers(
+                dbconfig_id,
+                target_database(args.database_name.as_deref(), context),
+                args.schema.as_deref(),
+            )
             .await?;
         json_output(&triggers)
     }
@@ -302,6 +358,7 @@ struct ListRoutinesTool;
 
 #[derive(Deserialize)]
 struct ListRoutinesArgs {
+    database_name: Option<String>,
     schema: Option<String>,
     kind: Option<String>,
 }
@@ -318,6 +375,7 @@ impl Tool for ListRoutinesTool {
 
     fn parameters(&self) -> Value {
         object_schema(vec![
+            database_name_property().optional(),
             string_property("schema", "Schema name").optional(),
             string_enum_property(
                 "kind",
@@ -332,13 +390,14 @@ impl Tool for ListRoutinesTool {
         &self,
         args: Value,
         dbconfig_id: &str,
-        _context: &AgentContext,
+        context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: ListRoutinesArgs = parse_args(args)?;
         let routines = services
             .list_routines(
                 dbconfig_id,
+                target_database(args.database_name.as_deref(), context),
                 args.schema.as_deref(),
                 routine_kind(args.kind.as_deref()),
             )
@@ -351,6 +410,7 @@ struct ListTypesTool;
 
 #[derive(Deserialize)]
 struct ListTypesArgs {
+    database_name: Option<String>,
     schema: Option<String>,
     kind: Option<String>,
 }
@@ -367,6 +427,7 @@ impl Tool for ListTypesTool {
 
     fn parameters(&self) -> Value {
         object_schema(vec![
+            database_name_property().optional(),
             string_property("schema", "Schema name").optional(),
             string_enum_property(
                 "kind",
@@ -381,13 +442,14 @@ impl Tool for ListTypesTool {
         &self,
         args: Value,
         dbconfig_id: &str,
-        _context: &AgentContext,
+        context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: ListTypesArgs = parse_args(args)?;
         let types = services
             .list_types(
                 dbconfig_id,
+                target_database(args.database_name.as_deref(), context),
                 args.schema.as_deref(),
                 type_kind(args.kind.as_deref()),
             )
@@ -400,6 +462,7 @@ struct ExecuteReadonlySqlTool;
 
 #[derive(Deserialize)]
 struct ExecuteReadonlySqlArgs {
+    database_name: Option<String>,
     sql: String,
     max_rows: Option<u32>,
 }
@@ -416,6 +479,7 @@ impl Tool for ExecuteReadonlySqlTool {
 
     fn parameters(&self) -> Value {
         object_schema(vec![
+            database_name_property().optional(),
             string_property("sql", "One read-only SQL statement to execute"),
             integer_property("max_rows", "Maximum rows to return; defaults to 100").optional(),
         ])
@@ -435,7 +499,8 @@ impl Tool for ExecuteReadonlySqlTool {
                 dbconfig_id,
                 ReadonlySqlRequest {
                     sql: args.sql,
-                    database_name: context.database_name.clone(),
+                    database_name: target_database(args.database_name.as_deref(), context)
+                        .map(ToOwned::to_owned),
                     max_rows: args.max_rows.unwrap_or(100),
                     timeout_ms: 20_000,
                 },
@@ -449,6 +514,7 @@ struct RenderErTool;
 
 #[derive(Deserialize)]
 struct RenderArgs {
+    database_name: Option<String>,
     schemas: Option<Vec<String>>,
 }
 
@@ -464,6 +530,7 @@ impl Tool for RenderErTool {
 
     fn parameters(&self) -> Value {
         object_schema(vec![
+            database_name_property().optional(),
             array_string_property(
                 "schemas",
                 "Schema names to render; omit to render all user schemas",
@@ -476,11 +543,17 @@ impl Tool for RenderErTool {
         &self,
         args: Value,
         dbconfig_id: &str,
-        _context: &AgentContext,
+        context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: RenderArgs = parse_args(args)?;
-        let diagram = services.render_er(dbconfig_id, args.schemas).await?;
+        let diagram = services
+            .render_er(
+                dbconfig_id,
+                target_database(args.database_name.as_deref(), context),
+                args.schemas,
+            )
+            .await?;
         json_output(&json!({ "mermaid": diagram.content }))
     }
 }
@@ -499,6 +572,7 @@ impl Tool for RenderDbmlTool {
 
     fn parameters(&self) -> Value {
         object_schema(vec![
+            database_name_property().optional(),
             array_string_property(
                 "schemas",
                 "Schema names to render; omit to render all user schemas",
@@ -511,11 +585,17 @@ impl Tool for RenderDbmlTool {
         &self,
         args: Value,
         dbconfig_id: &str,
-        _context: &AgentContext,
+        context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: RenderArgs = parse_args(args)?;
-        let diagram = services.render_dbml(dbconfig_id, args.schemas).await?;
+        let diagram = services
+            .render_dbml(
+                dbconfig_id,
+                target_database(args.database_name.as_deref(), context),
+                args.schemas,
+            )
+            .await?;
         json_output(&json!({ "dbml": diagram.content }))
     }
 }

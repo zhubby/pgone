@@ -12,6 +12,7 @@ use pgone_mcp::core::models::{
     TypeDetail, TypeKind,
 };
 use pgone_mcp::formatters::{dbml, mermaid};
+use pgone_sql::models::DatabaseInfo;
 use pgone_sql::Session;
 use pgone_storage::service::StorageService;
 use serde::{Deserialize, Serialize};
@@ -183,25 +184,36 @@ pub struct RenderedDiagram {
 
 #[async_trait]
 pub trait AgentToolServices: Send + Sync {
-    async fn health_check(&self, dbconfig_id: &str) -> Result<Value>;
+    async fn health_check(&self, dbconfig_id: &str, database_name: Option<&str>) -> Result<Value>;
+
+    async fn list_databases(&self, dbconfig_id: &str) -> Result<Vec<DatabaseInfo>>;
 
     async fn introspect_database(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         opts: IntrospectOptions,
     ) -> Result<DatabaseSchema>;
 
-    async fn get_table(&self, dbconfig_id: &str, schema: &str, table: &str) -> Result<TableDetail>;
+    async fn get_table(
+        &self,
+        dbconfig_id: &str,
+        database_name: Option<&str>,
+        schema: &str,
+        table: &str,
+    ) -> Result<TableDetail>;
 
     async fn list_triggers(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schema: Option<&str>,
     ) -> Result<Vec<TriggerDetail>>;
 
     async fn list_routines(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schema: Option<&str>,
         kind: Option<RoutineKind>,
     ) -> Result<Vec<RoutineDetail>>;
@@ -209,6 +221,7 @@ pub trait AgentToolServices: Send + Sync {
     async fn list_types(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schema: Option<&str>,
         kind: Option<TypeKind>,
     ) -> Result<Vec<TypeDetail>>;
@@ -216,12 +229,14 @@ pub trait AgentToolServices: Send + Sync {
     async fn render_er(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schemas: Option<Vec<String>>,
     ) -> Result<RenderedDiagram>;
 
     async fn render_dbml(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schemas: Option<Vec<String>>,
     ) -> Result<RenderedDiagram>;
 
@@ -275,9 +290,13 @@ impl StorageBackedAgentToolServices {
             .map_err(|error| AgentError::Tool(error.to_string()))
     }
 
-    async fn introspector(&self, dbconfig_id: &str) -> Result<SqlSessionIntrospector> {
+    async fn introspector(
+        &self,
+        dbconfig_id: &str,
+        database_name: Option<&str>,
+    ) -> Result<SqlSessionIntrospector> {
         Ok(SqlSessionIntrospector::new(
-            self.session(dbconfig_id, None).await?,
+            self.session(dbconfig_id, database_name).await?,
         ))
     }
 }
@@ -290,8 +309,8 @@ impl Default for StorageBackedAgentToolServices {
 
 #[async_trait]
 impl AgentToolServices for StorageBackedAgentToolServices {
-    async fn health_check(&self, dbconfig_id: &str) -> Result<Value> {
-        let session = self.session(dbconfig_id, None).await?;
+    async fn health_check(&self, dbconfig_id: &str, database_name: Option<&str>) -> Result<Value> {
+        let session = self.session(dbconfig_id, database_name).await?;
         let database = session
             .current_database()
             .await
@@ -299,20 +318,35 @@ impl AgentToolServices for StorageBackedAgentToolServices {
         Ok(json!({"ok": true, "database": database}))
     }
 
+    async fn list_databases(&self, dbconfig_id: &str) -> Result<Vec<DatabaseInfo>> {
+        let session = self.session(dbconfig_id, None).await?;
+        session
+            .list_databases()
+            .await
+            .map_err(|error| AgentError::Tool(error.to_string()))
+    }
+
     async fn introspect_database(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         opts: IntrospectOptions,
     ) -> Result<DatabaseSchema> {
-        self.introspector(dbconfig_id)
+        self.introspector(dbconfig_id, database_name)
             .await?
             .introspect_database(opts)
             .await
             .map_err(|error| AgentError::Tool(error.to_string()))
     }
 
-    async fn get_table(&self, dbconfig_id: &str, schema: &str, table: &str) -> Result<TableDetail> {
-        self.introspector(dbconfig_id)
+    async fn get_table(
+        &self,
+        dbconfig_id: &str,
+        database_name: Option<&str>,
+        schema: &str,
+        table: &str,
+    ) -> Result<TableDetail> {
+        self.introspector(dbconfig_id, database_name)
             .await?
             .get_table(schema, table)
             .await
@@ -322,9 +356,10 @@ impl AgentToolServices for StorageBackedAgentToolServices {
     async fn list_triggers(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schema: Option<&str>,
     ) -> Result<Vec<TriggerDetail>> {
-        self.introspector(dbconfig_id)
+        self.introspector(dbconfig_id, database_name)
             .await?
             .list_triggers(schema)
             .await
@@ -334,10 +369,11 @@ impl AgentToolServices for StorageBackedAgentToolServices {
     async fn list_routines(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schema: Option<&str>,
         kind: Option<RoutineKind>,
     ) -> Result<Vec<RoutineDetail>> {
-        self.introspector(dbconfig_id)
+        self.introspector(dbconfig_id, database_name)
             .await?
             .list_routines(schema, kind)
             .await
@@ -347,10 +383,11 @@ impl AgentToolServices for StorageBackedAgentToolServices {
     async fn list_types(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schema: Option<&str>,
         kind: Option<TypeKind>,
     ) -> Result<Vec<TypeDetail>> {
-        self.introspector(dbconfig_id)
+        self.introspector(dbconfig_id, database_name)
             .await?
             .list_types(schema, kind)
             .await
@@ -360,10 +397,11 @@ impl AgentToolServices for StorageBackedAgentToolServices {
     async fn render_er(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schemas: Option<Vec<String>>,
     ) -> Result<RenderedDiagram> {
         let db = self
-            .introspect_database(dbconfig_id, diagram_options(schemas))
+            .introspect_database(dbconfig_id, database_name, diagram_options(schemas))
             .await?;
         Ok(RenderedDiagram {
             content: mermaid::render_er(&db),
@@ -373,10 +411,11 @@ impl AgentToolServices for StorageBackedAgentToolServices {
     async fn render_dbml(
         &self,
         dbconfig_id: &str,
+        database_name: Option<&str>,
         schemas: Option<Vec<String>>,
     ) -> Result<RenderedDiagram> {
         let db = self
-            .introspect_database(dbconfig_id, diagram_options(schemas))
+            .introspect_database(dbconfig_id, database_name, diagram_options(schemas))
             .await?;
         Ok(RenderedDiagram {
             content: dbml::render_dbml(&db),
