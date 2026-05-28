@@ -224,13 +224,16 @@ impl ChatPanel {
                             show_agent_empty_state(ui);
                         }
 
-                        for message in &messages {
+                        for (message_index, message) in messages.iter().enumerate() {
                             show_agent_message(
                                 ctxs,
                                 ui,
                                 message,
                                 &mut self.markdown_cache,
                                 self.in_flight.is_some(),
+                                egui::Id::new("agent_message_markdown")
+                                    .with(ctxs.state.current_index)
+                                    .with(message_index),
                             );
                             ui.add_space(8.0);
                         }
@@ -250,7 +253,14 @@ impl ChatPanel {
                                 timestamp: Utc::now(),
                                 content: MessageContent::Markdown(self.partial_response.clone()),
                             };
-                            show_assistant_message(ui, &message, &mut self.markdown_cache);
+                            show_assistant_message(
+                                ui,
+                                &message,
+                                &mut self.markdown_cache,
+                                egui::Id::new("agent_partial_markdown")
+                                    .with(ctxs.state.current_index)
+                                    .with(self.in_flight),
+                            );
                             ui.add_space(8.0);
                         }
 
@@ -770,10 +780,11 @@ fn show_agent_message(
     message: &Message,
     markdown_cache: &mut CommonMarkCache,
     request_in_flight: bool,
+    markdown_id: egui::Id,
 ) {
     match message.role {
         Role::User => show_user_message(ctxs, ui, message),
-        Role::Assistant => show_assistant_message(ui, message, markdown_cache),
+        Role::Assistant => show_assistant_message(ui, message, markdown_cache, markdown_id),
         Role::System => show_system_message(ui, message),
     }
 
@@ -811,11 +822,13 @@ fn show_assistant_message(
     ui: &mut egui::Ui,
     message: &Message,
     markdown_cache: &mut CommonMarkCache,
+    markdown_id: egui::Id,
 ) {
     markdown_message_bubble(
         ui,
         message,
         markdown_cache,
+        markdown_id,
         MessageBubbleStyle {
             label: "PgOne",
             icon: egui_phosphor::regular::SPARKLE,
@@ -891,6 +904,7 @@ fn markdown_message_bubble(
     ui: &mut egui::Ui,
     message: &Message,
     markdown_cache: &mut CommonMarkCache,
+    markdown_id: egui::Id,
     style: MessageBubbleStyle,
 ) {
     egui::Frame::new()
@@ -902,9 +916,11 @@ fn markdown_message_bubble(
             ui.set_max_width(style.max_width);
             bubble_header(ui, &style);
             if let MessageContent::Markdown(text) = &message.content {
-                CommonMarkViewer::new()
-                    .default_width(Some(style.max_width as usize))
-                    .show(ui, markdown_cache, text);
+                ui.push_id(markdown_id, |ui| {
+                    CommonMarkViewer::new()
+                        .default_width(Some(style.max_width as usize))
+                        .show(ui, markdown_cache, text);
+                });
             }
         });
 }

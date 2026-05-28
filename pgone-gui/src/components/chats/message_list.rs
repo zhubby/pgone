@@ -21,7 +21,7 @@ impl MessageList {
                     .get(ctxs.state.current_index)
                     .map(|s| s.messages.clone())
                     .unwrap_or_default();
-                for msg in &messages {
+                for (message_index, msg) in messages.iter().enumerate() {
                     ui.horizontal(|ui| {
                         ui.strong(match msg.role {
                             Role::User => format!("{} User", egui_phosphor::regular::USER),
@@ -39,7 +39,11 @@ impl MessageList {
                     });
                     match &msg.content {
                         MessageContent::Markdown(text) => {
-                            crate::skeletons::formatters::md::render_markdown(ui, text)
+                            crate::skeletons::formatters::md::render_markdown_with_id(
+                                ui,
+                                text,
+                                egui::Id::new("message_list_markdown").with(message_index),
+                            )
                         }
                         MessageContent::Image {
                             path,
