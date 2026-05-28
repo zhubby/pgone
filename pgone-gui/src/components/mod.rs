@@ -13,7 +13,6 @@ pub use chats::ChatPanel;
 pub use context::{ChatCtx, SqlCtx};
 pub use db_manager::DbManager;
 pub use export::ExportWindow;
-pub use graph::SchemaGraph;
 pub use import::ImportWindow;
 pub use preview::PreviewManager;
 pub use settings::SettingsPanel;

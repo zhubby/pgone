@@ -24,7 +24,7 @@ use storage_handle::GuiStorage;
 mod components;
 use components::{
     ChatPanel, DbManager, DbTree, ExportWindow, ImportWindow, PreviewManager, ResultsTable,
-    SchemaGraph, SettingsPanel,
+    SettingsPanel,
 };
 mod mcp;
 mod prompt;
@@ -110,9 +110,6 @@ pub struct AppFrame {
     state: PersistedState,
     show_settings: bool,
     show_about: bool,
-    show_graph: bool,
-    graph_schema: Option<(String, String)>, // (database, schema)
-    graph: SchemaGraph,
     db: DbManager,
     results_table: ResultsTable,
     preview: PreviewManager,
@@ -183,9 +180,6 @@ impl AppFrame {
             state,
             show_settings: false,
             show_about: false,
-            show_graph: false,
-            graph_schema: None,
-            graph: SchemaGraph::default(),
             db: db_manager,
             results_table: Default::default(),
             preview: Default::default(),
@@ -410,20 +404,11 @@ impl eframe::App for AppFrame {
 
         // Check for pending graph window open
         if let Some(schema_info) = self.db_tree.take_pending_open_graph() {
-            self.show_graph = true;
-            self.graph_schema = Some(schema_info.clone());
-            // Reinitialize graph with new schema
-            self.graph = SchemaGraph::new(schema_info.0.clone(), schema_info.1.clone());
+            if let Some(dsn) = self.db.dsn_for_database(&schema_info.0) {
+                self.results_table
+                    .open_graph_viewer(schema_info.0, schema_info.1, dsn);
+            }
         }
-
-        // Graph window
-        skeletons::windows::show_graph_window(
-            &ctx,
-            &mut self.show_graph,
-            self.graph_schema.clone(),
-            &mut self.db,
-            &mut self.graph,
-        );
 
         // Export window
         self.show_export_window(&ctx);

@@ -1,3 +1,5 @@
+use super::db_manager::PoolRegistry;
+use super::graph::SchemaGraph;
 use crate::components::SqlCtx;
 use poll_promise::Promise;
 use serde_json::Value;
@@ -53,6 +55,21 @@ pub struct DdlViewerTab {
     pub ddl: String,
 }
 
+#[derive(Clone)]
+pub struct GraphViewerTabInfo {
+    pub id: u64,
+    pub title: String,
+}
+
+pub struct GraphViewerTab {
+    pub id: u64,
+    pub title: String,
+    pub database: String,
+    pub schema: String,
+    pub dsn: String,
+    pub graph: SchemaGraph,
+}
+
 #[derive(Default)]
 pub struct ResultsTable {
     // Refresh control
@@ -76,6 +93,9 @@ pub struct ResultsTable {
     pub ddl_viewer_tabs: BTreeMap<u64, DdlViewerTab>,
     pub pending_ddl_viewer_tabs: Vec<DdlViewerTab>,
     pub next_ddl_viewer_tab_id: u64,
+    pub graph_viewer_tabs: BTreeMap<u64, GraphViewerTab>,
+    pub pending_graph_viewer_tabs: Vec<GraphViewerTabInfo>,
+    pub next_graph_viewer_tab_id: u64,
     pub current_page: usize,
     pub page_size: usize,
     pub total_rows: Option<usize>,
@@ -104,7 +124,7 @@ pub struct ResultsTable {
     pub completion_cursor_pos: usize,
     pub completion_word_start: usize,
     pub completion_word_end: usize,
-    pub previous_sql_input: String,        // Used to detect text change position
+    pub previous_sql_input: String, // Used to detect text change position
     pub pending_cursor_pos: Option<usize>, // Pending cursor position to set
 }
 
@@ -127,6 +147,9 @@ impl ResultsTable {
             ddl_viewer_tabs: BTreeMap::new(),
             pending_ddl_viewer_tabs: Vec::new(),
             next_ddl_viewer_tab_id: 1,
+            graph_viewer_tabs: BTreeMap::new(),
+            pending_graph_viewer_tabs: Vec::new(),
+            next_graph_viewer_tab_id: 1,
             current_page: 1,
             page_size: DEFAULT_RESULTS_PAGE_SIZE,
             total_rows: None,
@@ -196,8 +219,53 @@ impl ResultsTable {
         std::mem::take(&mut self.pending_ddl_viewer_tabs)
     }
 
+    pub fn open_graph_viewer(
+        &mut self,
+        database: impl Into<String>,
+        schema: impl Into<String>,
+        dsn: impl Into<String>,
+    ) -> u64 {
+        let database = database.into();
+        let schema = schema.into();
+        if let Some(tab) = self
+            .graph_viewer_tabs
+            .values()
+            .find(|tab| tab.database == database && tab.schema == schema)
+        {
+            self.pending_graph_viewer_tabs.push(GraphViewerTabInfo {
+                id: tab.id,
+                title: tab.title.clone(),
+            });
+            return tab.id;
+        }
+
+        let id = self.next_graph_viewer_tab_id;
+        self.next_graph_viewer_tab_id = self.next_graph_viewer_tab_id.saturating_add(1);
+        let title = format!("Graph {}.{}", database, schema);
+        let tab = GraphViewerTab {
+            id,
+            title: title.clone(),
+            database: database.clone(),
+            schema: schema.clone(),
+            dsn: dsn.into(),
+            graph: SchemaGraph::new(database, schema),
+        };
+        self.graph_viewer_tabs.insert(id, tab);
+        self.pending_graph_viewer_tabs
+            .push(GraphViewerTabInfo { id, title });
+        id
+    }
+
+    pub fn take_pending_graph_viewer_tabs(&mut self) -> Vec<GraphViewerTabInfo> {
+        std::mem::take(&mut self.pending_graph_viewer_tabs)
+    }
+
     pub fn ddl_viewer_tab(&self, id: u64) -> Option<&DdlViewerTab> {
         self.ddl_viewer_tabs.get(&id)
+    }
+
+    pub fn graph_viewer_tab(&self, id: u64) -> Option<&GraphViewerTab> {
+        self.graph_viewer_tabs.get(&id)
     }
 
     pub fn json_viewer_tab(&self, id: u64) -> Option<&JsonViewerTab> {
@@ -217,6 +285,10 @@ impl ResultsTable {
         self.ddl_viewer_tabs.retain(|id, _| keep_ids.contains(id));
     }
 
+    pub fn retain_graph_viewer_tabs(&mut self, keep_ids: &HashSet<u64>) {
+        self.graph_viewer_tabs.retain(|id, _| keep_ids.contains(id));
+    }
+
     pub fn ui_json_viewer(&self, ui: &mut egui::Ui, id: u64) {
         if let Some(tab) = self.json_viewer_tab(id) {
             json_viewer::ui(ui, tab);
@@ -233,6 +305,16 @@ impl ResultsTable {
         } else {
             ui.centered_and_justified(|ui| {
                 ui.label("DDL viewer content is no longer available");
+            });
+        }
+    }
+
+    pub fn ui_graph_viewer(&mut self, ui: &mut egui::Ui, id: u64, pools: PoolRegistry) {
+        if let Some(tab) = self.graph_viewer_tabs.get_mut(&id) {
+            tab.graph.ui(ui, pools, Some(&tab.dsn));
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("Graph content is no longer available");
             });
         }
     }

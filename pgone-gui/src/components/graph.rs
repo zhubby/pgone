@@ -1,4 +1,5 @@
 use crate::components::db_manager::PoolRegistry;
+use egui::emath::TSTransform;
 use egui_snarl::{
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
     ui::{
@@ -14,6 +15,8 @@ const TABLE_NODE_WIDTH: f32 = 280.0;
 const TABLE_NODE_X_GAP: f32 = 340.0;
 const TABLE_NODE_Y_GAP: f32 = 300.0;
 const TABLE_NODES_PER_ROW: usize = 3;
+const ZOOM_STEPS: [f32; 5] = [0.5, 0.75, 1.0, 1.25, 1.5];
+const DEFAULT_ZOOM_INDEX: usize = 2;
 
 #[derive(Clone, Debug)]
 pub struct TableGraphNode {
@@ -187,6 +190,7 @@ pub struct SchemaGraph {
     initialized: bool,
     snarl: Snarl<TableGraphNode>,
     needs_rebuild: bool,
+    zoom_index: usize,
 }
 
 impl Default for SchemaGraph {
@@ -201,6 +205,7 @@ impl Default for SchemaGraph {
             initialized: false,
             snarl: Snarl::new(),
             needs_rebuild: false,
+            zoom_index: DEFAULT_ZOOM_INDEX,
         }
     }
 }
@@ -217,6 +222,7 @@ impl SchemaGraph {
             initialized: false,
             snarl: Snarl::new(),
             needs_rebuild: false,
+            zoom_index: DEFAULT_ZOOM_INDEX,
         }
     }
 
@@ -305,38 +311,55 @@ impl SchemaGraph {
     }
 
     fn show_schema_graph(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading(format!("{}.{}", self.database_name, self.schema_name));
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} tables, {} relationships",
-                    self.tables.len(),
-                    self.tables
-                        .iter()
-                        .map(|table| table.foreign_keys.len())
-                        .sum::<usize>()
-                ))
-                .small()
-                .weak(),
-            );
-        });
-        ui.separator();
+        let rect = ui.available_rect_before_wrap();
+        let mut zoom_controls_rect = rect;
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            ui.horizontal(|ui| {
+                ui.heading(format!("{}.{}", self.database_name, self.schema_name));
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} tables, {} relationships",
+                        self.tables.len(),
+                        self.tables
+                            .iter()
+                            .map(|table| table.foreign_keys.len())
+                            .sum::<usize>()
+                    ))
+                    .small()
+                    .weak(),
+                );
+            });
+            ui.separator();
 
-        let style = snarl_style(ui);
-        let mut viewer = TableGraphViewer;
-        SnarlWidget::new()
-            .id(egui::Id::new((
-                "schema_graph",
-                self.database_name.as_str(),
-                self.schema_name.as_str(),
-            )))
-            .style(style)
-            .min_size(ui.available_size())
-            .show(&mut self.snarl, &mut viewer, ui);
+            let graph_rect = ui.available_rect_before_wrap();
+            zoom_controls_rect = graph_rect;
+            let style = snarl_style(ui);
+            let zoom = ZOOM_STEPS[self.zoom_index];
+            let mut viewer = TableGraphViewer { zoom };
+            SnarlWidget::new()
+                .id(egui::Id::new((
+                    "schema_graph",
+                    self.database_name.as_str(),
+                    self.schema_name.as_str(),
+                )))
+                .style(style)
+                .min_size(graph_rect.size())
+                .show(&mut self.snarl, &mut viewer, ui);
+        });
+
+        show_zoom_controls(
+            ui,
+            zoom_controls_rect,
+            &self.database_name,
+            &self.schema_name,
+            &mut self.zoom_index,
+        );
     }
 }
 
-struct TableGraphViewer;
+struct TableGraphViewer {
+    zoom: f32,
+}
 
 impl SnarlViewer<TableGraphNode> for TableGraphViewer {
     fn title(&mut self, node: &TableGraphNode) -> String {
@@ -355,7 +378,9 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         snarl: &mut Snarl<TableGraphNode>,
     ) -> PinInfo {
         let column = snarl[pin.id.node].input_column(pin.id.input).unwrap_or("");
-        ui.label(egui::RichText::new(column).monospace().small());
+        ui.push_id(("graph_input", pin.id.node, pin.id.input), |ui| {
+            ui.label(egui::RichText::new(column).monospace().small());
+        });
         PinInfo::circle()
             .with_fill(egui::Color32::from_rgb(75, 168, 120))
             .with_wire_color(egui::Color32::from_rgb(75, 168, 120))
@@ -376,8 +401,10 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         let column = snarl[pin.id.node]
             .output_column(pin.id.output)
             .unwrap_or("");
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(egui::RichText::new(column).monospace().small());
+        ui.push_id(("graph_output", pin.id.node, pin.id.output), |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new(column).monospace().small());
+            });
         });
         PinInfo::circle()
             .with_fill(egui::Color32::from_rgb(245, 159, 52))
@@ -398,8 +425,8 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         snarl: &mut Snarl<TableGraphNode>,
     ) {
         let node = &snarl[node];
-        ui.set_min_width(TABLE_NODE_WIDTH);
-        ui.vertical(|ui| {
+        ui.push_id(("graph_body", &node.table.schema, &node.table.name), |ui| {
+            ui.set_min_width(TABLE_NODE_WIDTH);
             if let Some(comment) = &node.table.comment {
                 ui.label(egui::RichText::new(comment).small().italics().weak());
                 ui.separator();
@@ -430,9 +457,11 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         ui: &mut egui::Ui,
         snarl: &mut Snarl<TableGraphNode>,
     ) {
-        ui.horizontal(|ui| {
-            ui.label(egui_phosphor::regular::TABLE);
-            ui.strong(&snarl[node].table.name);
+        ui.push_id(("graph_header", node), |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui_phosphor::regular::TABLE);
+                ui.strong(&snarl[node].table.name);
+            });
         });
     }
 
@@ -443,46 +472,115 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
     fn drop_outputs(&mut self, _pin: &OutPin, _snarl: &mut Snarl<TableGraphNode>) {}
 
     fn drop_inputs(&mut self, _pin: &InPin, _snarl: &mut Snarl<TableGraphNode>) {}
+
+    fn current_transform(
+        &mut self,
+        to_global: &mut TSTransform,
+        _snarl: &mut Snarl<TableGraphNode>,
+    ) {
+        to_global.scaling = self.zoom;
+    }
+}
+
+fn show_zoom_controls(
+    ui: &mut egui::Ui,
+    graph_rect: egui::Rect,
+    database: &str,
+    schema: &str,
+    zoom_index: &mut usize,
+) {
+    let pos = egui::pos2(graph_rect.right() - 184.0, graph_rect.top() + 10.0);
+    egui::Area::new(egui::Id::new((
+        "schema_graph_zoom_controls",
+        database,
+        schema,
+    )))
+    .order(egui::Order::Foreground)
+    .fixed_pos(pos)
+    .show(ui.ctx(), |ui| {
+        ui.push_id(("schema_graph_zoom_buttons", database, schema), |ui| {
+            egui::Frame::new()
+                .fill(ui.visuals().window_fill().gamma_multiply(0.92))
+                .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                .corner_radius(egui::CornerRadius::same(6))
+                .inner_margin(egui::Margin::symmetric(6, 4))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .small_button(egui_phosphor::regular::MINUS)
+                            .on_hover_text("Zoom out")
+                            .clicked()
+                        {
+                            *zoom_index = zoom_index.saturating_sub(1);
+                        }
+                        ui.label(
+                            egui::RichText::new(format!("{:.0}%", ZOOM_STEPS[*zoom_index] * 100.0))
+                                .monospace()
+                                .small(),
+                        );
+                        if ui
+                            .small_button(egui_phosphor::regular::PLUS)
+                            .on_hover_text("Zoom in")
+                            .clicked()
+                        {
+                            *zoom_index = (*zoom_index + 1).min(ZOOM_STEPS.len() - 1);
+                        }
+                        if ui
+                            .small_button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                            .on_hover_text("Reset zoom")
+                            .clicked()
+                        {
+                            *zoom_index = DEFAULT_ZOOM_INDEX;
+                        }
+                    });
+                });
+        });
+    });
 }
 
 fn show_column_row(ui: &mut egui::Ui, table: &TableDetail, column: &ColumnDetail) {
-    ui.horizontal(|ui| {
-        ui.set_min_width(TABLE_NODE_WIDTH - 24.0);
-        if is_primary_key(&table.primary_key, &column.name) {
-            ui.label(
-                egui::RichText::new(egui_phosphor::regular::KEY)
-                    .color(egui::Color32::from_rgb(245, 159, 52)),
-            );
-        } else {
-            ui.add_space(14.0);
-        }
+    ui.push_id(
+        ("graph_column", &table.schema, &table.name, &column.name),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.set_min_width(TABLE_NODE_WIDTH - 24.0);
+                if is_primary_key(&table.primary_key, &column.name) {
+                    ui.label(
+                        egui::RichText::new(egui_phosphor::regular::KEY)
+                            .color(egui::Color32::from_rgb(245, 159, 52)),
+                    );
+                } else {
+                    ui.add_space(14.0);
+                }
 
-        if is_foreign_key(&table.foreign_keys, &column.name) {
-            ui.label(
-                egui::RichText::new(egui_phosphor::regular::LINK)
-                    .color(egui::Color32::from_rgb(75, 168, 120)),
-            );
-        } else {
-            ui.add_space(14.0);
-        }
+                if is_foreign_key(&table.foreign_keys, &column.name) {
+                    ui.label(
+                        egui::RichText::new(egui_phosphor::regular::LINK)
+                            .color(egui::Color32::from_rgb(75, 168, 120)),
+                    );
+                } else {
+                    ui.add_space(14.0);
+                }
 
-        ui.label(
-            egui::RichText::new(&column.name)
-                .monospace()
-                .small()
-                .strong(),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let mut details = column.data_type.clone();
-            if !column.nullable {
-                details.push_str(" not null");
-            }
-            if column.default.is_some() {
-                details.push_str(" default");
-            }
-            ui.label(egui::RichText::new(details).small().weak());
-        });
-    });
+                ui.label(
+                    egui::RichText::new(&column.name)
+                        .monospace()
+                        .small()
+                        .strong(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let mut details = column.data_type.clone();
+                    if !column.nullable {
+                        details.push_str(" not null");
+                    }
+                    if column.default.is_some() {
+                        details.push_str(" default");
+                    }
+                    ui.label(egui::RichText::new(details).small().weak());
+                });
+            });
+        },
+    );
 }
 
 fn snarl_style(ui: &egui::Ui) -> SnarlStyle {

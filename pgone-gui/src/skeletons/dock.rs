@@ -24,6 +24,11 @@ pub enum DockTab {
         id: u64,
         title: String,
     },
+    #[serde(skip)]
+    GraphViewer {
+        id: u64,
+        title: String,
+    },
     Chat,
 }
 
@@ -41,12 +46,18 @@ impl DockTab {
             Self::DdlViewer { title, .. } => {
                 format!("{} {}", egui_phosphor::regular::CODE, title)
             }
+            Self::GraphViewer { title, .. } => {
+                format!("{} {}", egui_phosphor::regular::GRAPH, title)
+            }
             Self::Chat => format!("{} Agent", egui_phosphor::regular::SPARKLE),
         }
     }
 
     fn is_temporary_viewer(&self) -> bool {
-        matches!(self, Self::JsonViewer { .. } | Self::DdlViewer { .. })
+        matches!(
+            self,
+            Self::JsonViewer { .. } | Self::DdlViewer { .. } | Self::GraphViewer { .. }
+        )
     }
 }
 
@@ -72,9 +83,7 @@ impl DockLayout {
     }
 
     pub fn sanitized_state(&self) -> DockState<DockTab> {
-        let mut state = self
-            .state
-            .filter_tabs(|tab| !tab.is_temporary_viewer());
+        let mut state = self.state.filter_tabs(|tab| !tab.is_temporary_viewer());
         for surface in state.iter_surfaces_mut() {
             let Some(tree) = surface.node_tree_mut() else {
                 continue;
@@ -144,9 +153,16 @@ impl DockLayout {
                 title: tab.title,
             });
         }
+        for tab in results_table.take_pending_graph_viewer_tabs() {
+            self.push_results_viewer_tab(DockTab::GraphViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
 
         self.retain_live_json_viewer_tabs(results_table);
         self.retain_live_ddl_viewer_tabs(results_table);
+        self.retain_live_graph_viewer_tabs(results_table);
     }
 
     fn retain_live_json_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
@@ -167,10 +183,38 @@ impl DockLayout {
     }
 
     fn push_json_viewer_tab(&mut self, tab: DockTab) {
+        self.push_results_viewer_tab(tab);
+    }
+
+    fn push_results_viewer_tab(&mut self, tab: DockTab) {
         if let Some(results_path) = self.state.find_tab(&DockTab::Results) {
             if let Ok(leaf) = self.state.leaf_mut(results_path.node_path()) {
-                leaf.append_tab(tab);
-                let active = leaf.tabs.len().saturating_sub(1);
+                let active = if let Some(index) = leaf.tabs.iter().position(|existing| {
+                    matches!(
+                        (&tab, existing),
+                        (
+                            DockTab::JsonViewer { id: new_id, .. },
+                            DockTab::JsonViewer {
+                                id: existing_id,
+                                ..
+                            }
+                        ) if new_id == existing_id
+                    ) || matches!(
+                        (&tab, existing),
+                        (
+                            DockTab::GraphViewer { id: new_id, .. },
+                            DockTab::GraphViewer {
+                                id: existing_id,
+                                ..
+                            }
+                        ) if new_id == existing_id
+                    )
+                }) {
+                    index
+                } else {
+                    leaf.append_tab(tab);
+                    leaf.tabs.len().saturating_sub(1)
+                };
                 let _ = leaf.set_active_tab(active);
                 self.state
                     .set_focused_node_and_surface(results_path.node_path());
@@ -204,12 +248,30 @@ impl DockLayout {
                 leaf.append_tab(tab);
                 let active = leaf.tabs.len().saturating_sub(1);
                 let _ = leaf.set_active_tab(active);
-                self.state.set_focused_node_and_surface(sql_path.node_path());
+                self.state
+                    .set_focused_node_and_surface(sql_path.node_path());
                 return;
             }
         }
 
         self.state.push_to_focused_leaf(tab);
+    }
+
+    fn retain_live_graph_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
+        self.state.retain_tabs(|tab| match tab {
+            DockTab::GraphViewer { id, .. } => results_table.graph_viewer_tab(*id).is_some(),
+            _ => true,
+        });
+
+        let keep_ids = self
+            .state
+            .iter_all_tabs()
+            .filter_map(|(_, tab)| match tab {
+                DockTab::GraphViewer { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        results_table.retain_graph_viewer_tabs(&keep_ids);
     }
 
     fn default_state() -> DockState<DockTab> {
@@ -275,9 +337,11 @@ mod tests {
         let sql_path = layout.state.find_tab(&DockTab::SqlEditor).unwrap();
         let leaf = layout.state.leaf(sql_path.node_path()).unwrap();
 
-        assert!(leaf.tabs.iter().any(
-            |tab| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
-        ));
+        assert!(
+            leaf.tabs
+                .iter()
+                .any(|tab| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id))
+        );
         assert!(
             matches!(&leaf[leaf.active], DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
         );
@@ -297,9 +361,11 @@ mod tests {
 
         let sanitized = layout.sanitized_state();
 
-        assert!(!sanitized.iter_all_tabs().any(
-            |(_, tab)| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
-        ));
+        assert!(
+            !sanitized.iter_all_tabs().any(
+                |(_, tab)| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
+            )
+        );
     }
 
     #[test]
@@ -317,8 +383,87 @@ mod tests {
         layout.retain_live_ddl_viewer_tabs(&mut results_table);
 
         assert!(results_table.ddl_viewer_tab(id).is_some());
+        assert!(
+            layout.state.iter_all_tabs().any(
+                |(_, tab)| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
+            )
+        );
+    }
+
+    #[test]
+    fn pending_graph_viewer_tab_opens_in_results_leaf() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_graph_viewer(
+            "analytics",
+            "public",
+            "postgresql://localhost/analytics",
+        );
+
+        for tab in results_table.take_pending_graph_viewer_tabs() {
+            layout.push_results_viewer_tab(DockTab::GraphViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+
+        let results_path = layout.state.find_tab(&DockTab::Results).unwrap();
+        let leaf = layout.state.leaf(results_path.node_path()).unwrap();
+
+        assert!(
+            leaf.tabs
+                .iter()
+                .any(|tab| matches!(tab, DockTab::GraphViewer { id: tab_id, .. } if *tab_id == id))
+        );
+        assert!(
+            matches!(&leaf[leaf.active], DockTab::GraphViewer { id: tab_id, .. } if *tab_id == id)
+        );
+    }
+
+    #[test]
+    fn graph_viewer_tab_survives_live_tab_retention() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_graph_viewer(
+            "analytics",
+            "public",
+            "postgresql://localhost/analytics",
+        );
+
+        for tab in results_table.take_pending_graph_viewer_tabs() {
+            layout.push_results_viewer_tab(DockTab::GraphViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+        layout.retain_live_graph_viewer_tabs(&mut results_table);
+
+        assert!(results_table.graph_viewer_tab(id).is_some());
         assert!(layout.state.iter_all_tabs().any(
-            |(_, tab)| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
+            |(_, tab)| matches!(tab, DockTab::GraphViewer { id: tab_id, .. } if *tab_id == id)
+        ));
+    }
+
+    #[test]
+    fn sanitized_state_removes_graph_viewer_tabs() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_graph_viewer(
+            "analytics",
+            "public",
+            "postgresql://localhost/analytics",
+        );
+        for tab in results_table.take_pending_graph_viewer_tabs() {
+            layout.push_results_viewer_tab(DockTab::GraphViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+
+        let sanitized = layout.sanitized_state();
+
+        assert!(!sanitized.iter_all_tabs().any(
+            |(_, tab)| matches!(tab, DockTab::GraphViewer { id: tab_id, .. } if *tab_id == id)
         ));
     }
 }
@@ -377,6 +522,11 @@ impl DockTabViewer<'_> {
         self.results_table.ui_ddl_viewer(ui, id);
     }
 
+    fn show_graph_viewer(&mut self, ui: &mut Ui, id: u64) {
+        let pools = self.db.pools.clone();
+        self.results_table.ui_graph_viewer(ui, id, pools);
+    }
+
     fn show_chat(&mut self, ui: &mut Ui) {
         let settings = self.state.settings.clone();
         let active_db_label = self
@@ -416,6 +566,7 @@ impl TabViewer for DockTabViewer<'_> {
             DockTab::Results => self.show_results(ui),
             DockTab::JsonViewer { id, .. } => self.show_json_viewer(ui, *id),
             DockTab::DdlViewer { id, .. } => self.show_ddl_viewer(ui, *id),
+            DockTab::GraphViewer { id, .. } => self.show_graph_viewer(ui, *id),
             DockTab::Chat => self.show_chat(ui),
         }
     }
@@ -433,7 +584,8 @@ impl TabViewer for DockTabViewer<'_> {
             DockTab::SqlEditor
             | DockTab::Results
             | DockTab::JsonViewer { .. }
-            | DockTab::DdlViewer { .. } => [false, false],
+            | DockTab::DdlViewer { .. }
+            | DockTab::GraphViewer { .. } => [false, false],
             DockTab::DatabaseStructure | DockTab::Chat => [true, true],
         }
     }

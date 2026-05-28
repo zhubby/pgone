@@ -1,4 +1,4 @@
-use crate::components::{DbManager, SchemaGraph, SettingsPanel};
+use crate::components::SettingsPanel;
 use crate::models::PersistedState;
 use eframe::egui::{Align2, Context, Id, Window};
 
@@ -84,50 +84,6 @@ pub fn show_about_window(ctx: &Context, show_about: &mut bool) {
         });
     if !open {
         *show_about = false;
-    }
-}
-
-pub fn show_graph_window(
-    ctx: &Context,
-    show_graph: &mut bool,
-    schema_info: Option<(String, String)>, // (database, schema)
-    db_manager: &mut DbManager,
-    graph: &mut SchemaGraph,
-) {
-    if !*show_graph {
-        return;
-    }
-
-    let mut open = true;
-    let title = if let Some((_database, _schema)) = &schema_info {
-        format!("Schema Graph: {}.{}", _database, _schema)
-    } else {
-        "Schema Graph".to_string()
-    };
-
-    // Get DSN before opening window to avoid borrow checker issues
-    let dsn = schema_info
-        .as_ref()
-        .and_then(|(database, _schema)| db_manager.dsn_for_database(database));
-    let pools = db_manager.pools.clone();
-
-    Window::new(title)
-        .id(Id::new("schema_graph_window"))
-        .open(&mut open)
-        .default_pos(screen_center(ctx))
-        .pivot(Align2::CENTER_CENTER)
-        .default_size([900.0, 640.0])
-        .min_size([720.0, 480.0])
-        .show(ctx, |ui| {
-            if schema_info.is_some() {
-                graph.ui(ui, pools.clone(), dsn.as_deref());
-            } else {
-                ui.label("Please select a schema");
-            }
-        });
-
-    if !open {
-        *show_graph = false;
     }
 }
 
