@@ -1226,6 +1226,7 @@ fn show_blank_area_context_menu(
 }
 
 fn menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
+    separate_menu_item(ui);
     ui.button(format!("{} {}", icon, label))
 }
 
@@ -1234,7 +1235,14 @@ fn refresh_menu_button(ui: &mut egui::Ui) -> egui::Response {
 }
 
 fn danger_menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
+    separate_menu_item(ui);
     ui.button(egui::RichText::new(format!("{} {}", icon, label)).color(ui.visuals().error_fg_color))
+}
+
+fn separate_menu_item(ui: &mut egui::Ui) {
+    if ui.cursor().top() > ui.min_rect().top() {
+        ui.separator();
+    }
 }
 
 fn empty_placeholder(ui: &mut egui::Ui, label: &str) {
