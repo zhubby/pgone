@@ -1,9 +1,11 @@
 use crate::components::DbManager;
 use crate::skeletons::monitors::MonitorMetric;
 use eframe::egui::{Panel, Ui};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 pub fn show_menu_bar(
     root_ui: &mut Ui,
+    frame: &eframe::Frame,
     db: &mut DbManager,
     reset_dock_layout: &mut bool,
     show_settings: &mut bool,
@@ -145,10 +147,49 @@ pub fn show_menu_bar(
                     .on_hover_text("Minimize")
                     .clicked()
                 {
-                    ui.ctx()
-                        .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    minimize_window(ui, frame);
                 }
             });
         });
     });
+}
+
+fn minimize_window(ui: &Ui, frame: &eframe::Frame) {
+    if !minimize_window_with_platform_api(frame) {
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn minimize_window_with_platform_api(frame: &eframe::Frame) -> bool {
+    use objc2_app_kit::NSView;
+
+    let Ok(window_handle) = frame.window_handle() else {
+        return false;
+    };
+
+    let RawWindowHandle::AppKit(appkit_handle) = window_handle.as_raw() else {
+        return false;
+    };
+
+    let ns_view_ptr = appkit_handle.ns_view.as_ptr().cast::<NSView>();
+    if ns_view_ptr.is_null() {
+        return false;
+    }
+
+    let Some(ns_view) = (unsafe { ns_view_ptr.as_ref() }) else {
+        return false;
+    };
+    let Some(ns_window) = ns_view.window() else {
+        return false;
+    };
+
+    ns_window.miniaturize(None);
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+fn minimize_window_with_platform_api(_: &eframe::Frame) -> bool {
+    false
 }

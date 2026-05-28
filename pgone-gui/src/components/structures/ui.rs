@@ -579,20 +579,6 @@ impl DbTree {
                                                 self.pending_open_sql_editor = true;
                                                 ui.close();
                                             }
-                                            if menu_button(ui, egui_phosphor::regular::TABLE, "New Table")
-                                                .clicked()
-                                            {
-                                                use super::types::DialogType;
-                                                self.dialog = Some(DialogType::CreateTable {
-                                                    database: db_name_menu.clone(),
-                                                    schema: schema_name_menu.clone(),
-                                                });
-                                                self.dialog_ddl = format!(
-                                                    "CREATE TABLE {}.{} (\n    id SERIAL PRIMARY KEY\n);",
-                                                    schema_name_menu, "new_table"
-                                                );
-                                                ui.close();
-                                            }
                                             if menu_button(ui, egui_phosphor::regular::CODE, "Show DDL")
                                                 .clicked()
                                             {

@@ -8,6 +8,10 @@ use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Default)]
 pub struct ExportWindow {
@@ -34,6 +38,7 @@ pub struct ExportWindow {
 
     // Export state
     export_promise: Option<Promise<Result<(), String>>>,
+    export_cancel: Option<Arc<AtomicBool>>,
     export_progress: f32, // 0.0 - 1.0
     export_status: String,
     is_exporting: bool,
@@ -280,8 +285,9 @@ impl ExportWindow {
                     if !self.is_exporting {
                         // If not exporting, reset all state
                         *self = ExportWindow::default();
+                    } else {
+                        self.cancel_export();
                     }
-                    // If exporting, cancel button behavior can be handled here (currently just closes window)
                 }
             });
         });
@@ -434,6 +440,9 @@ impl ExportWindow {
         self.export_status = "Preparing to export...".to_string();
 
         let (sender, promise) = Promise::new();
+        let cancel_token = Arc::new(AtomicBool::new(false));
+        let worker_cancel_token = Arc::clone(&cancel_token);
+        self.export_cancel = Some(cancel_token);
         self.export_promise = Some(promise);
 
         futures::spawn(async move {
@@ -463,6 +472,9 @@ impl ExportWindow {
                 let total_tables = tables_clone.len();
 
                 for (table_idx, table_name) in tables_clone.iter().enumerate() {
+                    if worker_cancel_token.load(Ordering::Relaxed) {
+                        return Err("Export canceled".to_string());
+                    }
                     // Update progress (note: cannot directly update UI here, need to check promise in UI thread)
                     let _progress = (table_idx as f32) / (total_tables as f32);
 
@@ -519,6 +531,9 @@ impl ExportWindow {
                         let mut column_names = Vec::new();
 
                         while has_more {
+                            if worker_cancel_token.load(Ordering::Relaxed) {
+                                return Err("Export canceled".to_string());
+                            }
                             // Build query SQL
                             let query = format!(
                                 "SELECT * FROM {}.{} LIMIT {} OFFSET {}",
@@ -616,11 +631,13 @@ impl ExportWindow {
                         self.export_progress = 1.0;
                         self.export_status = "Export completed!".to_string();
                         self.export_promise = None;
+                        self.export_cancel = None;
                     }
                     Err(e) => {
                         self.is_exporting = false;
                         self.export_status = format!("Export failed: {}", e);
                         self.export_promise = None;
+                        self.export_cancel = None;
                     }
                 }
             } else {
@@ -634,5 +651,16 @@ impl ExportWindow {
 
     pub fn is_exporting(&self) -> bool {
         self.is_exporting
+    }
+
+    pub fn cancel_export(&mut self) {
+        if let Some(cancel_token) = &self.export_cancel {
+            cancel_token.store(true, Ordering::Relaxed);
+        }
+        self.is_exporting = false;
+        self.export_progress = 0.0;
+        self.export_status = "Export canceled.".to_string();
+        self.export_promise = None;
+        self.export_cancel = None;
     }
 }

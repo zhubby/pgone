@@ -554,6 +554,7 @@ impl DbManager {
         }
         if let Some(target) = to_switch {
             let mut open = true;
+            let mut should_close = false;
             let center = ui.ctx().content_rect().center();
             egui::Window::new("Switch Database Config")
                 .id(egui::Id::new("switch_database_config_window"))
@@ -567,10 +568,16 @@ impl DbManager {
                     ui.horizontal(|ui| {
                         if ui.button("Confirm").clicked() {
                             self.active_db_config_id = Some(target.clone());
+                            should_close = true;
                         }
-                        if ui.button("Cancel").clicked() {}
+                        if ui.button("Cancel").clicked() {
+                            should_close = true;
+                        }
                     });
                 });
+            if should_close || !open {
+                return;
+            }
         }
     }
 

@@ -154,7 +154,7 @@ pub(super) fn show_dialogs(
                             should_create = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -166,7 +166,7 @@ pub(super) fn show_dialogs(
                             should_create = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -181,7 +181,7 @@ pub(super) fn show_dialogs(
                             should_create = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -196,7 +196,7 @@ pub(super) fn show_dialogs(
                             should_create = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -211,7 +211,7 @@ pub(super) fn show_dialogs(
                             should_create = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -226,7 +226,7 @@ pub(super) fn show_dialogs(
                             should_create = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -241,7 +241,7 @@ pub(super) fn show_dialogs(
                             should_delete = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -256,7 +256,7 @@ pub(super) fn show_dialogs(
                             should_delete = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -275,7 +275,7 @@ pub(super) fn show_dialogs(
                             should_delete = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -287,7 +287,7 @@ pub(super) fn show_dialogs(
                             should_rename = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -302,7 +302,7 @@ pub(super) fn show_dialogs(
                             should_rename = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -318,7 +318,7 @@ pub(super) fn show_dialogs(
                             should_rename = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }
@@ -336,7 +336,7 @@ pub(super) fn show_dialogs(
                         }
                     }
                     if ui.button("Close").clicked() {
-                        // Will be handled by open = false
+                        should_close = true;
                     }
                 }
                 DialogType::PropertiesSchema { database, name } => {
@@ -351,7 +351,7 @@ pub(super) fn show_dialogs(
                         }
                     }
                     if ui.button("Close").clicked() {
-                        // Will be handled by open = false
+                        should_close = true;
                     }
                 }
                 DialogType::PropertiesTable {
@@ -378,7 +378,7 @@ pub(super) fn show_dialogs(
                         }
                     }
                     if ui.button("Close").clicked() {
-                        // Will be handled by open = false
+                        should_close = true;
                     }
                 }
                 DialogType::PropertiesView {
@@ -406,7 +406,7 @@ pub(super) fn show_dialogs(
                         }
                     }
                     if ui.button("Close").clicked() {
-                        // Will be handled by open = false
+                        should_close = true;
                     }
                 }
                 DialogType::PropertiesMaterializedView {
@@ -435,7 +435,7 @@ pub(super) fn show_dialogs(
                         }
                     }
                     if ui.button("Close").clicked() {
-                        // Will be handled by open = false
+                        should_close = true;
                     }
                 }
                 DialogType::PropertiesFunction {
@@ -469,7 +469,7 @@ pub(super) fn show_dialogs(
                         }
                     }
                     if ui.button("Close").clicked() {
-                        // Will be handled by open = false
+                        should_close = true;
                     }
                 }
                 DialogType::DesignTable {
@@ -569,7 +569,7 @@ pub(super) fn show_dialogs(
                         ui.separator();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("Cancel").clicked() {
-                                // Will be handled by open = false outside
+                                should_close = true;
                             }
                             ui.add_space(8.0);
                             if ui.button("Save").clicked() {
@@ -872,6 +872,11 @@ pub(super) fn show_dialogs(
                     | DialogType::DesignTable { .. }
                     | DialogType::ShowDdl { .. } => {}
                 }
+            } else if should_close && matches!(dialog_type, DialogType::DesignTable { .. }) {
+                tree.design_table_detail = None;
+                tree.design_table_columns.clear();
+                tree.design_table_loaded = None;
+                tree.design_table_promise = None;
             }
         }
     }

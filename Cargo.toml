@@ -102,6 +102,7 @@ image = { version = "0.25", default-features = false }
 webbrowser = "1"
 rfd = "0.15"
 open = "5"
+raw-window-handle = "0.6.2"
 hex = "0.4"
 csv = "1"
 urlencoding = "2"

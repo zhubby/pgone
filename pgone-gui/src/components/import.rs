@@ -5,6 +5,10 @@ use poll_promise::Promise;
 use sqlx::Row;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Clone)]
 pub struct ImportResult {
@@ -31,6 +35,7 @@ pub struct ImportWindow {
 
     // Import state
     import_promise: Option<Promise<Result<Vec<ImportResult>, String>>>,
+    import_cancel: Option<Arc<AtomicBool>>,
     import_progress: f32, // 0.0 - 1.0
     import_status: String,
     is_importing: bool,
@@ -263,6 +268,8 @@ impl ImportWindow {
                     if !self.is_importing {
                         // If not importing, reset all state
                         *self = ImportWindow::default();
+                    } else {
+                        self.cancel_import();
                     }
                 }
             });
@@ -533,6 +540,9 @@ impl ImportWindow {
         self.results.clear();
 
         let (sender, promise) = Promise::new();
+        let cancel_token = Arc::new(AtomicBool::new(false));
+        let worker_cancel_token = Arc::clone(&cancel_token);
+        self.import_cancel = Some(cancel_token);
         self.import_promise = Some(promise);
 
         futures::spawn(async move {
@@ -543,6 +553,9 @@ impl ImportWindow {
 
                 // Execute DDL statements first
                 for (idx, sql) in ddl_statements.iter().enumerate() {
+                    if worker_cancel_token.load(Ordering::Relaxed) {
+                        return Err("Import canceled".to_string());
+                    }
                     let _progress_msg = format!("Executing DDL ({}/{})...", idx + 1, ddl_statements.len());
 
                     // Check if it is a CREATE TABLE statement; if so, check if table already exists
@@ -610,6 +623,9 @@ impl ImportWindow {
 
                 // Then execute DML statements
                 for (idx, sql) in dml_statements.iter().enumerate() {
+                    if worker_cancel_token.load(Ordering::Relaxed) {
+                        return Err("Import canceled".to_string());
+                    }
                     let _progress_msg = format!("Executing DML ({}/{})...", idx + 1, dml_statements.len());
 
                     match sqlx::query(sql).execute(&pool).await {
@@ -652,12 +668,14 @@ impl ImportWindow {
                         self.import_status =
                             format!("Import completed! Success: {}, Failed: {}", success_count, fail_count);
                         self.import_promise = None;
+                        self.import_cancel = None;
                         self.show_results = true;
                     }
                     Err(e) => {
                         self.is_importing = false;
                         self.import_status = format!("Import failed: {}", e);
                         self.import_promise = None;
+                        self.import_cancel = None;
                     }
                 }
             } else {
@@ -671,6 +689,17 @@ impl ImportWindow {
 
     pub fn is_importing(&self) -> bool {
         self.is_importing
+    }
+
+    pub fn cancel_import(&mut self) {
+        if let Some(cancel_token) = &self.import_cancel {
+            cancel_token.store(true, Ordering::Relaxed);
+        }
+        self.is_importing = false;
+        self.import_progress = 0.0;
+        self.import_status = "Import canceled.".to_string();
+        self.import_promise = None;
+        self.import_cancel = None;
     }
 }
 

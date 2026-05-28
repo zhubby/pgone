@@ -46,6 +46,7 @@ image = { workspace = true, features = ["png"] }
 webbrowser = { workspace = true }
 rfd = { workspace = true }
 open = { workspace = true }
+raw-window-handle = { workspace = true }
 sqlparser = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true }
@@ -76,6 +77,9 @@ pgone-agent = { workspace = true }
 pgone-storage = { workspace = true }
 pgone-mcp = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-async-rw"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", features = ["NSView", "NSWindow"], default-features = false }
 
 [build-dependencies]
 vergen-gitcl = { workspace = true, features = ["build"] }

@@ -301,11 +301,12 @@ impl AppFrame {
             });
 
         if !open {
-            self.show_export = false;
-            // If export completed, reset window state
-            if !self.export_window.is_exporting() {
+            if self.export_window.is_exporting() {
+                self.export_window.cancel_export();
+            } else {
                 self.export_window = ExportWindow::default();
             }
+            self.show_export = false;
         }
     }
 
@@ -327,11 +328,12 @@ impl AppFrame {
             });
 
         if !open {
-            self.show_import = false;
-            // If import completed, reset window state
-            if !self.import_window.is_importing() {
+            if self.import_window.is_importing() {
+                self.import_window.cancel_import();
+            } else {
                 self.import_window = ImportWindow::default();
             }
+            self.show_import = false;
         }
     }
 
@@ -348,7 +350,7 @@ impl AppFrame {
 }
 
 impl eframe::App for AppFrame {
-    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let mut reset_dock_layout = false;
         self.apply_pending_theme_preference(ui, &ctx);
@@ -357,6 +359,7 @@ impl eframe::App for AppFrame {
         // Menu bar
         skeletons::menu_bar::show_menu_bar(
             ui,
+            frame,
             &mut self.db,
             &mut reset_dock_layout,
             &mut self.show_settings,
