@@ -88,7 +88,7 @@ impl ResultsTable {
         let Some((dsn, sql)) = self.query_request(ctxs, sql.to_string()) else {
             return;
         };
-        self.start_query(ctxs.db.pools.clone(), dsn, sql);
+        self.start_query(ctxs.db.pools.clone(), dsn, sql, 1);
     }
 
     /// Render query results table
@@ -98,7 +98,7 @@ impl ResultsTable {
         &mut self,
         ui: &mut egui::Ui,
         sql: Option<&str>,
-        ctxs: Option<&mut SqlCtx>,
+        mut ctxs: Option<&mut SqlCtx>,
         show_refresh: bool,
     ) {
         self.poll_query_promise();
@@ -131,10 +131,12 @@ impl ResultsTable {
 
         // Execute SQL (only when run button or refresh button is clicked, not auto-executed)
         if (should_refresh || should_execute_requested) && sql.is_some() {
-            if let Some(ctxs) = ctxs {
+            if let Some(ctxs) = ctxs.as_deref_mut() {
                 self.execute_sql(sql.unwrap(), ctxs);
             }
         }
+
+        let mut requested_page = None;
 
         // Top toolbar: SQL preview, refresh button, CSV export button
         ui.horizontal(|ui| {
@@ -166,39 +168,6 @@ impl ResultsTable {
                     }
                     ui.add_space(8.0);
                 }
-
-                if let Some(ref explain_info) = self.explain_info {
-                    // Show EXPLAIN information: type | cost | rows
-                    let info_text = format!(
-                        "{} {} | Cost: {} | Rows: {}",
-                        egui_phosphor::regular::INFO,
-                        explain_info.scan_type,
-                        explain_info.cost,
-                        explain_info.rows
-                    );
-                    ui.label(
-                        egui::RichText::new(info_text)
-                            .color(egui::Color32::from_rgb(100, 150, 200)),
-                    );
-                } else if let Some(ref error) = self.explain_error {
-                    // Show EXPLAIN error
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} {}",
-                            egui_phosphor::regular::WARNING,
-                            error
-                        ))
-                        .color(egui::Color32::from_rgb(200, 100, 100))
-                        .small(),
-                    );
-                } else {
-                    // Show placeholder when no EXPLAIN information is available
-                    ui.label(
-                        egui::RichText::new(format!("{} No plan", egui_phosphor::regular::INFO))
-                            .color(egui::Color32::GRAY)
-                            .small(),
-                    );
-                }
             });
         });
         ui.separator();
@@ -223,6 +192,8 @@ impl ResultsTable {
             ui.centered_and_justified(|ui| {
                 ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
             });
+            ui.separator();
+            self.show_results_status_bar(ui, &mut requested_page);
             return;
         }
 
@@ -310,6 +281,96 @@ impl ResultsTable {
         for (row_index, column, value) in json_viewer_requests {
             self.open_json_viewer(row_index, &column, value);
         }
+
+        ui.separator();
+        self.show_results_status_bar(ui, &mut requested_page);
+        if let (Some(page), Some(ctxs)) = (requested_page, ctxs.as_deref_mut()) {
+            self.start_page_query(ctxs, page);
+        }
+    }
+
+    fn show_results_status_bar(&self, ui: &mut egui::Ui, requested_page: &mut Option<usize>) {
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), 28.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                self.show_plan_status(ui);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.show_pagination_controls(ui, requested_page);
+                });
+            },
+        );
+    }
+
+    fn show_plan_status(&self, ui: &mut egui::Ui) {
+        if let Some(ref explain_info) = self.explain_info {
+            let info_text = format!(
+                "{} {} | Cost: {} | Rows: {}",
+                egui_phosphor::regular::INFO,
+                explain_info.scan_type,
+                explain_info.cost,
+                explain_info.rows
+            );
+            ui.label(egui::RichText::new(info_text).color(egui::Color32::from_rgb(100, 150, 200)));
+        } else if let Some(ref error) = self.explain_error {
+            ui.label(
+                egui::RichText::new(format!("{} {}", egui_phosphor::regular::WARNING, error))
+                    .color(egui::Color32::from_rgb(200, 100, 100))
+                    .small(),
+            );
+        } else {
+            ui.label(
+                egui::RichText::new(format!("{} No plan", egui_phosphor::regular::INFO))
+                    .color(egui::Color32::GRAY)
+                    .small(),
+            );
+        }
+    }
+
+    fn show_pagination_controls(&self, ui: &mut egui::Ui, requested_page: &mut Option<usize>) {
+        let total_pages = self.total_rows.map(|total_rows| {
+            total_rows
+                .div_ceil(self.page_size.max(1))
+                .max(usize::from(total_rows == 0))
+        });
+        let previous_enabled = self.pagination_enabled && self.current_page > 1;
+        let next_enabled = self.pagination_enabled
+            && total_pages
+                .map(|total_pages| self.current_page < total_pages)
+                .unwrap_or(self.has_next_page);
+
+        if ui
+            .add_enabled(
+                next_enabled,
+                egui::Button::new(egui_phosphor::regular::CARET_RIGHT),
+            )
+            .on_hover_text("Next page")
+            .clicked()
+        {
+            *requested_page = Some(self.current_page.saturating_add(1));
+        }
+
+        let page_label = total_pages
+            .map(|total_pages| format!("Page {} / {}", self.current_page, total_pages))
+            .unwrap_or_else(|| format!("Page {}", self.current_page));
+        ui.label(egui::RichText::new(page_label).small());
+
+        if ui
+            .add_enabled(
+                previous_enabled,
+                egui::Button::new(egui_phosphor::regular::CARET_LEFT),
+            )
+            .on_hover_text("Previous page")
+            .clicked()
+        {
+            *requested_page = Some(self.current_page.saturating_sub(1).max(1));
+        }
+
+        ui.label(
+            egui::RichText::new(format!("{} rows/page", self.page_size))
+                .small()
+                .color(ui.visuals().weak_text_color()),
+        );
     }
 
     /// Export query results to CSV file

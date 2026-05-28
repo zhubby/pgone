@@ -8,13 +8,19 @@ use sqlx::postgres::{PgPool, PgRow};
 use sqlx::{Column, Row};
 use std::collections::HashSet;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct PaginatedSql {
+    pub query_sql: String,
+    pub count_sql: String,
+}
+
 impl ResultsTable {
     /// Execute SQL query.
     pub fn run_sql(&mut self, ctxs: &mut SqlCtx) {
         let Some((dsn, sql)) = self.query_request(ctxs, self.sql_input.clone()) else {
             return;
         };
-        self.start_query(ctxs.db.pools.clone(), dsn, sql);
+        self.start_query(ctxs.db.pools.clone(), dsn, sql, 1);
     }
 
     pub(super) fn query_request(
@@ -54,7 +60,13 @@ impl ResultsTable {
         Some((dsn, sql))
     }
 
-    pub(super) fn start_query(&mut self, pools: PoolRegistry, dsn: String, sql: String) {
+    pub(super) fn start_query(
+        &mut self,
+        pools: PoolRegistry,
+        dsn: String,
+        sql: String,
+        page: usize,
+    ) {
         let (sender, promise) = Promise::new();
         self.query_promise = Some(promise);
         self.query_columns.clear();
@@ -64,14 +76,30 @@ impl ResultsTable {
         self.explain_info = None;
         self.explain_error = None;
         self.current_sql = Some(sql.clone());
+        self.paged_base_sql = Some(sql.clone());
+        self.current_page = page.max(1);
+        self.total_rows = None;
+        self.has_next_page = false;
+        self.pagination_enabled = is_pageable_sql(&sql);
+        let page_size = self.page_size;
 
         futures::spawn(async move {
             let result = match pools.get_or_create_pool(&dsn).await {
-                Ok(pool) => execute_query(pool, &sql).await,
+                Ok(pool) => execute_query(pool, &sql, page.max(1), page_size).await,
                 Err(error) => Err(error),
             };
             sender.send(result);
         });
+    }
+
+    pub(super) fn start_page_query(&mut self, ctxs: &mut SqlCtx, page: usize) {
+        let Some(sql) = self.paged_base_sql.clone().or_else(|| self.current_sql.clone()) else {
+            return;
+        };
+        let Some((dsn, sql)) = self.query_request(ctxs, sql) else {
+            return;
+        };
+        self.start_query(ctxs.db.pools.clone(), dsn, sql, page);
     }
 
     pub(super) fn poll_query_promise(&mut self) {
@@ -84,12 +112,18 @@ impl ResultsTable {
                         self.primary_key_columns = result.primary_key_columns.clone();
                         self.explain_info = result.explain_info.clone();
                         self.explain_error = result.explain_error.clone();
+                        self.total_rows = result.total_rows;
+                        self.has_next_page = result.has_next_page;
+                        self.pagination_enabled = result.pagination_enabled;
                         self.sql_error = None;
                     }
                     Err(error) => {
                         self.sql_error = Some(error.clone());
                         self.selected_result_row = None;
                         self.clear_json_viewer_tabs();
+                        self.total_rows = None;
+                        self.has_next_page = false;
+                        self.pagination_enabled = false;
                     }
                 }
                 self.query_promise = None;
@@ -98,14 +132,36 @@ impl ResultsTable {
     }
 }
 
-async fn execute_query(pool: PgPool, sql: &str) -> Result<QueryResult, String> {
+async fn execute_query(
+    pool: PgPool,
+    sql: &str,
+    page: usize,
+    page_size: usize,
+) -> Result<QueryResult, String> {
     let primary_key_columns = detect_primary_keys(sql, &pool).await.unwrap_or_default();
     let explain = execute_explain(sql, &pool).await;
+    let paginated_sql = build_paginated_sql(sql, page, page_size);
+    let total_rows = match &paginated_sql {
+        Some(paginated_sql) => execute_count(&pool, &paginated_sql.count_sql).await.ok(),
+        None => None,
+    };
+    let query_sql = paginated_sql
+        .as_ref()
+        .map(|paginated_sql| paginated_sql.query_sql.as_str())
+        .unwrap_or(sql);
 
-    let rows: Vec<PgRow> = sqlx::query(sql)
+    let rows: Vec<PgRow> = sqlx::query(query_sql)
         .fetch_all(&pool)
         .await
         .map_err(|e| e.to_string())?;
+    let pagination_enabled = paginated_sql.is_some();
+    let has_next_page = if pagination_enabled {
+        total_rows
+            .map(|total_rows| page.saturating_mul(page_size) < total_rows)
+            .unwrap_or_else(|| rows.len() == page_size)
+    } else {
+        false
+    };
     let mut columns = Vec::new();
     let mut data = Vec::new();
     if let Some(first) = rows.first() {
@@ -143,7 +199,48 @@ async fn execute_query(pool: PgPool, sql: &str) -> Result<QueryResult, String> {
         primary_key_columns,
         explain_info,
         explain_error,
+        total_rows,
+        has_next_page,
+        pagination_enabled,
     })
+}
+
+pub(super) fn build_paginated_sql(
+    sql: &str,
+    page: usize,
+    page_size: usize,
+) -> Option<PaginatedSql> {
+    if !is_pageable_sql(sql) {
+        return None;
+    }
+
+    let page = page.max(1);
+    let page_size = page_size.max(1);
+    let offset = (page - 1).saturating_mul(page_size);
+    let base_sql = sql.trim().trim_end_matches(';').trim();
+    Some(PaginatedSql {
+        query_sql: format!("SELECT * FROM ({base_sql}) pgone_page LIMIT {page_size} OFFSET {offset}"),
+        count_sql: format!("SELECT COUNT(*) FROM ({base_sql}) pgone_count"),
+    })
+}
+
+pub(super) fn is_pageable_sql(sql: &str) -> bool {
+    let dialect = sqlparser::dialect::PostgreSqlDialect {};
+    let Ok(statements) = sqlparser::parser::Parser::parse_sql(&dialect, sql) else {
+        return false;
+    };
+    matches!(statements.as_slice(), [sqlparser::ast::Statement::Query(_)])
+}
+
+async fn execute_count(pool: &sqlx::PgPool, sql: &str) -> Result<usize, String> {
+    let row = sqlx::query(sql)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| error.to_string())?;
+    let count = row
+        .try_get::<i64, _>(0)
+        .map_err(|error| error.to_string())?;
+    usize::try_from(count).map_err(|error| error.to_string())
 }
 
 fn parse_explain_output(output: &str) -> Option<super::ExplainInfo> {
@@ -289,4 +386,58 @@ async fn detect_primary_keys(sql: &str, pool: &sqlx::PgPool) -> Option<HashSet<S
             .map(|row| row.get::<String, _>(0))
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::sheets::DEFAULT_RESULTS_PAGE_SIZE;
+
+    #[test]
+    fn builds_paginated_sql_for_select() {
+        let paginated = build_paginated_sql("SELECT * FROM users", 1, DEFAULT_RESULTS_PAGE_SIZE)
+            .expect("select should be pageable");
+
+        assert_eq!(
+            paginated.query_sql,
+            "SELECT * FROM (SELECT * FROM users) pgone_page LIMIT 100 OFFSET 0"
+        );
+        assert_eq!(
+            paginated.count_sql,
+            "SELECT COUNT(*) FROM (SELECT * FROM users) pgone_count"
+        );
+    }
+
+    #[test]
+    fn builds_paginated_sql_for_second_page() {
+        let paginated = build_paginated_sql("SELECT * FROM users", 2, DEFAULT_RESULTS_PAGE_SIZE)
+            .expect("select should be pageable");
+
+        assert!(paginated.query_sql.ends_with("LIMIT 100 OFFSET 100"));
+    }
+
+    #[test]
+    fn builds_paginated_sql_for_with_and_values() {
+        assert!(
+            build_paginated_sql(
+                "WITH recent AS (SELECT * FROM users) SELECT * FROM recent",
+                1,
+                DEFAULT_RESULTS_PAGE_SIZE,
+            )
+            .is_some()
+        );
+        assert!(build_paginated_sql("VALUES (1), (2)", 1, DEFAULT_RESULTS_PAGE_SIZE).is_some());
+    }
+
+    #[test]
+    fn does_not_page_unsafe_or_unparseable_sql() {
+        for sql in [
+            "SELECT 1; SELECT 2",
+            "UPDATE users SET name = 'Ada'",
+            "DELETE FROM users",
+            "this is not sql",
+        ] {
+            assert!(build_paginated_sql(sql, 1, DEFAULT_RESULTS_PAGE_SIZE).is_none(), "{sql}");
+        }
+    }
 }

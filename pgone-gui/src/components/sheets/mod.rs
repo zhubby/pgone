@@ -29,7 +29,12 @@ pub struct QueryResult {
     pub primary_key_columns: HashSet<String>,
     pub explain_info: Option<ExplainInfo>,
     pub explain_error: Option<String>,
+    pub total_rows: Option<usize>,
+    pub has_next_page: bool,
+    pub pagination_enabled: bool,
 }
+
+pub const DEFAULT_RESULTS_PAGE_SIZE: usize = 100;
 
 #[derive(Clone)]
 pub struct JsonViewerTab {
@@ -60,6 +65,12 @@ pub struct ResultsTable {
     pub json_viewer_tabs: BTreeMap<u64, JsonViewerTab>,
     pub pending_json_viewer_tabs: Vec<JsonViewerTab>,
     pub next_json_viewer_tab_id: u64,
+    pub current_page: usize,
+    pub page_size: usize,
+    pub total_rows: Option<usize>,
+    pub has_next_page: bool,
+    pub pagination_enabled: bool,
+    pub paged_base_sql: Option<String>,
 
     // SQL execution flag
     pub execute_sql_requested: bool,
@@ -102,6 +113,12 @@ impl ResultsTable {
             json_viewer_tabs: BTreeMap::new(),
             pending_json_viewer_tabs: Vec::new(),
             next_json_viewer_tab_id: 1,
+            current_page: 1,
+            page_size: DEFAULT_RESULTS_PAGE_SIZE,
+            total_rows: None,
+            has_next_page: false,
+            pagination_enabled: false,
+            paged_base_sql: None,
             execute_sql_requested: false,
             explain_info: None,
             explain_error: None,
