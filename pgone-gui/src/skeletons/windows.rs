@@ -108,7 +108,7 @@ pub fn show_graph_window(
     // Get DSN before opening window to avoid borrow checker issues
     let dsn = schema_info
         .as_ref()
-        .and_then(|(_database, _schema)| db_manager.active_dsn());
+        .and_then(|(database, _schema)| db_manager.dsn_for_database(database));
     let pools = db_manager.pools.clone();
 
     Window::new(title)
@@ -116,7 +116,8 @@ pub fn show_graph_window(
         .open(&mut open)
         .default_pos(screen_center(ctx))
         .pivot(Align2::CENTER_CENTER)
-        .default_size([400.0, 600.0])
+        .default_size([900.0, 640.0])
+        .min_size([720.0, 480.0])
         .show(ctx, |ui| {
             if schema_info.is_some() {
                 graph.ui(ui, pools.clone(), dsn.as_deref());

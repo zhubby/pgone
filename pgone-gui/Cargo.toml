@@ -35,6 +35,7 @@ egui_dock = { workspace = true }
 egui-theme-switch = { workspace = true }
 egui-file-dialog = { workspace = true }
 egui_json_tree = { workspace = true }
+egui-snarl = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

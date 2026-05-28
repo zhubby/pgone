@@ -667,6 +667,13 @@ impl DbTree {
                                         loading::refresh_tables(self, db_manager, &db_name, &schema_name);
                                         ui.close();
                                     }
+                                    if menu_button(ui, egui_phosphor::regular::GRAPH, "Graph")
+                                        .clicked()
+                                    {
+                                        self.pending_open_graph =
+                                            Some((db_name.clone(), schema_name.clone()));
+                                        ui.close();
+                                    }
                                 });
 
                                 if !is_tables_category_expanded && tables_category_response.header_response.clicked() {
@@ -957,10 +964,6 @@ impl DbTree {
                                         &db_name,
                                         &schema_name,
                                     );
-                                    ui.close();
-                                }
-                                if menu_button(ui, egui_phosphor::regular::GRAPH, "Graph").clicked() {
-                                    self.pending_open_graph = Some((db_name.clone(), schema_name.clone()));
                                     ui.close();
                                 }
                                 if menu_button(ui, egui_phosphor::regular::TABLE, "New Table")
