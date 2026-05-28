@@ -112,6 +112,7 @@ sea-query = "1.0.0-rc.1"
 sysinfo = "0.37.2"
 regex = "1"
 infer = "0.15"
+vergen-gitcl = "10.0.0-beta.8"
 
 # Turso/libsql for local embedded storage
 libsql = { version = "0.4" }

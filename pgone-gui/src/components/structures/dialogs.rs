@@ -142,15 +142,6 @@ pub(super) fn show_dialogs(
                 .min_size([600.0, 300.0]);
         }
 
-        // Set appropriate size for ShowDdl dialog
-        if matches!(dialog_type, DialogType::ShowDdl { .. }) {
-            window = window
-                .default_size([800.0, 300.0])
-                .resizable(true)
-                .max_size([1200.0, 600.0])
-                .min_size([600.0, 250.0]);
-        }
-
         window.show(ui.ctx(), |ui| {
             let dialog_input_ref = &mut tree.dialog_input;
             let dialog_ddl_ref = &mut tree.dialog_ddl;
@@ -587,76 +578,8 @@ pub(super) fn show_dialogs(
                         });
                     }
                 }
-                DialogType::ShowDdl {
-                    database: _,
-                    schema: _,
-                    name: _,
-                } => {
-                    // Check async-loaded DDL
-                    if let Some(ref promise) = tree.ddl_promise {
-                        if let Some(result) = promise.ready() {
-                            match result {
-                                Ok(_) => {
-                                    // DDL has been loaded into dialog_ddl_content
-                                }
-                                Err(e) => {
-                                    ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
-                                    tree.ddl_promise = None;
-                                }
-                            }
-                        } else {
-                            ui.label("Loading DDL...");
-                            return;
-                        }
-                    }
-
-                    // Display DDL content with SQL highlighting
-                    let ddl_content = tree.dialog_ddl_content.clone();
-                    let available_height = ui.available_height() - 60.0; // Reserve space for buttons
-
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false; 2])
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.add_space(5.0);
-
-                                let mut ddl_text = ddl_content.clone();
-                                let ddl_text_ref = &mut ddl_text;
-                                let ddl_for_highlight = ddl_content.clone();
-
-                                ui.add_sized(
-                                    egui::Vec2::new(
-                                        ui.available_width() - 5.0,
-                                        available_height.max(200.0),
-                                    ),
-                                    egui::TextEdit::multiline(ddl_text_ref)
-                                        .desired_rows((available_height.max(200.0) / 20.0) as usize)
-                                        .interactive(false) // Set as read-only
-                                        .layouter(&mut move |ui, _text, wrap_width| {
-                                            let mut job = crate::sql::highlight_sql(
-                                                &ddl_for_highlight,
-                                                ui.visuals(),
-                                            );
-                                            job.wrap.max_width = wrap_width;
-                                            ui.fonts_mut(|f| f.layout_job(job))
-                                        }),
-                                );
-                            });
-                        });
-
-                    // Close and copy buttons
-                    ui.separator();
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Close").clicked() {
-                            should_close = true;
-                        }
-                        ui.add_space(8.0);
-                        if ui.button("Copy").clicked() {
-                            // Copy DDL content to clipboard
-                            let ddl_to_copy = tree.dialog_ddl_content.clone();
-                            ui.ctx().copy_text(ddl_to_copy);
-                        }
-                    });
+                DialogType::ShowDdl { .. } => {
+                    should_close = true;
                 }
                 DialogType::DropTable {
                     database: _,
@@ -676,7 +599,7 @@ pub(super) fn show_dialogs(
                             should_drop = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            // Will be handled by open = false
+                            should_close = true;
                         }
                     });
                 }

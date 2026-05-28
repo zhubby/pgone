@@ -165,6 +165,7 @@ pub(super) struct ConnectionTreeState {
     pub(super) design_table_promise: Option<Promise<Result<TableDetail, String>>>,
     pub(super) design_table_loaded: Option<(String, String, String)>,
     pub(super) ddl_promise: Option<Promise<Result<String, String>>>,
+    pub(super) pending_ddl_title: Option<String>,
     pub(super) results_promise: Option<Promise<Result<(Vec<String>, Vec<Vec<String>>), String>>>,
     pub(super) pending_query_table: Option<(String, String, String)>,
     pub(super) pending_query_view: Option<(String, String, String)>,
@@ -263,6 +264,7 @@ pub struct DbTree {
 
     // DDL state
     pub(super) ddl_promise: Option<Promise<Result<String, String>>>, // Promise for async DDL loading
+    pub(super) pending_ddl_title: Option<String>,
     pub(super) results_promise: Option<Promise<Result<(Vec<String>, Vec<Vec<String>>), String>>>,
 
     // Pending actions (to avoid borrow checker issues in context menus)
@@ -337,6 +339,7 @@ impl DbTree {
         self.design_table_promise = state.design_table_promise;
         self.design_table_loaded = state.design_table_loaded;
         self.ddl_promise = state.ddl_promise;
+        self.pending_ddl_title = state.pending_ddl_title;
         self.results_promise = state.results_promise;
         self.pending_query_table = state.pending_query_table;
         self.pending_query_view = state.pending_query_view;
@@ -402,6 +405,7 @@ impl DbTree {
             design_table_promise: mem::take(&mut self.design_table_promise),
             design_table_loaded: mem::take(&mut self.design_table_loaded),
             ddl_promise: mem::take(&mut self.ddl_promise),
+            pending_ddl_title: mem::take(&mut self.pending_ddl_title),
             results_promise: mem::take(&mut self.results_promise),
             pending_query_table: mem::take(&mut self.pending_query_table),
             pending_query_view: mem::take(&mut self.pending_query_view),

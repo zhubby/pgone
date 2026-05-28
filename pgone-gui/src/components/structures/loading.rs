@@ -9,7 +9,7 @@ use pgone_sql::{
 use poll_promise::Promise;
 use sqlx::Row;
 
-pub(super) fn check_promises(tree: &mut DbTree) {
+pub(super) fn check_promises(tree: &mut DbTree, results_table: &mut ResultsTable) {
     // Check databases promise
     if let Some(ref promise) = tree.databases_promise {
         if let Some(result) = promise.ready() {
@@ -197,9 +197,15 @@ pub(super) fn check_promises(tree: &mut DbTree) {
             match result {
                 Ok(ddl) => {
                     tree.dialog_ddl_content = ddl.clone();
+                    let title = tree
+                        .pending_ddl_title
+                        .take()
+                        .unwrap_or_else(|| "DDL".to_owned());
+                    results_table.open_ddl_viewer(title, ddl.clone());
                 }
                 Err(e) => {
                     tree.error = Some(format!("Failed to load DDL: {}", e));
+                    tree.pending_ddl_title = None;
                 }
             }
             tree.ddl_promise = None;

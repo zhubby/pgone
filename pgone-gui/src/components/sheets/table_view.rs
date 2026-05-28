@@ -191,12 +191,45 @@ impl ResultsTable {
         let rows = self.query_rows.clone();
         let primary_keys = self.primary_key_columns.clone();
         let mut json_viewer_requests = Vec::new();
-        let result_area_height = (ui.available_height() - 24.0).max(48.0);
+        let result_rect = ui.available_rect_before_wrap();
+        let result_ui = ui.child_ui(result_rect, egui::Layout::top_down(egui::Align::LEFT), None);
+        self.show_results_area(
+            result_ui,
+            &columns,
+            &rows,
+            &primary_keys,
+            &mut json_viewer_requests,
+            &mut requested_page,
+        );
+        ui.allocate_rect(result_rect, egui::Sense::hover());
 
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), result_area_height),
-            egui::Layout::top_down(egui::Align::LEFT),
-            |ui| {
+        for (row_index, column, value) in json_viewer_requests {
+            self.open_json_viewer(row_index, &column, value);
+        }
+
+        if let (Some(page), Some(ctxs)) = (requested_page, ctxs.as_deref_mut()) {
+            self.start_page_query(ctxs, page);
+        }
+    }
+
+    fn show_results_area(
+        &mut self,
+        mut ui: egui::Ui,
+        columns: &[String],
+        rows: &[Vec<String>],
+        primary_keys: &std::collections::HashSet<String>,
+        json_viewer_requests: &mut Vec<(usize, String, Value)>,
+        requested_page: &mut Option<usize>,
+    ) {
+        egui::TopBottomPanel::bottom("query_results_status_bar")
+            .exact_height(22.0)
+            .show_inside(&mut ui, |ui| {
+                self.show_results_status_bar(ui, requested_page);
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none())
+            .show_inside(&mut ui, |ui| {
                 if columns.is_empty() {
                     ui.centered_and_justified(|ui| {
                         ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
@@ -204,97 +237,90 @@ impl ResultsTable {
                     return;
                 }
 
-                egui::ScrollArea::both().show(ui, |ui| {
-                    let table = TableBuilder::new(ui)
-                        .id_salt("query_results_table")
-                        .striped(true)
-                        .resizable(true)
-                        .columns(Column::auto().at_least(96.0), columns.len());
+                self.show_results_grid(ui, columns, rows, primary_keys, json_viewer_requests);
+            });
+    }
 
-                    table
-                        .header(22.0, |mut header| {
-                            for column in &columns {
-                                header.col(|ui| {
-                                    if primary_keys.contains(column) {
-                                        ui.strong(format!(
-                                            "{} {}",
-                                            egui_phosphor::regular::KEY,
-                                            column
-                                        ));
-                                    } else {
-                                        ui.strong(column);
-                                    }
-                                });
-                            }
-                        })
-                        .body(|mut body| {
-                            let mut selected_row = self.selected_result_row;
-                            for (row_index, row) in rows.iter().enumerate() {
-                                body.row(22.0, |mut table_row| {
-                                    table_row.set_selected(selected_row == Some(row_index));
-                                    let mut row_clicked = false;
-                                    for index in 0..columns.len() {
-                                        table_row.col(|ui| {
-                                            let value =
-                                                row.get(index).map(String::as_str).unwrap_or("");
-                                            let json_value = parse_json_cell(value);
-                                            ui.horizontal(|ui| {
-                                                ui.spacing_mut().item_spacing.x = 4.0;
-                                                let button_width =
-                                                    if json_value.is_some() { 22.0 } else { 0.0 };
-                                                let available_width = (ui.available_width()
-                                                    - button_width
-                                                    - 4.0)
-                                                    .max(0.0);
-                                                let (display_value, truncated) =
-                                                    truncate_cell_text(ui, value, available_width);
-                                                let response = ui.add(
-                                                    egui::Label::new(display_value)
-                                                        .sense(egui::Sense::click()),
-                                                );
-                                                row_clicked |= response.clicked();
-                                                if truncated {
-                                                    response.on_hover_text(value);
-                                                }
+    fn show_results_grid(
+        &mut self,
+        ui: &mut egui::Ui,
+        columns: &[String],
+        rows: &[Vec<String>],
+        primary_keys: &std::collections::HashSet<String>,
+        json_viewer_requests: &mut Vec<(usize, String, Value)>,
+    ) {
+        egui::ScrollArea::both().show(ui, |ui| {
+            let table = TableBuilder::new(ui)
+                .id_salt("query_results_table")
+                .striped(true)
+                .resizable(true)
+                .columns(Column::auto().at_least(96.0), columns.len());
 
-                                                if let Some(json_value) = json_value {
-                                                    if ui
-                                                        .small_button(
-                                                            egui_phosphor::regular::BRACKETS_CURLY,
-                                                        )
-                                                        .on_hover_text("Open JSON viewer")
-                                                        .clicked()
-                                                    {
-                                                        json_viewer_requests.push((
-                                                            row_index,
-                                                            columns[index].clone(),
-                                                            json_value,
-                                                        ));
-                                                    }
-                                                }
-                                            });
-                                        });
-                                    }
-                                    if row_clicked {
-                                        selected_row = Some(row_index);
-                                    }
-                                });
+            table
+                .header(22.0, |mut header| {
+                    for column in columns {
+                        header.col(|ui| {
+                            if primary_keys.contains(column) {
+                                ui.strong(format!("{} {}", egui_phosphor::regular::KEY, column));
+                            } else {
+                                ui.strong(column);
                             }
-                            self.selected_result_row =
-                                selected_row.filter(|index| *index < rows.len());
                         });
+                    }
+                })
+                .body(|mut body| {
+                    let mut selected_row = self.selected_result_row;
+                    for (row_index, row) in rows.iter().enumerate() {
+                        body.row(22.0, |mut table_row| {
+                            table_row.set_selected(selected_row == Some(row_index));
+                            let mut row_clicked = false;
+                            for index in 0..columns.len() {
+                                table_row.col(|ui| {
+                                    let value = row.get(index).map(String::as_str).unwrap_or("");
+                                    let json_value = parse_json_cell(value);
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                        let button_width =
+                                            if json_value.is_some() { 22.0 } else { 0.0 };
+                                        let available_width =
+                                            (ui.available_width() - button_width - 4.0).max(0.0);
+                                        let (display_value, truncated) =
+                                            truncate_cell_text(ui, value, available_width);
+                                        let response = ui.add(
+                                            egui::Label::new(display_value)
+                                                .sense(egui::Sense::click()),
+                                        );
+                                        row_clicked |= response.clicked();
+                                        if truncated {
+                                            response.on_hover_text(value);
+                                        }
+
+                                        if let Some(json_value) = json_value {
+                                            if ui
+                                                .small_button(
+                                                    egui_phosphor::regular::BRACKETS_CURLY,
+                                                )
+                                                .on_hover_text("Open JSON viewer")
+                                                .clicked()
+                                            {
+                                                json_viewer_requests.push((
+                                                    row_index,
+                                                    columns[index].clone(),
+                                                    json_value,
+                                                ));
+                                            }
+                                        }
+                                    });
+                                });
+                            }
+                            if row_clicked {
+                                selected_row = Some(row_index);
+                            }
+                        });
+                    }
+                    self.selected_result_row = selected_row.filter(|index| *index < rows.len());
                 });
-            },
-        );
-
-        for (row_index, column, value) in json_viewer_requests {
-            self.open_json_viewer(row_index, &column, value);
-        }
-
-        self.show_results_status_bar(ui, &mut requested_page);
-        if let (Some(page), Some(ctxs)) = (requested_page, ctxs.as_deref_mut()) {
-            self.start_page_query(ctxs, page);
-        }
+        });
     }
 
     fn show_results_status_bar(&self, ui: &mut egui::Ui, requested_page: &mut Option<usize>) {
@@ -374,7 +400,7 @@ impl ResultsTable {
         }
 
         ui.label(
-            egui::RichText::new(format!("{} rows/page", self.page_size))
+            egui::RichText::new(format!("{}/page", self.page_size))
                 .small()
                 .color(ui.visuals().weak_text_color()),
         );

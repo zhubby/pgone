@@ -19,6 +19,11 @@ pub enum DockTab {
         id: u64,
         title: String,
     },
+    #[serde(skip)]
+    DdlViewer {
+        id: u64,
+        title: String,
+    },
     Chat,
 }
 
@@ -33,12 +38,15 @@ impl DockTab {
             Self::JsonViewer { title, .. } => {
                 format!("{} {}", egui_phosphor::regular::BRACKETS_CURLY, title)
             }
+            Self::DdlViewer { title, .. } => {
+                format!("{} {}", egui_phosphor::regular::CODE, title)
+            }
             Self::Chat => format!("{} Agent", egui_phosphor::regular::SPARKLE),
         }
     }
 
-    fn is_json_viewer(&self) -> bool {
-        matches!(self, Self::JsonViewer { .. })
+    fn is_temporary_viewer(&self) -> bool {
+        matches!(self, Self::JsonViewer { .. } | Self::DdlViewer { .. })
     }
 }
 
@@ -66,7 +74,7 @@ impl DockLayout {
     pub fn sanitized_state(&self) -> DockState<DockTab> {
         let mut state = self
             .state
-            .filter_tabs(|tab| !matches!(tab, DockTab::JsonViewer { .. }));
+            .filter_tabs(|tab| !tab.is_temporary_viewer());
         for surface in state.iter_surfaces_mut() {
             let Some(tree) = surface.node_tree_mut() else {
                 continue;
@@ -130,8 +138,15 @@ impl DockLayout {
                 title: tab.title,
             });
         }
+        for tab in results_table.take_pending_ddl_viewer_tabs() {
+            self.push_ddl_viewer_tab(DockTab::DdlViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
 
         self.retain_live_json_viewer_tabs(results_table);
+        self.retain_live_ddl_viewer_tabs(results_table);
     }
 
     fn retain_live_json_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
@@ -159,6 +174,37 @@ impl DockLayout {
                 let _ = leaf.set_active_tab(active);
                 self.state
                     .set_focused_node_and_surface(results_path.node_path());
+                return;
+            }
+        }
+
+        self.state.push_to_focused_leaf(tab);
+    }
+
+    fn retain_live_ddl_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
+        self.state.retain_tabs(|tab| match tab {
+            DockTab::DdlViewer { id, .. } => results_table.ddl_viewer_tab(*id).is_some(),
+            _ => true,
+        });
+
+        let keep_ids = self
+            .state
+            .iter_all_tabs()
+            .filter_map(|(_, tab)| match tab {
+                DockTab::DdlViewer { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        results_table.retain_ddl_viewer_tabs(&keep_ids);
+    }
+
+    fn push_ddl_viewer_tab(&mut self, tab: DockTab) {
+        if let Some(sql_path) = self.state.find_tab(&DockTab::SqlEditor) {
+            if let Ok(leaf) = self.state.leaf_mut(sql_path.node_path()) {
+                leaf.append_tab(tab);
+                let active = leaf.tabs.len().saturating_sub(1);
+                let _ = leaf.set_active_tab(active);
+                self.state.set_focused_node_and_surface(sql_path.node_path());
                 return;
             }
         }
@@ -210,6 +256,69 @@ mod tests {
         assert!(results_table.json_viewer_tab(id).is_some());
         assert!(layout.state.iter_all_tabs().any(
             |(_, tab)| matches!(tab, DockTab::JsonViewer { id: tab_id, .. } if *tab_id == id)
+        ));
+    }
+
+    #[test]
+    fn pending_ddl_viewer_tab_opens_next_to_sql_editor() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_ddl_viewer("DDL public.users", "CREATE TABLE public.users ();");
+
+        for tab in results_table.take_pending_ddl_viewer_tabs() {
+            layout.push_ddl_viewer_tab(DockTab::DdlViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+
+        let sql_path = layout.state.find_tab(&DockTab::SqlEditor).unwrap();
+        let leaf = layout.state.leaf(sql_path.node_path()).unwrap();
+
+        assert!(leaf.tabs.iter().any(
+            |tab| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
+        ));
+        assert!(
+            matches!(&leaf[leaf.active], DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
+        );
+    }
+
+    #[test]
+    fn sanitized_state_removes_ddl_viewer_tabs() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_ddl_viewer("DDL public.users", "CREATE TABLE public.users ();");
+        for tab in results_table.take_pending_ddl_viewer_tabs() {
+            layout.push_ddl_viewer_tab(DockTab::DdlViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+
+        let sanitized = layout.sanitized_state();
+
+        assert!(!sanitized.iter_all_tabs().any(
+            |(_, tab)| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
+        ));
+    }
+
+    #[test]
+    fn ddl_viewer_tab_survives_live_tab_retention() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_ddl_viewer("DDL public.users", "CREATE TABLE public.users ();");
+
+        for tab in results_table.take_pending_ddl_viewer_tabs() {
+            layout.push_ddl_viewer_tab(DockTab::DdlViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+        layout.retain_live_ddl_viewer_tabs(&mut results_table);
+
+        assert!(results_table.ddl_viewer_tab(id).is_some());
+        assert!(layout.state.iter_all_tabs().any(
+            |(_, tab)| matches!(tab, DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
         ));
     }
 }
@@ -264,6 +373,10 @@ impl DockTabViewer<'_> {
         self.results_table.ui_json_viewer(ui, id);
     }
 
+    fn show_ddl_viewer(&mut self, ui: &mut Ui, id: u64) {
+        self.results_table.ui_ddl_viewer(ui, id);
+    }
+
     fn show_chat(&mut self, ui: &mut Ui) {
         let settings = self.state.settings.clone();
         let active_db_label = self
@@ -302,12 +415,13 @@ impl TabViewer for DockTabViewer<'_> {
             DockTab::SqlEditor => self.show_sql_editor(ui),
             DockTab::Results => self.show_results(ui),
             DockTab::JsonViewer { id, .. } => self.show_json_viewer(ui, *id),
+            DockTab::DdlViewer { id, .. } => self.show_ddl_viewer(ui, *id),
             DockTab::Chat => self.show_chat(ui),
         }
     }
 
     fn is_closeable(&self, tab: &Self::Tab) -> bool {
-        tab.is_json_viewer()
+        tab.is_temporary_viewer()
     }
 
     fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
@@ -316,7 +430,10 @@ impl TabViewer for DockTabViewer<'_> {
 
     fn scroll_bars(&self, tab: &Self::Tab) -> [bool; 2] {
         match tab {
-            DockTab::SqlEditor | DockTab::Results | DockTab::JsonViewer { .. } => [false, false],
+            DockTab::SqlEditor
+            | DockTab::Results
+            | DockTab::JsonViewer { .. }
+            | DockTab::DdlViewer { .. } => [false, false],
             DockTab::DatabaseStructure | DockTab::Chat => [true, true],
         }
     }

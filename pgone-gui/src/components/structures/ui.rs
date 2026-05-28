@@ -10,7 +10,7 @@ impl DbTree {
         db_manager: &mut crate::components::DbManager,
         results_table: &mut ResultsTable,
     ) {
-        loading::check_promises(self);
+        loading::check_promises(self, results_table);
         loading::check_result_promises(self, results_table);
 
         if let Some((database, schema, table)) = self.pending_query_table.take() {
@@ -596,13 +596,11 @@ impl DbTree {
                                             if menu_button(ui, egui_phosphor::regular::CODE, "Show DDL")
                                                 .clicked()
                                             {
-                                                use super::types::DialogType;
-                                                self.dialog = Some(DialogType::ShowDdl {
-                                                    database: db_name_menu.clone(),
-                                                    schema: schema_name_menu.clone(),
-                                                    name: table_name_menu.clone(),
-                                                });
                                                 self.dialog_ddl_content.clear();
+                                                self.pending_ddl_title = Some(format!(
+                                                    "DDL {}.{}",
+                                                    schema_name_menu, table_name_menu
+                                                ));
                                                 self.pending_load_ddl = Some((db_name_menu.clone(), schema_name_menu.clone(), table_name_menu.clone()));
                                                 ui.close();
                                             }

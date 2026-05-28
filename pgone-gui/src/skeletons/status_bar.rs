@@ -93,77 +93,132 @@ pub fn show_status_bar(
                 }
             });
 
-            // If monitoring is enabled, display system monitoring info
-            if settings.enable_monitor {
-                // Check if refresh is needed (refresh once per second)
-                let should_refresh = {
-                    let mut last_refresh = LAST_REFRESH.lock().unwrap();
-                    let now = Instant::now();
-                    let should = last_refresh
-                        .map(|last| now.duration_since(last) >= REFRESH_INTERVAL)
-                        .unwrap_or(true);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                show_build_info(ui);
 
-                    if should {
-                        *last_refresh = Some(now);
-                        // Request repaint after next refresh interval to ensure continuous updates
-                        ctx.request_repaint_after(REFRESH_INTERVAL);
-                    }
-                    should
-                };
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Ok(mut system) = SYSTEM.lock() {
-                        let pid = sysinfo::Pid::from(std::process::id() as usize);
-
-                        // Only refresh current process CPU/memory when needed, avoid UI thread scanning entire system.
-                        if should_refresh {
-                            system.refresh_processes_specifics(
-                                ProcessesToUpdate::Some(&[pid]),
-                                true,
-                                ProcessRefreshKind::nothing()
-                                    .with_cpu()
-                                    .with_memory()
-                                    .without_tasks(),
-                            );
-                        }
-
-                        if let Some(process) = system.process(pid) {
-                            let process_name = process.name().to_string_lossy().to_string();
-                            let cpu_usage = process.cpu_usage();
-                            let memory_kb = process.memory() / 1024;
-                            let memory_mb = memory_kb as f64 / 1024.0;
-
-                            // Format memory display
-                            let memory_str = if memory_mb >= 1.0 {
-                                format!("{:.2} MB", memory_mb)
-                            } else {
-                                format!("{} KB", memory_kb)
-                            };
-
-                            // Get network info - network info retrieval may differ in sysinfo 0.37
-                            // Temporarily display placeholder info, can be adjusted based on actual API later
-                            let network_info = "Network: Monitoring".to_string();
-
-                            ui.label(egui_phosphor::regular::DESKTOP);
-                            ui.label(format!("Process: {}", process_name));
-                            ui.separator();
-                            ui.label(egui_phosphor::regular::CHART_PIE);
-                            ui.label(format!("CPU: {:.1}%", cpu_usage));
-                            ui.separator();
-                            ui.label(egui_phosphor::regular::HARD_DRIVE);
-                            ui.label(format!("Memory: {}", memory_str));
-                            ui.separator();
-                            ui.label(egui_phosphor::regular::NETWORK);
-                            ui.label(&network_info);
-                            ui.separator();
-                        }
-                    }
-                });
-            }
+                if settings.enable_monitor {
+                    ui.separator();
+                    show_monitoring_info(ui, ctx);
+                }
+            });
         });
     });
 
     requested_theme
+}
+
+fn show_build_info(ui: &mut Ui) {
+    let version = env!("CARGO_PKG_VERSION");
+    let branch = option_env!("VERGEN_GIT_BRANCH").unwrap_or("unknown");
+    let sha = option_env!("VERGEN_GIT_SHA")
+        .map(short_sha)
+        .unwrap_or("unknown");
+    let dirty = option_env!("VERGEN_GIT_DIRTY").unwrap_or("unknown");
+    let dirty_label = match dirty {
+        "true" => "dirty",
+        "false" => "clean",
+        value => value,
+    };
+    let dirty_icon = match dirty {
+        "true" => egui_phosphor::regular::WARNING_CIRCLE,
+        "false" => egui_phosphor::regular::CHECK_CIRCLE,
+        _ => egui_phosphor::regular::CIRCLE_DASHED,
+    };
+    let dirty_color = match dirty {
+        "true" => ui.visuals().warn_fg_color,
+        "false" => ui.visuals().weak_text_color(),
+        _ => ui.visuals().text_color(),
+    };
+
+    let response = ui
+        .horizontal(|ui| {
+            ui.label(egui_phosphor::regular::PACKAGE);
+            ui.label(format!("v{version}"));
+            ui.separator();
+            ui.label(egui_phosphor::regular::GIT_BRANCH);
+            ui.label(branch);
+            ui.separator();
+            ui.label(egui_phosphor::regular::GIT_COMMIT);
+            ui.label(sha);
+            ui.separator();
+            ui.colored_label(dirty_color, dirty_icon);
+            ui.label(dirty_label);
+        })
+        .response;
+
+    let full_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
+    let build_timestamp = option_env!("VERGEN_BUILD_TIMESTAMP").unwrap_or("unknown");
+    response.on_hover_text(format!(
+        "Release: v{version}\nBranch: {branch}\nCommit: {full_sha}\nStatus: {dirty_label}\nBuild: {build_timestamp}"
+    ));
+}
+
+fn short_sha(sha: &str) -> &str {
+    sha.get(..7).unwrap_or(sha)
+}
+
+fn show_monitoring_info(ui: &mut Ui, ctx: &Context) {
+    // Check if refresh is needed (refresh once per second)
+    let should_refresh = {
+        let mut last_refresh = LAST_REFRESH.lock().unwrap();
+        let now = Instant::now();
+        let should = last_refresh
+            .map(|last| now.duration_since(last) >= REFRESH_INTERVAL)
+            .unwrap_or(true);
+
+        if should {
+            *last_refresh = Some(now);
+            // Request repaint after next refresh interval to ensure continuous updates
+            ctx.request_repaint_after(REFRESH_INTERVAL);
+        }
+        should
+    };
+
+    if let Ok(mut system) = SYSTEM.lock() {
+        let pid = sysinfo::Pid::from(std::process::id() as usize);
+
+        // Only refresh current process CPU/memory when needed, avoid UI thread scanning entire system.
+        if should_refresh {
+            system.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[pid]),
+                true,
+                ProcessRefreshKind::nothing()
+                    .with_cpu()
+                    .with_memory()
+                    .without_tasks(),
+            );
+        }
+
+        if let Some(process) = system.process(pid) {
+            let process_name = process.name().to_string_lossy().to_string();
+            let cpu_usage = process.cpu_usage();
+            let memory_kb = process.memory() / 1024;
+            let memory_mb = memory_kb as f64 / 1024.0;
+
+            // Format memory display
+            let memory_str = if memory_mb >= 1.0 {
+                format!("{:.2} MB", memory_mb)
+            } else {
+                format!("{} KB", memory_kb)
+            };
+
+            // Get network info - network info retrieval may differ in sysinfo 0.37
+            // Temporarily display placeholder info, can be adjusted based on actual API later
+            let network_info = "Network: Monitoring".to_string();
+
+            ui.label(egui_phosphor::regular::DESKTOP);
+            ui.label(format!("Process: {}", process_name));
+            ui.separator();
+            ui.label(egui_phosphor::regular::CHART_PIE);
+            ui.label(format!("CPU: {:.1}%", cpu_usage));
+            ui.separator();
+            ui.label(egui_phosphor::regular::HARD_DRIVE);
+            ui.label(format!("Memory: {}", memory_str));
+            ui.separator();
+            ui.label(egui_phosphor::regular::NETWORK);
+            ui.label(&network_info);
+        }
+    }
 }
 
 // Static regex for extracting version info

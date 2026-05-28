@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use tracing::debug;
 
 mod database_loader;
+mod ddl_viewer;
 mod executor;
 mod json_viewer;
 mod sql_editor;
@@ -45,6 +46,13 @@ pub struct JsonViewerTab {
     pub source_row: usize,
 }
 
+#[derive(Clone)]
+pub struct DdlViewerTab {
+    pub id: u64,
+    pub title: String,
+    pub ddl: String,
+}
+
 #[derive(Default)]
 pub struct ResultsTable {
     // Refresh control
@@ -65,6 +73,9 @@ pub struct ResultsTable {
     pub json_viewer_tabs: BTreeMap<u64, JsonViewerTab>,
     pub pending_json_viewer_tabs: Vec<JsonViewerTab>,
     pub next_json_viewer_tab_id: u64,
+    pub ddl_viewer_tabs: BTreeMap<u64, DdlViewerTab>,
+    pub pending_ddl_viewer_tabs: Vec<DdlViewerTab>,
+    pub next_ddl_viewer_tab_id: u64,
     pub current_page: usize,
     pub page_size: usize,
     pub total_rows: Option<usize>,
@@ -113,6 +124,9 @@ impl ResultsTable {
             json_viewer_tabs: BTreeMap::new(),
             pending_json_viewer_tabs: Vec::new(),
             next_json_viewer_tab_id: 1,
+            ddl_viewer_tabs: BTreeMap::new(),
+            pending_ddl_viewer_tabs: Vec::new(),
+            next_ddl_viewer_tab_id: 1,
             current_page: 1,
             page_size: DEFAULT_RESULTS_PAGE_SIZE,
             total_rows: None,
@@ -165,6 +179,27 @@ impl ResultsTable {
         std::mem::take(&mut self.pending_json_viewer_tabs)
     }
 
+    pub fn open_ddl_viewer(&mut self, title: impl Into<String>, ddl: impl Into<String>) -> u64 {
+        let id = self.next_ddl_viewer_tab_id;
+        self.next_ddl_viewer_tab_id = self.next_ddl_viewer_tab_id.saturating_add(1);
+        let tab = DdlViewerTab {
+            id,
+            title: title.into(),
+            ddl: ddl.into(),
+        };
+        self.ddl_viewer_tabs.insert(id, tab.clone());
+        self.pending_ddl_viewer_tabs.push(tab);
+        id
+    }
+
+    pub fn take_pending_ddl_viewer_tabs(&mut self) -> Vec<DdlViewerTab> {
+        std::mem::take(&mut self.pending_ddl_viewer_tabs)
+    }
+
+    pub fn ddl_viewer_tab(&self, id: u64) -> Option<&DdlViewerTab> {
+        self.ddl_viewer_tabs.get(&id)
+    }
+
     pub fn json_viewer_tab(&self, id: u64) -> Option<&JsonViewerTab> {
         self.json_viewer_tabs.get(&id)
     }
@@ -178,12 +213,26 @@ impl ResultsTable {
         self.json_viewer_tabs.retain(|id, _| keep_ids.contains(id));
     }
 
+    pub fn retain_ddl_viewer_tabs(&mut self, keep_ids: &HashSet<u64>) {
+        self.ddl_viewer_tabs.retain(|id, _| keep_ids.contains(id));
+    }
+
     pub fn ui_json_viewer(&self, ui: &mut egui::Ui, id: u64) {
         if let Some(tab) = self.json_viewer_tab(id) {
             json_viewer::ui(ui, tab);
         } else {
             ui.centered_and_justified(|ui| {
                 ui.label("JSON viewer content is no longer available");
+            });
+        }
+    }
+
+    pub fn ui_ddl_viewer(&self, ui: &mut egui::Ui, id: u64) {
+        if let Some(tab) = self.ddl_viewer_tab(id) {
+            ddl_viewer::ui(ui, tab);
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("DDL viewer content is no longer available");
             });
         }
     }
