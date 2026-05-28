@@ -29,6 +29,9 @@ pub enum DockTab {
         id: u64,
         title: String,
     },
+    Agent {
+        session_id: String,
+    },
     Chat,
 }
 
@@ -48,6 +51,9 @@ impl DockTab {
             }
             Self::GraphViewer { title, .. } => {
                 format!("{} {}", egui_phosphor::regular::GRAPH, title)
+            }
+            Self::Agent { session_id } => {
+                format!("{} Agent {}", egui_phosphor::regular::SPARKLE, session_id)
             }
             Self::Chat => format!("{} Agent", egui_phosphor::regular::SPARKLE),
         }
@@ -126,20 +132,28 @@ impl DockLayout {
         preview: &mut PreviewManager,
         storage: &mut SessionStorage,
     ) {
-        let mut viewer = DockTabViewer {
-            db_tree,
-            db,
-            results_table,
-            chat,
-            state,
-            preview,
-            storage,
-        };
+        self.reconcile_agent_tabs(state);
 
-        DockArea::new(&mut self.state)
-            .style(Style::from_egui(ui.style().as_ref()))
-            .show_leaf_collapse_buttons(false)
-            .show_inside(ui, &mut viewer);
+        {
+            let mut viewer = DockTabViewer {
+                db_tree,
+                db,
+                results_table,
+                chat,
+                state,
+                preview,
+                storage,
+            };
+
+            DockArea::new(&mut self.state)
+                .style(Style::from_egui(ui.style().as_ref()))
+                .show_leaf_collapse_buttons(false)
+                .show_inside(ui, &mut viewer);
+        }
+
+        for session_id in chat.take_pending_agent_tab_requests() {
+            self.push_or_focus_agent_tab(session_id);
+        }
 
         for tab in results_table.take_pending_json_viewer_tabs() {
             self.push_json_viewer_tab(DockTab::JsonViewer {
@@ -163,6 +177,72 @@ impl DockLayout {
         self.retain_live_json_viewer_tabs(results_table);
         self.retain_live_ddl_viewer_tabs(results_table);
         self.retain_live_graph_viewer_tabs(results_table);
+        self.reconcile_agent_tabs(state);
+    }
+
+    fn reconcile_agent_tabs(&mut self, state: &mut PersistedState) {
+        normalize_current_session_index(state);
+        let current_session_id = current_session_id(state);
+
+        for (_, tab) in self.state.iter_all_tabs_mut() {
+            if matches!(tab, DockTab::Chat) {
+                if let Some(session_id) = &current_session_id {
+                    *tab = DockTab::Agent {
+                        session_id: session_id.clone(),
+                    };
+                }
+            }
+        }
+
+        let session_ids = state
+            .sessions
+            .iter()
+            .map(|session| session.id.as_str())
+            .collect::<HashSet<_>>();
+        self.state.retain_tabs(|tab| match tab {
+            DockTab::Agent { session_id } => session_ids.contains(session_id.as_str()),
+            DockTab::Chat => false,
+            _ => true,
+        });
+
+        if !self.has_agent_tab()
+            && let Some(session_id) = current_session_id
+        {
+            self.push_or_focus_agent_tab(session_id);
+        }
+    }
+
+    fn has_agent_tab(&self) -> bool {
+        self.state
+            .iter_all_tabs()
+            .any(|(_, tab)| matches!(tab, DockTab::Agent { .. }))
+    }
+
+    fn push_or_focus_agent_tab(&mut self, session_id: String) {
+        if let Some(path) = self.state.find_tab_from(|tab| {
+            matches!(tab, DockTab::Agent { session_id: tab_session_id } if tab_session_id == &session_id)
+        }) {
+            let _ = self.state.set_active_tab(path);
+            self.state.set_focused_node_and_surface(path.node_path());
+            return;
+        }
+
+        let tab = DockTab::Agent { session_id };
+        if let Some(agent_path) = self
+            .state
+            .find_tab_from(|tab| matches!(tab, DockTab::Agent { .. } | DockTab::Chat))
+        {
+            if let Ok(leaf) = self.state.leaf_mut(agent_path.node_path()) {
+                leaf.append_tab(tab);
+                let active = leaf.tabs.len().saturating_sub(1);
+                let _ = leaf.set_active_tab(active);
+                self.state
+                    .set_focused_node_and_surface(agent_path.node_path());
+                return;
+            }
+        }
+
+        self.state.push_to_focused_leaf(tab);
     }
 
     fn retain_live_json_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
@@ -280,7 +360,13 @@ impl DockLayout {
         surface.split_below(NodeIndex::root(), 0.45, vec![DockTab::Results]);
         let [center_node, _database_node] =
             surface.split_left(NodeIndex::root(), 0.78, vec![DockTab::DatabaseStructure]);
-        surface.split_right(center_node, 0.70, vec![DockTab::Chat]);
+        surface.split_right(
+            center_node,
+            0.70,
+            vec![DockTab::Agent {
+                session_id: "1".to_owned(),
+            }],
+        );
         state
     }
 
@@ -289,17 +375,95 @@ impl DockLayout {
             DockTab::DatabaseStructure,
             DockTab::SqlEditor,
             DockTab::Results,
-            DockTab::Chat,
         ]
         .into_iter()
         .all(|required| state.iter_all_tabs().any(|(_, tab)| *tab == required))
+            && state
+                .iter_all_tabs()
+                .any(|(_, tab)| matches!(tab, DockTab::Agent { .. } | DockTab::Chat))
     }
+}
+
+fn normalize_current_session_index(state: &mut PersistedState) {
+    if state.sessions.is_empty() {
+        state.current_index = 0;
+    } else if state.current_index >= state.sessions.len() {
+        state.current_index = state.sessions.len() - 1;
+    }
+}
+
+fn current_session_id(state: &PersistedState) -> Option<String> {
+    state
+        .sessions
+        .get(state.current_index)
+        .map(|session| session.id.clone())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ChatSession;
     use serde_json::json;
+
+    fn agent_tab_count(layout: &DockLayout, session_id: &str) -> usize {
+        layout
+            .state
+            .iter_all_tabs()
+            .filter(|(_, tab)| {
+                matches!(tab, DockTab::Agent { session_id: tab_session_id } if tab_session_id == session_id)
+            })
+            .count()
+    }
+
+    #[test]
+    fn default_layout_contains_agent_session_tab() {
+        let layout = DockLayout::default();
+
+        assert_eq!(agent_tab_count(&layout, "1"), 1);
+    }
+
+    #[test]
+    fn legacy_chat_tab_reconciles_to_current_agent_tab() {
+        let mut layout = DockLayout {
+            state: DockState::new(vec![DockTab::Chat]),
+        };
+        let mut state = PersistedState::default();
+
+        layout.reconcile_agent_tabs(&mut state);
+
+        assert_eq!(agent_tab_count(&layout, "1"), 1);
+        assert!(
+            !layout
+                .state
+                .iter_all_tabs()
+                .any(|(_, tab)| matches!(tab, DockTab::Chat))
+        );
+    }
+
+    #[test]
+    fn push_or_focus_agent_tab_does_not_duplicate_existing_session_tab() {
+        let mut layout = DockLayout::default();
+
+        layout.push_or_focus_agent_tab("1".to_owned());
+        layout.push_or_focus_agent_tab("1".to_owned());
+
+        assert_eq!(agent_tab_count(&layout, "1"), 1);
+    }
+
+    #[test]
+    fn reconcile_agent_tabs_removes_orphan_session_tabs() {
+        let mut layout = DockLayout::default();
+        layout.push_or_focus_agent_tab("2".to_owned());
+        let mut state = PersistedState {
+            sessions: vec![ChatSession::default_with_timestamp("1".to_owned())],
+            ..PersistedState::default()
+        };
+
+        layout.reconcile_agent_tabs(&mut state);
+
+        assert_eq!(agent_tab_count(&layout, "1"), 1);
+        assert_eq!(agent_tab_count(&layout, "2"), 0);
+    }
 
     #[test]
     fn pending_json_viewer_tab_survives_live_tab_retention() {
@@ -527,7 +691,24 @@ impl DockTabViewer<'_> {
         self.results_table.ui_graph_viewer(ui, id, pools);
     }
 
-    fn show_chat(&mut self, ui: &mut Ui) {
+    fn show_chat(&mut self, ui: &mut Ui, session_id: Option<String>) {
+        if let Some(session_id) = session_id {
+            if let Some(index) = self
+                .state
+                .sessions
+                .iter()
+                .position(|session| session.id == session_id)
+            {
+                self.state.current_index = index;
+            } else {
+                ui.label(format!(
+                    "{} Agent session no longer exists",
+                    egui_phosphor::regular::WARNING
+                ));
+                return;
+            }
+        }
+
         let settings = self.state.settings.clone();
         let active_db_label = self
             .db
@@ -556,7 +737,19 @@ impl TabViewer for DockTabViewer<'_> {
     type Tab = DockTab;
 
     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
-        tab.title().into()
+        match tab {
+            DockTab::Agent { session_id } => {
+                let title = self
+                    .state
+                    .sessions
+                    .iter()
+                    .find(|session| session.id == *session_id)
+                    .map(|session| session.title.as_str())
+                    .unwrap_or(session_id.as_str());
+                format!("{} {}", egui_phosphor::regular::SPARKLE, title).into()
+            }
+            _ => tab.title().into(),
+        }
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
@@ -567,12 +760,13 @@ impl TabViewer for DockTabViewer<'_> {
             DockTab::JsonViewer { id, .. } => self.show_json_viewer(ui, *id),
             DockTab::DdlViewer { id, .. } => self.show_ddl_viewer(ui, *id),
             DockTab::GraphViewer { id, .. } => self.show_graph_viewer(ui, *id),
-            DockTab::Chat => self.show_chat(ui),
+            DockTab::Agent { session_id } => self.show_chat(ui, Some(session_id.clone())),
+            DockTab::Chat => self.show_chat(ui, None),
         }
     }
 
     fn is_closeable(&self, tab: &Self::Tab) -> bool {
-        tab.is_temporary_viewer()
+        tab.is_temporary_viewer() || matches!(tab, DockTab::Agent { .. })
     }
 
     fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
@@ -587,7 +781,7 @@ impl TabViewer for DockTabViewer<'_> {
             | DockTab::DdlViewer { .. }
             | DockTab::GraphViewer { .. } => [false, false],
             DockTab::DatabaseStructure => [true, true],
-            DockTab::Chat => [false, false],
+            DockTab::Agent { .. } | DockTab::Chat => [false, false],
         }
     }
 

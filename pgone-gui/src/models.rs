@@ -61,14 +61,18 @@ impl ChatSession {
     pub fn default_with_timestamp(id: String) -> Self {
         let now = Utc::now();
         Self {
+            title: default_agent_session_title(now),
             id,
-            title: format!("New Session-{}", now.timestamp().to_string()),
             config_id: None,
             messages: Vec::new(),
             created_at: now,
             updated_at: now,
         }
     }
+}
+
+pub fn default_agent_session_title(now: DateTime<Utc>) -> String {
+    format!("agent-{}", now.timestamp())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,9 +120,9 @@ impl Default for PersistedState {
         Self {
             current_db_config_id: None,
             settings: Settings::default(),
-            sessions: vec![ChatSession::default_with_timestamp("0".to_string())],
+            sessions: vec![ChatSession::default_with_timestamp("1".to_string())],
             current_index: 0,
-            next_session_id: 1,
+            next_session_id: 2,
         }
     }
 }

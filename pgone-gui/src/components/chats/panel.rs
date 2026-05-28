@@ -48,6 +48,7 @@ pub struct ChatPanel {
     error: Option<String>,
     next_request_id: u64,
     show_delete_confirm: bool,
+    pending_agent_tab_requests: Vec<String>,
 }
 
 impl Default for ChatPanel {
@@ -66,6 +67,7 @@ impl Default for ChatPanel {
             error: None,
             next_request_id: 1,
             show_delete_confirm: false,
+            pending_agent_tab_requests: Vec::new(),
         }
     }
 }
@@ -90,11 +92,16 @@ impl Clone for ChatPanel {
             error: self.error.clone(),
             next_request_id: self.next_request_id,
             show_delete_confirm: false,
+            pending_agent_tab_requests: Vec::new(),
         }
     }
 }
 
 impl ChatPanel {
+    pub fn take_pending_agent_tab_requests(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_agent_tab_requests)
+    }
+
     pub fn ui(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
         self.model_loader.check_and_load(ctxs);
         self.process_agent_response(ctxs);
@@ -475,9 +482,6 @@ impl ChatPanel {
 
         if let Some(session) = ctxs.state.sessions.get_mut(ctxs.state.current_index) {
             session.config_id = Some(dbconfig_id.clone());
-            if should_replace_default_title(&session.title) {
-                session.title = conversation_title(&prompt);
-            }
             session.messages.push(Message {
                 role: Role::User,
                 timestamp: Utc::now(),
@@ -696,11 +700,15 @@ impl ChatPanel {
                 let new_session = crate::models::ChatSession::default_with_timestamp(new_id);
                 ctxs.state.sessions.push(new_session.clone());
                 ctxs.state.current_index = 0;
+                self.pending_agent_tab_requests.push(new_session.id.clone());
                 if let Err(error) = ctxs.storage.save_session(&new_session) {
                     tracing::error!("Failed to save new session: {error}");
                 }
             } else if current_index >= ctxs.state.sessions.len() {
                 ctxs.state.current_index = ctxs.state.sessions.len() - 1;
+            }
+            if let Some(session) = ctxs.state.sessions.get(ctxs.state.current_index) {
+                self.pending_agent_tab_requests.push(session.id.clone());
             }
 
             crate::notify::info("Session deleted");
@@ -714,7 +722,8 @@ fn show_agent_conversation_menu(ui: &mut egui::Ui, panel: &mut ChatPanel, ctxs: 
             .button(format!("{} New chat", egui_phosphor::regular::PLUS))
             .clicked()
         {
-            create_new_session(ctxs);
+            let session_id = create_new_session(ctxs);
+            panel.pending_agent_tab_requests.push(session_id);
             panel.events.clear();
             panel.error = None;
             ui.close();
@@ -744,6 +753,7 @@ fn show_agent_conversation_menu(ui: &mut egui::Ui, panel: &mut ChatPanel, ctxs: 
             };
             if ui.selectable_label(selected, label).clicked() {
                 ctxs.state.current_index = index;
+                panel.pending_agent_tab_requests.push(session.id.clone());
                 panel.events.clear();
                 panel.error = None;
                 ui.close();
@@ -754,16 +764,18 @@ fn show_agent_conversation_menu(ui: &mut egui::Ui, panel: &mut ChatPanel, ctxs: 
     .on_hover_text("Agent conversations");
 }
 
-fn create_new_session(ctxs: &mut ChatCtx) {
+fn create_new_session(ctxs: &mut ChatCtx) -> String {
     let new_id = ctxs.state.next_session_id.to_string();
     ctxs.state.next_session_id += 1;
-    let new_session = crate::models::ChatSession::default_with_timestamp(new_id);
+    let new_session = crate::models::ChatSession::default_with_timestamp(new_id.clone());
     ctxs.state.sessions.push(new_session.clone());
     ctxs.state.current_index = ctxs.state.sessions.len() - 1;
 
     if let Err(error) = ctxs.storage.save_session(&new_session) {
         tracing::error!("Failed to save new session: {error}");
     }
+
+    new_id
 }
 
 fn show_agent_empty_state(ui: &mut egui::Ui) {
@@ -1214,18 +1226,6 @@ fn combine_prompt_and_attachments(prompt: &str, attachments: &[String]) -> Strin
             .collect::<Vec<_>>()
             .join("\n")
     )
-}
-
-fn should_replace_default_title(title: &str) -> bool {
-    title.starts_with("New session-") || title == "New conversation"
-}
-
-fn conversation_title(message: &str) -> String {
-    let mut title = message.chars().take(48).collect::<String>();
-    if title.trim().is_empty() {
-        title = "New conversation".to_owned();
-    }
-    title
 }
 
 fn is_image_path(path: &Path) -> bool {

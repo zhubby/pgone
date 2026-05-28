@@ -147,10 +147,10 @@ impl AppFrame {
             settings: initial_settings,
             sessions: vec![],
             current_index: 0,
-            next_session_id: 1,
+            next_session_id: 2,
         };
 
-        state.sessions = vec![ChatSession::default_with_timestamp("0".to_string())];
+        state.sessions = vec![ChatSession::default_with_timestamp("1".to_string())];
 
         // No need to initialize extra processes to provide tools
         // Initialize MCP client
