@@ -586,7 +586,8 @@ impl TabViewer for DockTabViewer<'_> {
             | DockTab::JsonViewer { .. }
             | DockTab::DdlViewer { .. }
             | DockTab::GraphViewer { .. } => [false, false],
-            DockTab::DatabaseStructure | DockTab::Chat => [true, true],
+            DockTab::DatabaseStructure => [true, true],
+            DockTab::Chat => [false, false],
         }
     }
 
