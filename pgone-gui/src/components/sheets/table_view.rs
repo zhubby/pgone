@@ -187,102 +187,110 @@ impl ResultsTable {
             ui.separator();
         }
 
-        // Show empty state if no query results
-        if self.query_columns.is_empty() {
-            ui.centered_and_justified(|ui| {
-                ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
-            });
-            ui.separator();
-            self.show_results_status_bar(ui, &mut requested_page);
-            return;
-        }
-
-        // debug!("query_columns: {:?}", self.query_columns);
-        // debug!("query_rows: {:?}", self.query_rows);
-
         let columns = self.query_columns.clone();
         let rows = self.query_rows.clone();
         let primary_keys = self.primary_key_columns.clone();
         let mut json_viewer_requests = Vec::new();
+        let result_area_height = (ui.available_height() - 24.0).max(48.0);
 
-        egui::ScrollArea::both().show(ui, |ui| {
-            let table = TableBuilder::new(ui)
-                .id_salt("query_results_table")
-                .striped(true)
-                .resizable(true)
-                .columns(Column::auto().at_least(96.0), columns.len());
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), result_area_height),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                if columns.is_empty() {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
+                    });
+                    return;
+                }
 
-            table
-                .header(22.0, |mut header| {
-                    for column in &columns {
-                        header.col(|ui| {
-                            if primary_keys.contains(column) {
-                                ui.strong(format!("{} {}", egui_phosphor::regular::KEY, column));
-                            } else {
-                                ui.strong(column);
-                            }
-                        });
-                    }
-                })
-                .body(|mut body| {
-                    let mut selected_row = self.selected_result_row;
-                    for (row_index, row) in rows.iter().enumerate() {
-                        body.row(22.0, |mut table_row| {
-                            table_row.set_selected(selected_row == Some(row_index));
-                            let mut row_clicked = false;
-                            for index in 0..columns.len() {
-                                table_row.col(|ui| {
-                                    let value = row.get(index).map(String::as_str).unwrap_or("");
-                                    let json_value = parse_json_cell(value);
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = 4.0;
-                                        let button_width =
-                                            if json_value.is_some() { 22.0 } else { 0.0 };
-                                        let available_width =
-                                            (ui.available_width() - button_width - 4.0).max(0.0);
-                                        let (display_value, truncated) =
-                                            truncate_cell_text(ui, value, available_width);
-                                        let response = ui.add(
-                                            egui::Label::new(display_value)
-                                                .sense(egui::Sense::click()),
-                                        );
-                                        row_clicked |= response.clicked();
-                                        if truncated {
-                                            response.on_hover_text(value);
-                                        }
+                egui::ScrollArea::both().show(ui, |ui| {
+                    let table = TableBuilder::new(ui)
+                        .id_salt("query_results_table")
+                        .striped(true)
+                        .resizable(true)
+                        .columns(Column::auto().at_least(96.0), columns.len());
 
-                                        if let Some(json_value) = json_value {
-                                            if ui
-                                                .small_button(
-                                                    egui_phosphor::regular::BRACKETS_CURLY,
-                                                )
-                                                .on_hover_text("Open JSON viewer")
-                                                .clicked()
-                                            {
-                                                json_viewer_requests.push((
-                                                    row_index,
-                                                    columns[index].clone(),
-                                                    json_value,
-                                                ));
-                                            }
-                                        }
-                                    });
+                    table
+                        .header(22.0, |mut header| {
+                            for column in &columns {
+                                header.col(|ui| {
+                                    if primary_keys.contains(column) {
+                                        ui.strong(format!(
+                                            "{} {}",
+                                            egui_phosphor::regular::KEY,
+                                            column
+                                        ));
+                                    } else {
+                                        ui.strong(column);
+                                    }
                                 });
                             }
-                            if row_clicked {
-                                selected_row = Some(row_index);
+                        })
+                        .body(|mut body| {
+                            let mut selected_row = self.selected_result_row;
+                            for (row_index, row) in rows.iter().enumerate() {
+                                body.row(22.0, |mut table_row| {
+                                    table_row.set_selected(selected_row == Some(row_index));
+                                    let mut row_clicked = false;
+                                    for index in 0..columns.len() {
+                                        table_row.col(|ui| {
+                                            let value =
+                                                row.get(index).map(String::as_str).unwrap_or("");
+                                            let json_value = parse_json_cell(value);
+                                            ui.horizontal(|ui| {
+                                                ui.spacing_mut().item_spacing.x = 4.0;
+                                                let button_width =
+                                                    if json_value.is_some() { 22.0 } else { 0.0 };
+                                                let available_width = (ui.available_width()
+                                                    - button_width
+                                                    - 4.0)
+                                                    .max(0.0);
+                                                let (display_value, truncated) =
+                                                    truncate_cell_text(ui, value, available_width);
+                                                let response = ui.add(
+                                                    egui::Label::new(display_value)
+                                                        .sense(egui::Sense::click()),
+                                                );
+                                                row_clicked |= response.clicked();
+                                                if truncated {
+                                                    response.on_hover_text(value);
+                                                }
+
+                                                if let Some(json_value) = json_value {
+                                                    if ui
+                                                        .small_button(
+                                                            egui_phosphor::regular::BRACKETS_CURLY,
+                                                        )
+                                                        .on_hover_text("Open JSON viewer")
+                                                        .clicked()
+                                                    {
+                                                        json_viewer_requests.push((
+                                                            row_index,
+                                                            columns[index].clone(),
+                                                            json_value,
+                                                        ));
+                                                    }
+                                                }
+                                            });
+                                        });
+                                    }
+                                    if row_clicked {
+                                        selected_row = Some(row_index);
+                                    }
+                                });
                             }
+                            self.selected_result_row =
+                                selected_row.filter(|index| *index < rows.len());
                         });
-                    }
-                    self.selected_result_row = selected_row.filter(|index| *index < rows.len());
                 });
-        });
+            },
+        );
 
         for (row_index, column, value) in json_viewer_requests {
             self.open_json_viewer(row_index, &column, value);
         }
 
-        ui.separator();
         self.show_results_status_bar(ui, &mut requested_page);
         if let (Some(page), Some(ctxs)) = (requested_page, ctxs.as_deref_mut()) {
             self.start_page_query(ctxs, page);
@@ -291,9 +299,10 @@ impl ResultsTable {
 
     fn show_results_status_bar(&self, ui: &mut egui::Ui, requested_page: &mut Option<usize>) {
         ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), 28.0),
+            egui::vec2(ui.available_width(), 22.0),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
+                ui.spacing_mut().button_padding = egui::vec2(3.0, 1.0);
                 self.show_plan_status(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.show_pagination_controls(ui, requested_page);
@@ -311,7 +320,11 @@ impl ResultsTable {
                 explain_info.cost,
                 explain_info.rows
             );
-            ui.label(egui::RichText::new(info_text).color(egui::Color32::from_rgb(100, 150, 200)));
+            ui.label(
+                egui::RichText::new(info_text)
+                    .color(egui::Color32::from_rgb(100, 150, 200))
+                    .small(),
+            );
         } else if let Some(ref error) = self.explain_error {
             ui.label(
                 egui::RichText::new(format!("{} {}", egui_phosphor::regular::WARNING, error))
@@ -340,10 +353,7 @@ impl ResultsTable {
                 .unwrap_or(self.has_next_page);
 
         if ui
-            .add_enabled(
-                next_enabled,
-                egui::Button::new(egui_phosphor::regular::CARET_RIGHT),
-            )
+            .add_enabled(next_enabled, egui::Button::new(egui_phosphor::regular::CARET_RIGHT).small())
             .on_hover_text("Next page")
             .clicked()
         {
@@ -356,10 +366,7 @@ impl ResultsTable {
         ui.label(egui::RichText::new(page_label).small());
 
         if ui
-            .add_enabled(
-                previous_enabled,
-                egui::Button::new(egui_phosphor::regular::CARET_LEFT),
-            )
+            .add_enabled(previous_enabled, egui::Button::new(egui_phosphor::regular::CARET_LEFT).small())
             .on_hover_text("Previous page")
             .clicked()
         {
