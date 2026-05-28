@@ -378,9 +378,7 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         snarl: &mut Snarl<TableGraphNode>,
     ) -> PinInfo {
         let column = snarl[pin.id.node].input_column(pin.id.input).unwrap_or("");
-        ui.push_id(("graph_input", pin.id.node, pin.id.input), |ui| {
-            ui.label(egui::RichText::new(column).monospace().small());
-        });
+        ui.label(egui::RichText::new(column).monospace().small());
         PinInfo::circle()
             .with_fill(egui::Color32::from_rgb(75, 168, 120))
             .with_wire_color(egui::Color32::from_rgb(75, 168, 120))
@@ -401,10 +399,8 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         let column = snarl[pin.id.node]
             .output_column(pin.id.output)
             .unwrap_or("");
-        ui.push_id(("graph_output", pin.id.node, pin.id.output), |ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new(column).monospace().small());
-            });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(column).monospace().small());
         });
         PinInfo::circle()
             .with_fill(egui::Color32::from_rgb(245, 159, 52))
@@ -425,8 +421,8 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         snarl: &mut Snarl<TableGraphNode>,
     ) {
         let node = &snarl[node];
-        ui.push_id(("graph_body", &node.table.schema, &node.table.name), |ui| {
-            ui.set_min_width(TABLE_NODE_WIDTH);
+        ui.set_min_width(TABLE_NODE_WIDTH);
+        ui.vertical(|ui| {
             if let Some(comment) = &node.table.comment {
                 ui.label(egui::RichText::new(comment).small().italics().weak());
                 ui.separator();
@@ -457,11 +453,9 @@ impl SnarlViewer<TableGraphNode> for TableGraphViewer {
         ui: &mut egui::Ui,
         snarl: &mut Snarl<TableGraphNode>,
     ) {
-        ui.push_id(("graph_header", node), |ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui_phosphor::regular::TABLE);
-                ui.strong(&snarl[node].table.name);
-            });
+        ui.horizontal(|ui| {
+            ui.label(egui_phosphor::regular::TABLE);
+            ui.strong(&snarl[node].table.name);
         });
     }
 
@@ -539,48 +533,43 @@ fn show_zoom_controls(
 }
 
 fn show_column_row(ui: &mut egui::Ui, table: &TableDetail, column: &ColumnDetail) {
-    ui.push_id(
-        ("graph_column", &table.schema, &table.name, &column.name),
-        |ui| {
-            ui.horizontal(|ui| {
-                ui.set_min_width(TABLE_NODE_WIDTH - 24.0);
-                if is_primary_key(&table.primary_key, &column.name) {
-                    ui.label(
-                        egui::RichText::new(egui_phosphor::regular::KEY)
-                            .color(egui::Color32::from_rgb(245, 159, 52)),
-                    );
-                } else {
-                    ui.add_space(14.0);
-                }
+    ui.horizontal(|ui| {
+        ui.set_min_width(TABLE_NODE_WIDTH - 24.0);
+        if is_primary_key(&table.primary_key, &column.name) {
+            ui.label(
+                egui::RichText::new(egui_phosphor::regular::KEY)
+                    .color(egui::Color32::from_rgb(245, 159, 52)),
+            );
+        } else {
+            ui.add_space(14.0);
+        }
 
-                if is_foreign_key(&table.foreign_keys, &column.name) {
-                    ui.label(
-                        egui::RichText::new(egui_phosphor::regular::LINK)
-                            .color(egui::Color32::from_rgb(75, 168, 120)),
-                    );
-                } else {
-                    ui.add_space(14.0);
-                }
+        if is_foreign_key(&table.foreign_keys, &column.name) {
+            ui.label(
+                egui::RichText::new(egui_phosphor::regular::LINK)
+                    .color(egui::Color32::from_rgb(75, 168, 120)),
+            );
+        } else {
+            ui.add_space(14.0);
+        }
 
-                ui.label(
-                    egui::RichText::new(&column.name)
-                        .monospace()
-                        .small()
-                        .strong(),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mut details = column.data_type.clone();
-                    if !column.nullable {
-                        details.push_str(" not null");
-                    }
-                    if column.default.is_some() {
-                        details.push_str(" default");
-                    }
-                    ui.label(egui::RichText::new(details).small().weak());
-                });
-            });
-        },
-    );
+        ui.label(
+            egui::RichText::new(&column.name)
+                .monospace()
+                .small()
+                .strong(),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut details = column.data_type.clone();
+            if !column.nullable {
+                details.push_str(" not null");
+            }
+            if column.default.is_some() {
+                details.push_str(" default");
+            }
+            ui.label(egui::RichText::new(details).small().weak());
+        });
+    });
 }
 
 fn snarl_style(ui: &egui::Ui) -> SnarlStyle {
