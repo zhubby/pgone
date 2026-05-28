@@ -3,7 +3,7 @@ use std::str::FromStr;
 use tracing::Level;
 use tracing_subscriber::fmt::time::ChronoUtc;
 
-/// 日志级别枚举
+/// Log level enum
 #[derive(Debug, Clone, Copy)]
 pub enum LogLevel {
     Trace,
@@ -23,7 +23,7 @@ impl FromStr for LogLevel {
             "info" => Ok(LogLevel::Info),
             "warn" => Ok(LogLevel::Warn),
             "error" => Ok(LogLevel::Error),
-            _ => Err(anyhow::anyhow!("无效的日志级别: {}", s)),
+            _ => Err(anyhow::anyhow!("invalid log level: {}", s)),
         }
     }
 }
@@ -40,15 +40,15 @@ impl From<LogLevel> for Level {
     }
 }
 
-/// 日志初始化配置
+/// Log initialization configuration
 pub struct LogConfig {
-    /// 日志级别
+    /// Log level
     pub level: LogLevel,
-    /// 是否启用 OpenTelemetry 追踪
+    /// Whether to enable OpenTelemetry tracing
     pub enable_otel: bool,
-    /// 是否使用 JSON 格式输出（用于生产环境）
+    /// Whether to use JSON format output (for production environments)
     pub json_format: bool,
-    /// 服务名称（用于 OpenTelemetry）
+    /// Service name (for OpenTelemetry)
     pub service_name: Option<String>,
 }
 
@@ -63,12 +63,12 @@ impl Default for LogConfig {
     }
 }
 
-/// 初始化日志系统
+/// Initialize the logging system
 ///
-/// # 参数
-/// - `config`: 日志配置
+/// # Parameters
+/// - `config`: Log configuration
 ///
-/// # 示例
+/// # Example
 /// ```rust
 /// use pgone_util::log::{init_log, LogConfig, LogLevel};
 ///
@@ -88,12 +88,12 @@ pub fn init_log(config: LogConfig) -> Result<()> {
         LogLevel::Error => "error",
     };
 
-    // 将 LogLevel 转换为 tracing::Level
+    // Convert LogLevel to tracing::Level
     let level: Level = config.level.into();
 
-    // 根据配置选择格式化层，使用 with_max_level 设置日志级别
+    // Select formatter layer based on configuration, set log level with with_max_level
     if config.json_format {
-        // JSON 格式（用于生产环境）
+        // JSON format (for production environments)
         tracing_subscriber::fmt()
             .with_max_level(level)
             .json()
@@ -103,7 +103,7 @@ pub fn init_log(config: LogConfig) -> Result<()> {
             .with_line_number(true)
             .init();
     } else {
-        // 美观的彩色格式（用于开发环境）
+        // Pretty colored format (for development environments)
         tracing_subscriber::fmt()
             .with_max_level(level)
             .with_timer(ChronoUtc::rfc_3339())
@@ -116,30 +116,30 @@ pub fn init_log(config: LogConfig) -> Result<()> {
             .init();
     }
 
-    // 如果启用 OpenTelemetry，添加追踪层
-    // 注意：OpenTelemetry 0.31 版本的 API 可能需要根据实际 exporter 配置
-    // 这里提供一个基础框架，实际使用时需要配置合适的 exporter
+    // If OpenTelemetry is enabled, add a tracing layer
+    // Note: OpenTelemetry 0.31 API may require additional configuration based on the actual exporter.
+    // This provides a basic framework; a suitable exporter should be configured for actual use.
     if config.enable_otel {
         tracing::warn!(
             service_name = config.service_name.as_deref().unwrap_or("pgone-service"),
-            "OpenTelemetry 功能已启用，但需要配置 exporter 才能正常工作"
+            "OpenTelemetry is enabled, but an exporter must be configured to function properly"
         );
-        // TODO: 实现完整的 OpenTelemetry 集成
+        // TODO: Implement full OpenTelemetry integration
     }
 
     tracing::info!(
         level = level_str,
-        "日志系统已初始化，日志级别: {}",
+        "Logging system initialized, log level: {}",
         level_str
     );
 
     Ok(())
 }
 
-/// 便捷函数：使用默认配置初始化日志
+/// Convenience function: initialize logging with default configuration
 ///
-/// # 参数
-/// - `level`: 日志级别字符串（如 "info", "debug" 等）
+/// # Parameters
+/// - `level`: Log level string (e.g. "info", "debug", etc.)
 pub fn init_log_simple(level: &str) -> Result<()> {
     let log_level = LogLevel::from_str(level)?;
     init_log(LogConfig {
@@ -148,18 +148,18 @@ pub fn init_log_simple(level: &str) -> Result<()> {
     })
 }
 
-/// 便捷函数：从环境变量初始化日志
+/// Convenience function: initialize logging from environment variable
 ///
-/// 读取环境变量 `RUST_LOG` 来设置日志级别
-/// 如果未设置，默认使用 `info` 级别
+/// Reads the `RUST_LOG` environment variable to set the log level.
+/// Defaults to `info` level if not set.
 pub fn init_log_from_env() -> Result<()> {
     let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     init_log_simple(&level)
 }
 
-/// 清理 OpenTelemetry 资源
-/// 在程序退出前调用以确保资源正确释放
+/// Shut down OpenTelemetry resources
+/// Call before program exit to ensure resources are properly released
 pub fn shutdown_otel() {
-    // OpenTelemetry SDK 会自动清理资源
-    // 如果需要显式清理，可以在这里添加相应的清理代码
+    // OpenTelemetry SDK cleans up resources automatically
+    // Add explicit cleanup code here if needed
 }
