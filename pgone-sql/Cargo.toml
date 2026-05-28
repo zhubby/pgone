@@ -12,11 +12,10 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-bb8-postgres = { workspace = true }
-tokio-postgres = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }

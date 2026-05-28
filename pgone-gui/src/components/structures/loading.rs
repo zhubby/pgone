@@ -7,6 +7,7 @@ use pgone_sql::{
     Session, TableDetail, TableInfo, TriggerInfo, ViewInfo,
 };
 use poll_promise::Promise;
+use sqlx::Row;
 
 pub(super) fn check_promises(tree: &mut DbTree) {
     // Check databases promise
@@ -239,15 +240,15 @@ pub(super) fn load_databases(tree: &mut DbTree, db_manager: &mut crate::componen
         return;
     };
 
-    let dsn_clone = dsn.clone();
+    let pools = db_manager.pools.clone();
+    let dsn_clone = utils::replace_database_in_dsn(&dsn, "postgres").unwrap_or(dsn);
     let (sender, promise) = Promise::new();
     tree.databases_promise = Some(promise);
 
     futures::spawn(async move {
         let result: Result<Vec<DatabaseInfo>, String> = async {
-            let session = Session::connect_to_postgres(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to connect to postgres: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             session
                 .list_databases()
@@ -279,15 +280,15 @@ pub(super) fn load_schemas(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let (sender, promise) = Promise::new();
     tree.schemas_promises.insert(database.to_string(), promise);
 
     futures::spawn(async move {
         let result: Result<Vec<SchemaInfo>, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             session
                 .list_schemas()
@@ -321,6 +322,7 @@ pub(super) fn load_tables(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let (sender, promise) = Promise::new();
@@ -328,9 +330,8 @@ pub(super) fn load_tables(
 
     futures::spawn(async move {
         let result: Result<Vec<TableInfo>, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             session
                 .list_tables(Some(&schema_clone))
@@ -364,6 +365,7 @@ pub(super) fn load_views(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let (sender, promise) = Promise::new();
@@ -371,9 +373,8 @@ pub(super) fn load_views(
 
     futures::spawn(async move {
         let result: Result<Vec<ViewInfo>, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             session
                 .list_views(Some(&schema_clone))
@@ -411,6 +412,7 @@ pub(super) fn load_materialized_views(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let (sender, promise) = Promise::new();
@@ -419,9 +421,8 @@ pub(super) fn load_materialized_views(
 
     futures::spawn(async move {
         let result: Result<Vec<MaterializedViewInfo>, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             session
                 .list_materialized_views(Some(&schema_clone))
@@ -455,6 +456,7 @@ pub(super) fn load_functions(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let (sender, promise) = Promise::new();
@@ -462,9 +464,8 @@ pub(super) fn load_functions(
 
     futures::spawn(async move {
         let result: Result<Vec<FunctionInfo>, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             session
                 .list_functions(Some(&schema_clone))
@@ -619,6 +620,7 @@ pub(super) fn load_table_detail_for_design(
     // 记录当前要加载的表
     tree.design_table_loaded = Some(current_table.clone());
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let table_clone = table.to_string();
@@ -627,9 +629,8 @@ pub(super) fn load_table_detail_for_design(
 
     futures::spawn(async move {
         let result: Result<TableDetail, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             session
                 .get_table_detail(&schema_clone, &table_clone)
@@ -659,6 +660,7 @@ pub(super) fn load_table_ddl(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let table_clone = table.to_string();
@@ -667,9 +669,8 @@ pub(super) fn load_table_ddl(
 
     futures::spawn(async move {
         let result: Result<String, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             // 获取表结构详情
             let table_detail = session
@@ -725,6 +726,7 @@ pub(super) fn load_indexes(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let table_clone = table.to_string();
@@ -733,9 +735,8 @@ pub(super) fn load_indexes(
 
     futures::spawn(async move {
         let result: Result<Vec<IndexInfo>, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             session
                 .list_table_indexes(&schema_clone, &table_clone)
@@ -767,6 +768,7 @@ pub(super) fn load_foreign_keys(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let table_clone = table.to_string();
@@ -775,9 +777,8 @@ pub(super) fn load_foreign_keys(
 
     futures::spawn(async move {
         let result: Result<Vec<ForeignKeyDetail>, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             let detail = session
                 .get_table_detail(&schema_clone, &table_clone)
@@ -811,6 +812,7 @@ pub(super) fn load_triggers(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let table_clone = table.to_string();
@@ -819,9 +821,8 @@ pub(super) fn load_triggers(
 
     futures::spawn(async move {
         let result: Result<Vec<TriggerInfo>, String> = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             let triggers = session
                 .list_triggers(Some(&schema_clone))
@@ -943,6 +944,7 @@ pub(super) fn query_index_detail(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let table_clone = table.to_string();
@@ -952,9 +954,8 @@ pub(super) fn query_index_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             let indexes = session
                 .list_table_indexes(&schema_clone, &table_clone)
@@ -1013,6 +1014,7 @@ pub(super) fn query_foreign_key_detail(
         (schema, ref_table_part)
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let table_clone = table.to_string();
@@ -1023,20 +1025,11 @@ pub(super) fn query_foreign_key_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
-
-            // Query foreign key constraint name from information_schema using columns and ref_table
-            let conn = session
-                .get_connection()
-                .await
-                .map_err(|e| format!("Failed to get connection: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
 
             // First, find the constraint name by matching columns and ref_table
-            let fk_rows = conn
-                .query(
-                    r#"
+            let fk_rows = sqlx::query(
+                r#"
             SELECT DISTINCT tc.constraint_name
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
@@ -1052,33 +1045,34 @@ pub(super) fn query_foreign_key_detail(
               AND ccu.table_schema = $3
               AND ccu.table_name = $4
             "#,
-                    &[
-                        &schema_clone,
-                        &table_clone,
-                        &ref_schema_clone,
-                        &ref_table_name_clone,
-                    ],
-                )
-                .await
-                .map_err(|e| format!("Failed to query foreign key constraints: {}", e))?;
+            )
+            .bind(&schema_clone)
+            .bind(&table_clone)
+            .bind(&ref_schema_clone)
+            .bind(&ref_table_name_clone)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| format!("Failed to query foreign key constraints: {}", e))?;
 
             // Find the constraint that matches all columns
             let mut matching_constraint: Option<String> = None;
             for row in fk_rows {
                 let constraint_name: String = row.get(0);
                 // Get columns for this constraint
-                let col_rows = conn
-                    .query(
-                        r#"
+                let col_rows = sqlx::query(
+                    r#"
                 SELECT kcu.column_name
                 FROM information_schema.key_column_usage kcu
                 WHERE kcu.constraint_name = $1 AND kcu.table_schema = $2 AND kcu.table_name = $3
                 ORDER BY kcu.ordinal_position
                 "#,
-                        &[&constraint_name, &schema_clone, &table_clone],
-                    )
-                    .await
-                    .map_err(|e| format!("Failed to query constraint columns: {}", e))?;
+                )
+                .bind(&constraint_name)
+                .bind(&schema_clone)
+                .bind(&table_clone)
+                .fetch_all(&pool)
+                .await
+                .map_err(|e| format!("Failed to query constraint columns: {}", e))?;
 
                 let constraint_cols: Vec<String> = col_rows.iter().map(|r| r.get(0)).collect();
                 if constraint_cols.len() == fk_columns.len()
@@ -1096,9 +1090,8 @@ pub(super) fn query_foreign_key_detail(
                 matching_constraint.ok_or_else(|| format!("Foreign key not found"))?;
 
             // Now get the full foreign key details
-            let fk_row = conn
-                .query_opt(
-                    r#"
+            let fk_row = sqlx::query(
+                r#"
             SELECT 
                 tc.constraint_name,
                 kcu.column_name,
@@ -1122,11 +1115,14 @@ pub(super) fn query_foreign_key_detail(
             ORDER BY kcu.ordinal_position
             LIMIT 1
             "#,
-                    &[&schema_clone, &table_clone, &constraint_name],
-                )
-                .await
-                .map_err(|e| format!("Failed to query foreign key: {}", e))?
-                .ok_or_else(|| format!("Foreign key not found"))?;
+            )
+            .bind(&schema_clone)
+            .bind(&table_clone)
+            .bind(&constraint_name)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| format!("Failed to query foreign key: {}", e))?
+            .ok_or_else(|| format!("Foreign key not found"))?;
 
             // Build result table
             let columns = vec!["Property".to_string(), "Value".to_string()];
@@ -1150,9 +1146,8 @@ pub(super) fn query_foreign_key_detail(
             }
 
             // Get all columns
-            let fk_rows = conn
-                .query(
-                    r#"
+            let fk_rows = sqlx::query(
+                r#"
             SELECT kcu.column_name, ccu.column_name AS ref_column
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
@@ -1168,16 +1163,19 @@ pub(super) fn query_foreign_key_detail(
               AND tc.constraint_name = $3
             ORDER BY kcu.ordinal_position
             "#,
-                    &[&schema_clone, &table_clone, &constraint_name],
-                )
-                .await
-                .map_err(|e| format!("Failed to query foreign key columns: {}", e))?;
+            )
+            .bind(&schema_clone)
+            .bind(&table_clone)
+            .bind(&constraint_name)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| format!("Failed to query foreign key columns: {}", e))?;
 
             let mut local_cols = Vec::new();
             let mut ref_cols = Vec::new();
             for row in fk_rows {
-                local_cols.push(row.get::<_, String>("column_name"));
-                ref_cols.push(row.get::<_, String>("ref_column"));
+                local_cols.push(row.get::<String, _>("column_name"));
+                ref_cols.push(row.get::<String, _>("ref_column"));
             }
 
             rows.push(vec!["Local Columns".to_string(), local_cols.join(", ")]);
@@ -1204,6 +1202,7 @@ pub(super) fn query_trigger_detail(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let trigger_clone = trigger.to_string();
@@ -1213,9 +1212,8 @@ pub(super) fn query_trigger_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             let triggers = session
                 .get_trigger_info(&schema_clone, &trigger_clone)
@@ -1269,6 +1267,7 @@ pub(super) fn query_view_detail(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let view_clone = view.to_string();
@@ -1277,9 +1276,8 @@ pub(super) fn query_view_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             let view_info = session
                 .get_view_info(&schema_clone, &view_clone)
@@ -1320,6 +1318,7 @@ pub(super) fn query_materialized_view_detail(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let matview_clone = materialized_view.to_string();
@@ -1328,9 +1327,8 @@ pub(super) fn query_materialized_view_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             let matview_info = session
                 .get_materialized_view_info(&schema_clone, &matview_clone)
@@ -1371,6 +1369,7 @@ pub(super) fn query_function_detail(
         return;
     };
 
+    let pools = db_manager.pools.clone();
     let dsn_clone = dsn.clone();
     let schema_clone = schema.to_string();
     let function_clone = function.to_string();
@@ -1379,9 +1378,8 @@ pub(super) fn query_function_detail(
     tree.results_promise = Some(promise);
     futures::spawn(async move {
         let result = async {
-            let session = Session::new(&dsn_clone)
-                .await
-                .map_err(|e| format!("Failed to create session: {}", e))?;
+            let pool = pools.get_or_create_pool(&dsn_clone).await?;
+            let session = Session::from_pool(pool);
 
             let functions = session
                 .get_function_info(&schema_clone, &function_clone)

@@ -1,10 +1,10 @@
 use crate::components::DbManager;
+use crate::components::db_manager::PoolRegistry;
 use crate::models::Settings;
 use eframe::egui::{Context, Panel, ThemePreference, Ui};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sqlx::Row;
-use sqlx::postgres::PgPoolOptions;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -78,7 +78,8 @@ pub fn show_status_bar(
                             });
 
                             // 获取并显示数据库版本信息
-                            let db_version = get_db_version(ctx, &cfg.dsn, &cfg.id);
+                            let db_version =
+                                get_db_version(ctx, db.pools.clone(), &cfg.dsn, &cfg.id);
                             if let Some(version) = db_version {
                                 let short_version = extract_version_info(&version);
                                 ui.horizontal(|ui| {
@@ -197,7 +198,7 @@ fn extract_version_info(full_version: &str) -> String {
 }
 
 /// 获取数据库版本信息，使用缓存机制避免频繁查询
-fn get_db_version(ctx: &Context, dsn: &str, db_id: &str) -> Option<String> {
+fn get_db_version(ctx: &Context, pools: PoolRegistry, dsn: &str, db_id: &str) -> Option<String> {
     let mut cache = DB_VERSION_CACHE.lock().unwrap();
     let now = Instant::now();
 
@@ -222,10 +223,10 @@ fn get_db_version(ctx: &Context, dsn: &str, db_id: &str) -> Option<String> {
         let ctx = ctx.clone();
         crate::futures::spawn(async move {
             let version_result = async {
-                let pool = PgPoolOptions::new()
-                    .max_connections(1)
-                    .connect(&dsn)
-                    .await?;
+                let pool = pools
+                    .get_or_create_pool(&dsn)
+                    .await
+                    .map_err(sqlx::Error::Protocol)?;
                 let row = sqlx::query("SELECT version() as version")
                     .fetch_one(&pool)
                     .await?;

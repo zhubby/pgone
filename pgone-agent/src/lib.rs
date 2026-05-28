@@ -16,8 +16,9 @@ use pgone_sql::Session;
 use pgone_storage::service::StorageService;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sqlx::postgres::{PgPool, PgRow};
+use sqlx::{Column, Row, TypeInfo, ValueRef};
 use tokio::time::{Duration, timeout};
-use tokio_postgres::Row;
 
 pub use provider::{
     ChatMessage, ChatMessageDelta, LlmConfig, LlmProvider, LlmProviderKind, ModelInfo,
@@ -394,17 +395,14 @@ impl AgentToolServices for StorageBackedAgentToolServices {
         let session = self
             .session(dbconfig_id, request.database_name.as_deref())
             .await?;
-        let conn = session
-            .get_connection()
-            .await
-            .map_err(|error| AgentError::Tool(error.to_string()))?;
+        let pool = session.pool();
 
-        let explain = explain_readonly_sql(&conn, &request.sql, timeout_ms)
+        let explain = explain_readonly_sql(pool, &request.sql, timeout_ms)
             .await
             .ok();
         let rows = timeout(
             Duration::from_millis(timeout_ms),
-            conn.query(&request.sql, &[]),
+            sqlx::query(&request.sql).fetch_all(pool),
         )
         .await
         .map_err(|_| AgentError::Tool("read-only SQL query timed out".to_owned()))?
@@ -449,24 +447,17 @@ fn diagram_options(schemas: Option<Vec<String>>) -> IntrospectOptions {
     }
 }
 
-async fn explain_readonly_sql(
-    conn: &bb8_postgres::bb8::PooledConnection<
-        '_,
-        bb8_postgres::PostgresConnectionManager<tokio_postgres::NoTls>,
-    >,
-    sql: &str,
-    timeout_ms: u64,
-) -> Result<String> {
+async fn explain_readonly_sql(pool: &PgPool, sql: &str, timeout_ms: u64) -> Result<String> {
     let rows = timeout(
         Duration::from_millis(timeout_ms),
-        conn.query(&format!("EXPLAIN (FORMAT TEXT) {}", sql.trim()), &[]),
+        sqlx::query(&format!("EXPLAIN (FORMAT TEXT) {}", sql.trim())).fetch_all(pool),
     )
     .await
     .map_err(|_| AgentError::Tool("read-only SQL explain timed out".to_owned()))?
     .map_err(|error| AgentError::Tool(error.to_string()))?;
     let mut output = String::new();
     for row in rows {
-        if let Ok(line) = row.try_get::<_, String>(0) {
+        if let Ok(line) = row.try_get::<String, _>(0) {
             output.push_str(&line);
             output.push('\n');
         }
@@ -474,52 +465,58 @@ async fn explain_readonly_sql(
     Ok(output)
 }
 
-fn format_row(row: &Row) -> Vec<String> {
+fn format_row(row: &PgRow) -> Vec<String> {
     (0..row.len())
         .map(|index| format_cell(row, index))
         .collect()
 }
 
-fn format_cell(row: &Row, index: usize) -> String {
-    if let Ok(value) = row.try_get::<_, Option<String>>(index) {
-        return value.unwrap_or_else(|| "NULL".to_owned());
+fn format_cell(row: &PgRow, index: usize) -> String {
+    if row
+        .try_get_raw(index)
+        .map(|raw| raw.is_null())
+        .unwrap_or(true)
+    {
+        return "NULL".to_owned();
     }
-    if let Ok(value) = row.try_get::<_, Option<i64>>(index) {
-        return value
+
+    let type_name = row.columns()[index].type_info().name().to_ascii_lowercase();
+    match type_name.as_str() {
+        "text" | "varchar" | "bpchar" | "name" | "citext" | "json" | "jsonb" => row
+            .try_get::<String, _>(index)
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "int2" => row
+            .try_get::<i16, _>(index)
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "NULL".to_owned());
-    }
-    if let Ok(value) = row.try_get::<_, Option<i32>>(index) {
-        return value
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "int4" => row
+            .try_get::<i32, _>(index)
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "NULL".to_owned());
-    }
-    if let Ok(value) = row.try_get::<_, Option<i16>>(index) {
-        return value
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "int8" => row
+            .try_get::<i64, _>(index)
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "NULL".to_owned());
-    }
-    if let Ok(value) = row.try_get::<_, Option<f64>>(index) {
-        return value
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "float4" => row
+            .try_get::<f32, _>(index)
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "NULL".to_owned());
-    }
-    if let Ok(value) = row.try_get::<_, Option<f32>>(index) {
-        return value
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "float8" => row
+            .try_get::<f64, _>(index)
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "NULL".to_owned());
-    }
-    if let Ok(value) = row.try_get::<_, Option<bool>>(index) {
-        return value
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "bool" => row
+            .try_get::<bool, _>(index)
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "NULL".to_owned());
-    }
-    if let Ok(value) = row.try_get::<_, Option<uuid::Uuid>>(index) {
-        return value
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "uuid" => row
+            .try_get::<uuid::Uuid, _>(index)
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "NULL".to_owned());
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        _ => row
+            .try_get::<String, _>(index)
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
     }
-    "<unprintable>".to_owned()
 }
 
 fn replace_database_in_dsn(dsn: &str, new_db: &str) -> String {

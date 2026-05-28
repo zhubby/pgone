@@ -1,6 +1,7 @@
 use crate::error::{Result, SqlError};
 use crate::models::DatabaseInfo;
 use crate::session::Session;
+use sqlx::Row;
 use tracing::info;
 
 impl Session {
@@ -9,10 +10,9 @@ impl Session {
     pub async fn list_databases(&self) -> Result<Vec<DatabaseInfo>> {
         info!("Listing all databases");
 
-        let conn = self.get_connection().await?;
-        let rows = conn
-            .query(
-                r#"
+        let pool = self.pool();
+        let rows = sqlx::query(
+            r#"
             SELECT 
                 d.datname AS name,
                 pg_catalog.pg_get_userbyid(d.datdba) AS owner,
@@ -25,10 +25,10 @@ impl Session {
             WHERE d.datistemplate = false
             ORDER BY d.datname
             "#,
-                &[],
-            )
-            .await
-            .map_err(SqlError::Connection)?;
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(SqlError::Connection)?;
 
         let mut databases = Vec::new();
         for row in rows {
@@ -50,10 +50,9 @@ impl Session {
     pub async fn get_database_info(&self, db_name: &str) -> Result<DatabaseInfo> {
         info!(db_name = db_name, "Getting database info");
 
-        let conn = self.get_connection().await?;
-        let row = conn
-            .query_opt(
-                r#"
+        let pool = self.pool();
+        let row = sqlx::query(
+            r#"
             SELECT 
                 d.datname AS name,
                 pg_catalog.pg_get_userbyid(d.datdba) AS owner,
@@ -65,11 +64,12 @@ impl Session {
             FROM pg_catalog.pg_database d
             WHERE d.datname = $1 AND d.datistemplate = false
             "#,
-                &[&db_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?
-            .ok_or_else(|| SqlError::NotFound(format!("Database '{}' not found", db_name)))?;
+        )
+        .bind(db_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(SqlError::Connection)?
+        .ok_or_else(|| SqlError::NotFound(format!("Database '{}' not found", db_name)))?;
 
         Ok(DatabaseInfo {
             name: row.get("name"),
@@ -113,8 +113,8 @@ impl Session {
             sql.push_str(&format!(" TEMPLATE {}", quote_ident(template)));
         }
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("permission denied") || err_str.contains("must be superuser") {
                 SqlError::PermissionDenied(format!(
@@ -145,7 +145,7 @@ impl Session {
             "Altering database"
         );
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
         // Rename database if needed
         if let Some(new_name) = new_name {
@@ -154,7 +154,8 @@ impl Session {
                 quote_ident(db_name),
                 quote_ident(new_name)
             );
-            conn.execute(&sql, &[])
+            sqlx::query(&sql)
+                .execute(pool)
                 .await
                 .map_err(|e| SqlError::Execution(format!("Failed to rename database: {}", e)))?;
         }
@@ -166,7 +167,7 @@ impl Session {
                 quote_ident(db_name),
                 quote_ident(new_owner)
             );
-            conn.execute(&sql, &[]).await.map_err(|e| {
+            sqlx::query(&sql).execute(pool).await.map_err(|e| {
                 let err_str = e.to_string();
                 if err_str.contains("permission denied") {
                     SqlError::PermissionDenied(format!(
@@ -205,8 +206,8 @@ impl Session {
             format!("DROP DATABASE {}", quote_ident(db_name))
         };
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("permission denied") {
                 SqlError::PermissionDenied(format!(

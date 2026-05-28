@@ -1,3 +1,4 @@
+use crate::components::db_manager::PoolRegistry;
 use pgone_sql::{Session, TableDetail};
 use poll_promise::Promise;
 use std::collections::hash_map::DefaultHasher;
@@ -69,7 +70,7 @@ impl SchemaGraph {
         }
     }
 
-    pub fn load_data(&mut self, dsn: &str) {
+    pub fn load_data(&mut self, pools: PoolRegistry, dsn: &str) {
         if self.loading || self.promise.is_some() {
             return;
         }
@@ -84,7 +85,8 @@ impl SchemaGraph {
 
         crate::futures::spawn(async move {
             let result: Result<Vec<TableDetail>, String> = async move {
-                let session = Session::new(&dsn).await.map_err(|e| e.to_string())?;
+                let pool = pools.get_or_create_pool(&dsn).await?;
+                let session = Session::from_pool(pool);
                 session
                     .list_table_details(&schema_name)
                     .await
@@ -96,7 +98,7 @@ impl SchemaGraph {
         });
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, dsn: Option<&str>) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, pools: PoolRegistry, dsn: Option<&str>) {
         // Check promise status
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
@@ -116,7 +118,7 @@ impl SchemaGraph {
 
         // Start loading if needed
         if !self.initialized && dsn.is_some() && self.promise.is_none() && !self.loading {
-            self.load_data(dsn.unwrap());
+            self.load_data(pools, dsn.unwrap());
         }
 
         if self.loading {

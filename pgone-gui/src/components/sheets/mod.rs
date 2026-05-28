@@ -1,10 +1,13 @@
 use crate::components::SqlCtx;
 use poll_promise::Promise;
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 use tracing::debug;
 
 mod database_loader;
 mod executor;
+mod json_viewer;
 mod sql_editor;
 mod table_view;
 mod utils;
@@ -28,6 +31,15 @@ pub struct QueryResult {
     pub explain_error: Option<String>,
 }
 
+#[derive(Clone)]
+pub struct JsonViewerTab {
+    pub id: u64,
+    pub title: String,
+    pub value: Value,
+    pub source_column: String,
+    pub source_row: usize,
+}
+
 #[derive(Default)]
 pub struct ResultsTable {
     // Refresh control
@@ -44,6 +56,10 @@ pub struct ResultsTable {
     pub query_rows: Vec<Vec<String>>,
     pub primary_key_columns: HashSet<String>,
     pub query_promise: Option<Promise<Result<QueryResult, String>>>,
+    pub selected_result_row: Option<usize>,
+    pub json_viewer_tabs: BTreeMap<u64, JsonViewerTab>,
+    pub pending_json_viewer_tabs: Vec<JsonViewerTab>,
+    pub next_json_viewer_tab_id: u64,
 
     // SQL execution flag
     pub execute_sql_requested: bool,
@@ -82,6 +98,10 @@ impl ResultsTable {
             query_rows: Vec::new(),
             primary_key_columns: HashSet::new(),
             query_promise: None,
+            selected_result_row: None,
+            json_viewer_tabs: BTreeMap::new(),
+            pending_json_viewer_tabs: Vec::new(),
+            next_json_viewer_tab_id: 1,
             execute_sql_requested: false,
             explain_info: None,
             explain_error: None,
@@ -102,6 +122,54 @@ impl ResultsTable {
     }
 
     pub fn watch_ui(&mut self, _ui: &mut egui::Ui, _pipe: &mut ()) {}
+
+    pub fn open_json_viewer(
+        &mut self,
+        source_row: usize,
+        source_column: &str,
+        value: Value,
+    ) -> u64 {
+        let id = self.next_json_viewer_tab_id;
+        self.next_json_viewer_tab_id = self.next_json_viewer_tab_id.saturating_add(1);
+        let title = format!("JSON {}.{}", source_row + 1, source_column);
+        let tab = JsonViewerTab {
+            id,
+            title,
+            value,
+            source_column: source_column.to_string(),
+            source_row,
+        };
+        self.json_viewer_tabs.insert(id, tab.clone());
+        self.pending_json_viewer_tabs.push(tab);
+        id
+    }
+
+    pub fn take_pending_json_viewer_tabs(&mut self) -> Vec<JsonViewerTab> {
+        std::mem::take(&mut self.pending_json_viewer_tabs)
+    }
+
+    pub fn json_viewer_tab(&self, id: u64) -> Option<&JsonViewerTab> {
+        self.json_viewer_tabs.get(&id)
+    }
+
+    pub fn clear_json_viewer_tabs(&mut self) {
+        self.json_viewer_tabs.clear();
+        self.pending_json_viewer_tabs.clear();
+    }
+
+    pub fn retain_json_viewer_tabs(&mut self, keep_ids: &HashSet<u64>) {
+        self.json_viewer_tabs.retain(|id, _| keep_ids.contains(id));
+    }
+
+    pub fn ui_json_viewer(&self, ui: &mut egui::Ui, id: u64) {
+        if let Some(tab) = self.json_viewer_tab(id) {
+            json_viewer::ui(ui, tab);
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("JSON viewer content is no longer available");
+            });
+        }
+    }
 
     pub fn sync_database_selection(&mut self, mut ctxs: Option<&mut SqlCtx>) {
         // Check if database config changed and load databases

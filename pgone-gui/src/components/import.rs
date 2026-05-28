@@ -2,6 +2,7 @@ use crate::components::DbManager;
 use crate::futures;
 use pgone_sql::{DatabaseInfo, SchemaInfo, Session};
 use poll_promise::Promise;
+use sqlx::Row;
 use std::fs;
 use std::path::PathBuf;
 
@@ -281,15 +282,17 @@ impl ImportWindow {
             return;
         };
 
-        let dsn_clone = dsn.clone();
+        let pools = db_manager.pools.clone();
+        let dsn_clone =
+            crate::components::structures::utils::replace_database_in_dsn(&dsn, "postgres")
+                .unwrap_or(dsn);
         let (sender, promise) = Promise::new();
         self.databases_promise = Some(promise);
 
         futures::spawn(async move {
             let result: Result<Vec<DatabaseInfo>, String> = async {
-                let session = Session::connect_to_postgres(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to connect: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn_clone).await?;
+                let session = Session::from_pool(pool);
 
                 session
                     .list_databases()
@@ -315,15 +318,15 @@ impl ImportWindow {
             return;
         };
 
+        let pools = db_manager.pools.clone();
         let dsn_clone = dsn.clone();
         let (sender, promise) = Promise::new();
         self.schemas_promise = Some(promise);
 
         futures::spawn(async move {
             let result: Result<Vec<SchemaInfo>, String> = async {
-                let session = Session::new(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn_clone).await?;
+                let session = Session::from_pool(pool);
 
                 session
                     .list_schemas()
@@ -516,6 +519,7 @@ impl ImportWindow {
             return;
         }
 
+        let pools = db_manager.pools.clone();
         let dsn_clone = dsn.clone();
         let schema_clone = schema_name.clone();
 
@@ -533,18 +537,13 @@ impl ImportWindow {
 
         futures::spawn(async move {
             let result: Result<Vec<ImportResult>, String> = async {
-                let session = Session::new(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn_clone).await?;
 
                 let mut results = Vec::new();
 
                 // 先执行DDL语句
                 for (idx, sql) in ddl_statements.iter().enumerate() {
                     let _progress_msg = format!("执行DDL ({}/{})...", idx + 1, ddl_statements.len());
-
-                    let conn = session.get_connection().await
-                        .map_err(|e| format!("Failed to get connection: {}", e))?;
 
                     // 检查是否是CREATE TABLE语句，如果是，检查表是否已存在
                     let sql_upper = sql.to_uppercase().trim().to_string();
@@ -557,7 +556,7 @@ impl ImportWindow {
                                 schema_clone, table_name
                             );
 
-                            match conn.query_one(&check_sql, &[]).await {
+                            match sqlx::query(&check_sql).fetch_one(&pool).await {
                                 Ok(row) => {
                                     let exists: bool = row.get(0);
                                     if exists {
@@ -578,13 +577,13 @@ impl ImportWindow {
                     }
 
                     // 执行SQL语句
-                    match conn.execute(sql, &[]).await {
-                        Ok(rows) => {
+                    match sqlx::query(sql).execute(&pool).await {
+                        Ok(result) => {
                             results.push(ImportResult {
                                 sql: sql.clone(),
                                 success: true,
                                 error: None,
-                                rows_affected: Some(rows),
+                                rows_affected: Some(result.rows_affected()),
                             });
                         }
                         Err(e) => {
@@ -613,16 +612,13 @@ impl ImportWindow {
                 for (idx, sql) in dml_statements.iter().enumerate() {
                     let _progress_msg = format!("执行DML ({}/{})...", idx + 1, dml_statements.len());
 
-                    let conn = session.get_connection().await
-                        .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-                    match conn.execute(sql, &[]).await {
-                        Ok(rows) => {
+                    match sqlx::query(sql).execute(&pool).await {
+                        Ok(result) => {
                             results.push(ImportResult {
                                 sql: sql.clone(),
                                 success: true,
                                 error: None,
-                                rows_affected: Some(rows),
+                                rows_affected: Some(result.rows_affected()),
                             });
                         }
                         Err(e) => {

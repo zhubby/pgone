@@ -1,6 +1,7 @@
 use crate::error::{Result, SqlError};
 use crate::models::UserInfo;
 use crate::session::Session;
+use sqlx::Row;
 use tracing::info;
 
 #[derive(Debug, Clone, Default)]
@@ -31,8 +32,8 @@ impl Session {
     pub async fn list_users(&self) -> Result<Vec<UserInfo>> {
         info!("Listing all users/roles");
 
-        let conn = self.get_connection().await?;
-        let rows = conn.query(
+        let pool = self.pool();
+        let rows = sqlx::query(
             r#"
             SELECT 
                 r.rolname AS name,
@@ -46,8 +47,8 @@ impl Session {
             FROM pg_catalog.pg_roles r
             ORDER BY r.rolname
             "#,
-            &[],
         )
+        .fetch_all(pool)
         .await
         .map_err(SqlError::Connection)?;
 
@@ -72,8 +73,8 @@ impl Session {
     pub async fn get_user_info(&self, user_name: &str) -> Result<UserInfo> {
         info!(user_name = user_name, "Getting user info");
 
-        let conn = self.get_connection().await?;
-        let row = conn.query_opt(
+        let pool = self.pool();
+        let row = sqlx::query(
             r#"
             SELECT 
                 r.rolname AS name,
@@ -87,8 +88,9 @@ impl Session {
             FROM pg_catalog.pg_roles r
             WHERE r.rolname = $1
             "#,
-            &[&user_name],
         )
+        .bind(user_name)
+        .fetch_optional(pool)
         .await
         .map_err(SqlError::Connection)?
         .ok_or_else(|| SqlError::NotFound(format!("User '{}' not found", user_name)))?;
@@ -161,8 +163,8 @@ impl Session {
             ));
         }
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("permission denied") || err_str.contains("must have CREATEROLE") {
                 SqlError::PermissionDenied(format!(
@@ -185,7 +187,7 @@ impl Session {
             "Altering user"
         );
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
         // Rename user if needed
         if let Some(new_name) = options.new_name {
@@ -194,7 +196,8 @@ impl Session {
                 quote_ident(user_name),
                 quote_ident(new_name)
             );
-            conn.execute(&sql, &[])
+            sqlx::query(&sql)
+                .execute(pool)
                 .await
                 .map_err(|e| SqlError::Execution(format!("Failed to rename user: {}", e)))?;
         }
@@ -261,7 +264,7 @@ impl Session {
                 quote_ident(user_name),
                 alter_parts.join(" ")
             );
-            conn.execute(&sql, &[]).await.map_err(|e| {
+            sqlx::query(&sql).execute(pool).await.map_err(|e| {
                 let err_str = e.to_string();
                 if err_str.contains("permission denied") {
                     SqlError::PermissionDenied(format!(
@@ -291,8 +294,8 @@ impl Session {
             format!("DROP ROLE {}", quote_ident(user_name))
         };
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("permission denied") {
                 SqlError::PermissionDenied(format!(
@@ -348,8 +351,9 @@ impl Session {
 
         sql.push_str(&format!(" TO {}", quote_ident(user_name)));
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
+        let pool = self.pool();
+        sqlx::query(&sql)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to grant privileges: {}", e)))?;
 
@@ -395,8 +399,9 @@ impl Session {
 
         sql.push_str(&format!(" FROM {}", quote_ident(user_name)));
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[])
+        let pool = self.pool();
+        sqlx::query(&sql)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to revoke privileges: {}", e)))?;
 

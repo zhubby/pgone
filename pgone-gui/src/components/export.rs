@@ -3,6 +3,7 @@ use crate::components::structures;
 use crate::futures;
 use pgone_sql::{DatabaseInfo, SchemaInfo, Session, TableInfo};
 use poll_promise::Promise;
+use sqlx::{Column, Row};
 use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -299,15 +300,17 @@ impl ExportWindow {
             return;
         };
 
-        let dsn_clone = dsn.clone();
+        let pools = db_manager.pools.clone();
+        let dsn_clone =
+            crate::components::structures::utils::replace_database_in_dsn(&dsn, "postgres")
+                .unwrap_or(dsn);
         let (sender, promise) = Promise::new();
         self.databases_promise = Some(promise);
 
         futures::spawn(async move {
             let result: Result<Vec<DatabaseInfo>, String> = async {
-                let session = Session::connect_to_postgres(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to connect: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn_clone).await?;
+                let session = Session::from_pool(pool);
 
                 session
                     .list_databases()
@@ -333,15 +336,15 @@ impl ExportWindow {
             return;
         };
 
+        let pools = db_manager.pools.clone();
         let dsn_clone = dsn.clone();
         let (sender, promise) = Promise::new();
         self.schemas_promise = Some(promise);
 
         futures::spawn(async move {
             let result: Result<Vec<SchemaInfo>, String> = async {
-                let session = Session::new(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn_clone).await?;
+                let session = Session::from_pool(pool);
 
                 session
                     .list_schemas()
@@ -368,6 +371,7 @@ impl ExportWindow {
             return;
         };
 
+        let pools = db_manager.pools.clone();
         let dsn_clone = dsn.clone();
         let schema_clone = schema.to_string();
         let (sender, promise) = Promise::new();
@@ -375,9 +379,8 @@ impl ExportWindow {
 
         futures::spawn(async move {
             let result: Result<Vec<TableInfo>, String> = async {
-                let session = Session::new(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn_clone).await?;
+                let session = Session::from_pool(pool);
 
                 session
                     .list_tables(Some(&schema_clone))
@@ -417,6 +420,7 @@ impl ExportWindow {
             return;
         };
 
+        let pools = db_manager.pools.clone();
         let dsn_clone = dsn.clone();
         let schema_clone = schema_name.clone();
         let db_name_clone = db_name.clone();
@@ -453,9 +457,8 @@ impl ExportWindow {
                     .map_err(|e| format!("Failed to write: {}", e))?;
                 writeln!(file, "").map_err(|e| format!("Failed to write: {}", e))?;
 
-                let session = Session::new(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to create session: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn_clone).await?;
+                let session = Session::from_pool(pool.clone());
 
                 let total_tables = tables_clone.len();
 
@@ -525,14 +528,8 @@ impl ExportWindow {
                                 offset
                             );
 
-                            // 直接执行 SQL 查询
-                            let conn = session
-                                .get_connection()
-                                .await
-                                .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-                            let rows = conn
-                                .query(&query, &[])
+                            let rows = sqlx::query(&query)
+                                .fetch_all(&pool)
                                 .await
                                 .map_err(|e| format!("Failed to query data: {}", e))?;
 
@@ -555,17 +552,17 @@ impl ExportWindow {
                                     let mut row_values = Vec::new();
                                     for i in 0..column_names.len() {
                                         // 格式化单元格值
-                                        let value = if row.try_get::<_, String>(i).is_ok() {
-                                            row.get::<_, String>(i)
-                                        } else if row.try_get::<_, i64>(i).is_ok() {
-                                            row.get::<_, i64>(i).to_string()
-                                        } else if row.try_get::<_, f64>(i).is_ok() {
-                                            row.get::<_, f64>(i).to_string()
-                                        } else if row.try_get::<_, bool>(i).is_ok() {
-                                            row.get::<_, bool>(i).to_string()
+                                        let value = if row.try_get::<String, _>(i).is_ok() {
+                                            row.get::<String, _>(i)
+                                        } else if row.try_get::<i64, _>(i).is_ok() {
+                                            row.get::<i64, _>(i).to_string()
+                                        } else if row.try_get::<f64, _>(i).is_ok() {
+                                            row.get::<f64, _>(i).to_string()
+                                        } else if row.try_get::<bool, _>(i).is_ok() {
+                                            row.get::<bool, _>(i).to_string()
                                         } else {
                                             // 尝试作为字符串获取，如果失败则使用 NULL
-                                            row.try_get::<_, Option<String>>(i)
+                                            row.try_get::<Option<String>, _>(i)
                                                 .ok()
                                                 .flatten()
                                                 .unwrap_or_else(|| "NULL".to_string())

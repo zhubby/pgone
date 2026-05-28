@@ -3,6 +3,7 @@ use super::types::DbTree;
 use super::utils;
 use crate::futures;
 use pgone_sql::Session;
+use sqlx::Executor;
 
 fn spawn_operation(
     operation: impl std::future::Future<Output = Result<(), String>> + Send + 'static,
@@ -25,12 +26,13 @@ pub(super) fn create_database(
     let Some(dsn) = db_manager.dsn_for_config(connection_id) else {
         return;
     };
+    let dsn = utils::replace_database_in_dsn(&dsn, "postgres").unwrap_or(dsn);
+    let pools = db_manager.pools.clone();
     let name = name.to_string();
 
     spawn_operation(async move {
-        let session = Session::connect_to_postgres(&dsn)
-            .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .create_database(&name, None, None, None)
             .await
@@ -50,13 +52,13 @@ pub(super) fn create_schema(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let name = name.to_string();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .create_schema(&name, None)
             .await
@@ -77,14 +79,14 @@ pub(super) fn create_table(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let schema = schema.to_string();
     let ddl = ddl.to_string();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .create_table(&ddl)
             .await
@@ -106,14 +108,14 @@ pub(super) fn create_view(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let schema = schema.to_string();
     let ddl = ddl.to_string();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .create_view(&ddl)
             .await
@@ -135,14 +137,14 @@ pub(super) fn create_materialized_view(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let schema = schema.to_string();
     let ddl = ddl.to_string();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .create_view(&ddl)
             .await
@@ -164,14 +166,14 @@ pub(super) fn create_function(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let schema = schema.to_string();
     let ddl = ddl.to_string();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .create_function(&ddl)
             .await
@@ -195,12 +197,13 @@ pub(super) fn delete_database(
     let Some(dsn) = db_manager.dsn_for_config(connection_id) else {
         return;
     };
+    let dsn = utils::replace_database_in_dsn(&dsn, "postgres").unwrap_or(dsn);
+    let pools = db_manager.pools.clone();
     let name = name.to_string();
 
     spawn_operation(async move {
-        let session = Session::connect_to_postgres(&dsn)
-            .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .drop_database(&name, false)
             .await
@@ -221,13 +224,13 @@ pub(super) fn delete_schema(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let name = name.to_string();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .drop_schema(&name, false, cascade)
             .await
@@ -249,15 +252,15 @@ pub(super) fn delete_table(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let schema = schema.to_string();
     let name = name.to_string();
     let schema_for_task = schema.clone();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .drop_table(&schema_for_task, &name, false, cascade)
             .await
@@ -281,13 +284,14 @@ pub(super) fn rename_database(
     let Some(dsn) = db_manager.dsn_for_config(connection_id) else {
         return;
     };
+    let dsn = utils::replace_database_in_dsn(&dsn, "postgres").unwrap_or(dsn);
+    let pools = db_manager.pools.clone();
     let old_name = old_name.to_string();
     let new_name = new_name.to_string();
 
     spawn_operation(async move {
-        let session = Session::connect_to_postgres(&dsn)
-            .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .alter_database(&old_name, Some(&new_name), None, None)
             .await
@@ -308,14 +312,14 @@ pub(super) fn rename_schema(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let old_name = old_name.to_string();
     let new_name = new_name.to_string();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .alter_schema(&old_name, Some(&new_name), None)
             .await
@@ -337,6 +341,7 @@ pub(super) fn rename_table(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let schema = schema.to_string();
     let old_name = old_name.to_string();
@@ -344,9 +349,8 @@ pub(super) fn rename_table(
     let schema_for_task = schema.clone();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .alter_table(
                 &schema_for_task,
@@ -374,31 +378,21 @@ pub(super) fn design_table(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let database = database.to_string();
     let schema = schema.to_string();
     let statements = statements.to_vec();
 
     spawn_operation(async move {
-        use tokio_postgres::NoTls;
-
-        let (mut client, connection) = tokio_postgres::connect(&dsn, NoTls)
-            .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
-
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                tracing::error!(error = ?e, "Database connection error");
-            }
-        });
-
-        let transaction = client
-            .transaction()
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let mut transaction = pool
+            .begin()
             .await
             .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
         for sql in &statements {
             transaction
-                .execute(sql, &[])
+                .execute(sql.as_str())
                 .await
                 .map_err(|e| format!("Failed to execute SQL: {} - Error: {}", sql, e))?;
         }
@@ -428,13 +422,13 @@ pub(super) fn drop_table(
     let Some(dsn) = loading::get_dsn_for_database(tree, db_manager, database) else {
         return;
     };
+    let pools = db_manager.pools.clone();
     let schema = schema.to_string();
     let name = name.to_string();
 
     spawn_operation(async move {
-        let session = Session::new(&dsn)
-            .await
-            .map_err(|e| format!("Failed to create session: {}", e))?;
+        let pool = pools.get_or_create_pool(&dsn).await?;
+        let session = Session::from_pool(pool);
         session
             .truncate_table(&schema, &name)
             .await

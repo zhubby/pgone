@@ -1,6 +1,7 @@
 use crate::error::{Result, SqlError};
 use crate::models::TriggerInfo;
 use crate::session::Session;
+use sqlx::Row;
 use tracing::info;
 
 impl Session {
@@ -8,9 +9,9 @@ impl Session {
     pub async fn list_triggers(&self, schema: Option<&str>) -> Result<Vec<TriggerInfo>> {
         info!(schema = schema, "Listing triggers");
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
         let rows = if let Some(s) = schema {
-            conn.query(
+            sqlx::query(
                 r#"
                 SELECT 
                     t.trigger_schema AS schema,
@@ -27,11 +28,12 @@ impl Session {
                 WHERE t.trigger_schema = $1
                 ORDER BY t.event_object_schema, t.event_object_table, t.trigger_name
                 "#,
-                &[&s],
             )
+            .bind(s)
+            .fetch_all(pool)
             .await
         } else {
-            conn.query(
+            sqlx::query(
                 r#"
                 SELECT 
                     t.trigger_schema AS schema,
@@ -48,8 +50,8 @@ impl Session {
                 WHERE t.trigger_schema NOT IN ('pg_catalog', 'information_schema')
                 ORDER BY t.event_object_schema, t.event_object_table, t.trigger_name
                 "#,
-                &[],
             )
+            .fetch_all(pool)
             .await
         }
         .map_err(SqlError::Connection)?;
@@ -108,10 +110,9 @@ impl Session {
             "Getting trigger info"
         );
 
-        let conn = self.get_connection().await?;
-        let rows = conn
-            .query(
-                r#"
+        let pool = self.pool();
+        let rows = sqlx::query(
+            r#"
             SELECT 
                 t.trigger_schema AS schema,
                 t.trigger_name AS name,
@@ -127,10 +128,12 @@ impl Session {
             WHERE t.trigger_schema = $1 AND t.trigger_name = $2
             ORDER BY t.event_object_schema, t.event_object_table, t.action_timing
             "#,
-                &[&schema, &trigger_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?;
+        )
+        .bind(schema)
+        .bind(trigger_name)
+        .fetch_all(pool)
+        .await
+        .map_err(SqlError::Connection)?;
 
         if rows.is_empty() {
             return Err(SqlError::NotFound(format!(
@@ -179,8 +182,9 @@ impl Session {
     pub async fn create_trigger(&self, ddl: &str) -> Result<()> {
         info!("Creating trigger with DDL");
 
-        let conn = self.get_connection().await?;
-        conn.execute(ddl, &[])
+        let pool = self.pool();
+        sqlx::query(ddl)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to create trigger: {}", e)))?;
 
@@ -215,8 +219,9 @@ impl Session {
             )
         };
 
-        let conn = self.get_connection().await?;
-        conn.execute(&full_ddl, &[])
+        let pool = self.pool();
+        sqlx::query(&full_ddl)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to alter trigger: {}", e)))?;
 
@@ -255,8 +260,8 @@ impl Session {
             )
         };
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("does not exist") {
                 SqlError::NotFound(format!(

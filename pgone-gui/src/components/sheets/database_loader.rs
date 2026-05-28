@@ -17,15 +17,17 @@ impl ResultsTable {
             return;
         };
 
-        let dsn_clone = dsn.clone();
+        let pools = ctxs.db.pools.clone();
+        let dsn_clone =
+            crate::components::structures::utils::replace_database_in_dsn(&dsn, "postgres")
+                .unwrap_or(dsn);
         let (sender, promise) = Promise::new();
         self.databases_promise = Some(promise);
 
         futures::spawn(async move {
             let result: Result<Vec<String>, String> = async {
-                let session = Session::connect_to_postgres(&dsn_clone)
-                    .await
-                    .map_err(|e| format!("Failed to connect to postgres: {}", e))?;
+                let pool = pools.get_or_create_pool(&dsn_clone).await?;
+                let session = Session::from_pool(pool);
 
                 let databases = session
                     .list_databases()

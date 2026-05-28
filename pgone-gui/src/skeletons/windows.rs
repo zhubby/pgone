@@ -109,6 +109,7 @@ pub fn show_graph_window(
     let dsn = schema_info
         .as_ref()
         .and_then(|(_database, _schema)| db_manager.active_dsn());
+    let pools = db_manager.pools.clone();
 
     Window::new(title)
         .id(Id::new("schema_graph_window"))
@@ -118,7 +119,7 @@ pub fn show_graph_window(
         .default_size([400.0, 600.0])
         .show(ctx, |ui| {
             if schema_info.is_some() {
-                graph.ui(ui, dsn.as_deref());
+                graph.ui(ui, pools.clone(), dsn.as_deref());
             } else {
                 ui.label("请选择一个 schema");
             }

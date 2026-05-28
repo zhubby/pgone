@@ -1,6 +1,7 @@
 use crate::error::{Result, SqlError};
 use crate::models::SchemaInfo;
 use crate::session::Session;
+use sqlx::Row;
 use tracing::info;
 
 impl Session {
@@ -8,10 +9,9 @@ impl Session {
     pub async fn list_schemas(&self) -> Result<Vec<SchemaInfo>> {
         info!("Listing all schemas");
 
-        let conn = self.get_connection().await?;
-        let rows = conn
-            .query(
-                r#"
+        let pool = self.pool();
+        let rows = sqlx::query(
+            r#"
             SELECT 
                 n.nspname AS name,
                 pg_catalog.pg_get_userbyid(n.nspowner) AS owner,
@@ -22,10 +22,10 @@ impl Session {
                 AND n.nspname NOT LIKE 'pg_toast_temp_%'
             ORDER BY n.nspname
             "#,
-                &[],
-            )
-            .await
-            .map_err(SqlError::Connection)?;
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(SqlError::Connection)?;
 
         let mut schemas = Vec::new();
         for row in rows {
@@ -43,10 +43,9 @@ impl Session {
     pub async fn get_schema_info(&self, schema_name: &str) -> Result<SchemaInfo> {
         info!(schema_name = schema_name, "Getting schema info");
 
-        let conn = self.get_connection().await?;
-        let row = conn
-            .query_opt(
-                r#"
+        let pool = self.pool();
+        let row = sqlx::query(
+            r#"
             SELECT 
                 n.nspname AS name,
                 pg_catalog.pg_get_userbyid(n.nspowner) AS owner,
@@ -54,11 +53,12 @@ impl Session {
             FROM pg_catalog.pg_namespace n
             WHERE n.nspname = $1
             "#,
-                &[&schema_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?
-            .ok_or_else(|| SqlError::NotFound(format!("Schema '{}' not found", schema_name)))?;
+        )
+        .bind(schema_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(SqlError::Connection)?
+        .ok_or_else(|| SqlError::NotFound(format!("Schema '{}' not found", schema_name)))?;
 
         Ok(SchemaInfo {
             name: row.get("name"),
@@ -77,8 +77,8 @@ impl Session {
             sql.push_str(&format!(" AUTHORIZATION {}", quote_ident(owner)));
         }
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("permission denied") {
                 SqlError::PermissionDenied(format!(
@@ -109,7 +109,7 @@ impl Session {
             "Altering schema"
         );
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
         // Rename schema if needed
         if let Some(new_name) = new_name {
@@ -118,7 +118,8 @@ impl Session {
                 quote_ident(schema_name),
                 quote_ident(new_name)
             );
-            conn.execute(&sql, &[])
+            sqlx::query(&sql)
+                .execute(pool)
                 .await
                 .map_err(|e| SqlError::Execution(format!("Failed to rename schema: {}", e)))?;
         }
@@ -130,7 +131,7 @@ impl Session {
                 quote_ident(schema_name),
                 quote_ident(new_owner)
             );
-            conn.execute(&sql, &[]).await.map_err(|e| {
+            sqlx::query(&sql).execute(pool).await.map_err(|e| {
                 let err_str = e.to_string();
                 if err_str.contains("permission denied") {
                     SqlError::PermissionDenied(format!(
@@ -170,8 +171,8 @@ impl Session {
             sql.push_str(" CASCADE");
         }
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("permission denied") {
                 SqlError::PermissionDenied(format!(

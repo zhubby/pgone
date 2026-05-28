@@ -3,6 +3,8 @@ use crate::models::{
     ColumnDetail, ForeignKeyDetail, IndexInfo, PrimaryKeyDetail, TableDetail, TableInfo,
 };
 use crate::session::Session;
+use sqlx::postgres::PgRow;
+use sqlx::{Column, Row, TypeInfo, ValueRef};
 use std::collections::BTreeMap;
 use tracing::info;
 
@@ -18,9 +20,9 @@ impl Session {
     pub async fn list_tables(&self, schema: Option<&str>) -> Result<Vec<TableInfo>> {
         info!(schema = schema, "Listing tables");
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
         let rows = if let Some(s) = schema {
-            conn.query(
+            sqlx::query(
                 r#"
                 SELECT 
                     t.table_schema AS schema,
@@ -39,11 +41,12 @@ impl Session {
                     AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
                 ORDER BY t.table_schema, t.table_name
                 "#,
-                &[&s],
             )
+            .bind(s)
+            .fetch_all(pool)
             .await
         } else {
-            conn.query(
+            sqlx::query(
                 r#"
                 SELECT 
                     t.table_schema AS schema,
@@ -61,8 +64,8 @@ impl Session {
                     AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
                 ORDER BY t.table_schema, t.table_name
                 "#,
-                &[],
             )
+            .fetch_all(pool)
             .await
         }
         .map_err(SqlError::Connection)?;
@@ -91,8 +94,8 @@ impl Session {
             "Getting table info"
         );
 
-        let conn = self.get_connection().await?;
-        let row = conn.query_opt(
+        let pool = self.pool();
+        let row = sqlx::query(
             r#"
             SELECT 
                 t.table_schema AS schema,
@@ -110,8 +113,10 @@ impl Session {
                 AND t.table_schema = $1
                 AND t.table_name = $2
             "#,
-            &[&schema, &table_name],
         )
+        .bind(schema)
+        .bind(table_name)
+        .fetch_optional(pool)
         .await
         .map_err(SqlError::Connection)?
         .ok_or_else(|| SqlError::NotFound(format!("Table '{}.{}' not found", schema, table_name)))?;
@@ -131,8 +136,9 @@ impl Session {
     pub async fn create_table(&self, ddl: &str) -> Result<()> {
         info!("Creating table with DDL");
 
-        let conn = self.get_connection().await?;
-        conn.execute(ddl, &[])
+        let pool = self.pool();
+        sqlx::query(ddl)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to create table: {}", e)))?;
 
@@ -151,8 +157,9 @@ impl Session {
             alter_ddl
         );
 
-        let conn = self.get_connection().await?;
-        conn.execute(&full_ddl, &[])
+        let pool = self.pool();
+        sqlx::query(&full_ddl)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to alter table: {}", e)))?;
 
@@ -193,8 +200,8 @@ impl Session {
             sql.push_str(" CASCADE");
         }
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("does not exist") {
                 SqlError::NotFound(format!("Table '{}.{}' does not exist", schema, table_name))
@@ -216,8 +223,8 @@ impl Session {
             quote_ident(table_name)
         );
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("does not exist") {
                 SqlError::NotFound(format!("Table '{}.{}' does not exist", schema, table_name))
@@ -244,7 +251,7 @@ impl Session {
             "Querying table data"
         );
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
         // Build query
         let mut query = format!(
@@ -257,8 +264,8 @@ impl Session {
             query.push_str(&format!(" LIMIT {}", lim));
         }
 
-        let rows = conn
-            .query(&query, &[])
+        let rows = sqlx::query(&query)
+            .fetch_all(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to query table data: {}", e)))?;
 
@@ -293,12 +300,11 @@ impl Session {
             "Getting table detail"
         );
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
         // Get columns with comments
-        let col_rows = conn
-            .query(
-                r#"
+        let col_rows = sqlx::query(
+            r#"
                 SELECT c.column_name, c.is_nullable, c.data_type, c.udt_name,
                        c.character_maximum_length, c.numeric_precision, c.numeric_scale,
                        c.column_default, pgd.description AS column_comment
@@ -310,16 +316,18 @@ impl Session {
                 WHERE c.table_schema = $1 AND c.table_name = $2
                 ORDER BY c.ordinal_position
                 "#,
-                &[&schema, &table_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?;
+        )
+        .bind(schema)
+        .bind(table_name)
+        .fetch_all(pool)
+        .await
+        .map_err(SqlError::Connection)?;
 
         let columns: Vec<ColumnDetail> = col_rows
             .iter()
             .map(|row| ColumnDetail {
                 name: row.get("column_name"),
-                nullable: matches!(row.get::<_, String>("is_nullable").as_str(), "YES"),
+                nullable: matches!(row.get::<String, _>("is_nullable").as_str(), "YES"),
                 data_type: row.get("data_type"),
                 udt_name: row.try_get("udt_name").ok(),
                 character_maximum_length: row.try_get("character_maximum_length").ok(),
@@ -331,24 +339,24 @@ impl Session {
             .collect();
 
         // Get table comment
-        let table_comment: Option<String> = conn
-            .query_opt(
-                r#"
+        let table_comment: Option<String> = sqlx::query(
+            r#"
                 SELECT obj_description(pc.oid)
                 FROM pg_class pc
                 JOIN pg_namespace pn ON pn.oid = pc.relnamespace
                 WHERE pn.nspname = $1 AND pc.relname = $2
                 "#,
-                &[&schema, &table_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?
-            .and_then(|row| row.try_get(0).ok());
+        )
+        .bind(schema)
+        .bind(table_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(SqlError::Connection)?
+        .and_then(|row| row.try_get(0).ok());
 
         // Get primary key
-        let pk_rows = conn
-            .query(
-                r#"
+        let pk_rows = sqlx::query(
+            r#"
                 SELECT kcu.column_name
                 FROM information_schema.table_constraints tc
                 JOIN information_schema.key_column_usage kcu
@@ -356,10 +364,12 @@ impl Session {
                 WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1 AND tc.table_name = $2
                 ORDER BY kcu.ordinal_position
                 "#,
-                &[&schema, &table_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?;
+        )
+        .bind(schema)
+        .bind(table_name)
+        .fetch_all(pool)
+        .await
+        .map_err(SqlError::Connection)?;
 
         let pk_cols: Vec<String> = pk_rows.iter().map(|row| row.get(0)).collect();
         let primary_key = if pk_cols.is_empty() {
@@ -369,9 +379,8 @@ impl Session {
         };
 
         // Get foreign keys
-        let fk_rows = conn
-            .query(
-                r#"
+        let fk_rows = sqlx::query(
+            r#"
                 SELECT kcu.constraint_name, kcu.column_name, ccu.table_schema, ccu.table_name,
                        ccu.column_name AS ref_column, rc.update_rule, rc.delete_rule
                 FROM information_schema.table_constraints tc
@@ -385,10 +394,12 @@ impl Session {
                 WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1 AND tc.table_name = $2
                 ORDER BY kcu.ordinal_position
                 "#,
-                &[&schema, &table_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?;
+        )
+        .bind(schema)
+        .bind(table_name)
+        .fetch_all(pool)
+        .await
+        .map_err(SqlError::Connection)?;
 
         // Group by constraint_name
         let mut fk_map: BTreeMap<String, ForeignKeyColumns> = BTreeMap::new();
@@ -475,12 +486,11 @@ impl Session {
             "Listing table indexes"
         );
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
         // Query indexes using pg_indexes view
-        let rows = conn
-            .query(
-                r#"
+        let rows = sqlx::query(
+            r#"
             SELECT 
                 i.indexname AS name,
                 i.indexdef AS definition,
@@ -491,10 +501,12 @@ impl Session {
             WHERE i.schemaname = $1 AND i.tablename = $2
             ORDER BY i.indexname
             "#,
-                &[&schema, &table_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?;
+        )
+        .bind(schema)
+        .bind(table_name)
+        .fetch_all(pool)
+        .await
+        .map_err(SqlError::Connection)?;
 
         let mut indexes = Vec::new();
         for row in rows {
@@ -535,60 +547,61 @@ impl Session {
 }
 
 /// Format a cell value to string
-fn format_cell(row: &tokio_postgres::Row, idx: usize) -> String {
-    use tokio_postgres::types::Type;
+fn format_cell(row: &PgRow, idx: usize) -> String {
+    if row
+        .try_get_raw(idx)
+        .map(|raw| raw.is_null())
+        .unwrap_or(true)
+    {
+        return "NULL".to_string();
+    }
 
-    let col_type = row.columns().get(idx).map(|c| c.type_());
-
-    match col_type {
-        Some(t) => match *t {
-            Type::TEXT | Type::VARCHAR => row.try_get::<_, String>(idx).unwrap_or_default(),
-            Type::INT4 => row
-                .try_get::<_, i32>(idx)
-                .map(|v| v.to_string())
-                .unwrap_or_default(),
-            Type::INT8 => row
-                .try_get::<_, i64>(idx)
-                .map(|v| v.to_string())
-                .unwrap_or_default(),
-            Type::FLOAT4 => row
-                .try_get::<_, f32>(idx)
-                .map(|v| v.to_string())
-                .unwrap_or_default(),
-            Type::FLOAT8 => row
-                .try_get::<_, f64>(idx)
-                .map(|v| v.to_string())
-                .unwrap_or_default(),
-            Type::BOOL => row
-                .try_get::<_, bool>(idx)
-                .map(|v| v.to_string())
-                .unwrap_or_default(),
-            Type::JSON | Type::JSONB => format_json_value(row, idx),
-            Type::TIMESTAMPTZ => format_timestamptz(row, idx),
-            Type::TIMESTAMP => format_timestamp(row, idx),
-            Type::DATE => format_date(row, idx),
-            Type::TIME => format_time(row, idx),
-            Type::UUID => row
-                .try_get::<_, uuid::Uuid>(idx)
-                .map(|v| v.to_string())
-                .unwrap_or_default(),
-            _ => {
-                // Fallback: try as string
-                row.try_get::<_, String>(idx)
-                    .unwrap_or_else(|_| format_bytes_fallback(row, idx))
-            }
-        },
-        None => {
-            // No type info, try common fallbacks
-            row.try_get::<_, String>(idx)
-                .unwrap_or_else(|_| format_bytes_fallback(row, idx))
-        }
+    let type_name = row.column(idx).type_info().name().to_ascii_lowercase();
+    match type_name.as_str() {
+        "text" | "varchar" | "bpchar" | "name" => row.try_get::<String, _>(idx).unwrap_or_default(),
+        "int2" => row
+            .try_get::<i16, _>(idx)
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
+        "int4" => row
+            .try_get::<i32, _>(idx)
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
+        "int8" => row
+            .try_get::<i64, _>(idx)
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
+        "float4" => row
+            .try_get::<f32, _>(idx)
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
+        "float8" => row
+            .try_get::<f64, _>(idx)
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
+        "bool" => row
+            .try_get::<bool, _>(idx)
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
+        "json" | "jsonb" => format_json_value(row, idx),
+        "timestamptz" => format_timestamptz(row, idx),
+        "timestamp" => format_timestamp(row, idx),
+        "date" => format_date(row, idx),
+        "time" => format_time(row, idx),
+        "uuid" => row
+            .try_get::<uuid::Uuid, _>(idx)
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
+        "bytea" => format_bytes_fallback(row, idx),
+        _ => row
+            .try_get::<String, _>(idx)
+            .unwrap_or_else(|_| format_bytes_fallback(row, idx)),
     }
 }
 
 /// Format JSON/JSONB value with pretty printing
-fn format_json_value(row: &tokio_postgres::Row, idx: usize) -> String {
-    row.try_get::<_, String>(idx)
+fn format_json_value(row: &PgRow, idx: usize) -> String {
+    row.try_get::<String, _>(idx)
         .map(|v| {
             serde_json::from_str::<serde_json::Value>(&v)
                 .ok()
@@ -599,8 +612,8 @@ fn format_json_value(row: &tokio_postgres::Row, idx: usize) -> String {
 }
 
 /// Format TIMESTAMPTZ value
-fn format_timestamptz(row: &tokio_postgres::Row, idx: usize) -> String {
-    if let Ok(v) = row.try_get::<_, String>(idx) {
+fn format_timestamptz(row: &PgRow, idx: usize) -> String {
+    if let Ok(v) = row.try_get::<String, _>(idx) {
         chrono::DateTime::parse_from_rfc3339(&v)
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f %z").to_string())
             .or_else(|_| {
@@ -614,8 +627,8 @@ fn format_timestamptz(row: &tokio_postgres::Row, idx: usize) -> String {
 }
 
 /// Format TIMESTAMP value
-fn format_timestamp(row: &tokio_postgres::Row, idx: usize) -> String {
-    if let Ok(v) = row.try_get::<_, String>(idx) {
+fn format_timestamp(row: &PgRow, idx: usize) -> String {
+    if let Ok(v) = row.try_get::<String, _>(idx) {
         chrono::NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f")
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.f").to_string())
             .or_else(|_| {
@@ -629,8 +642,8 @@ fn format_timestamp(row: &tokio_postgres::Row, idx: usize) -> String {
 }
 
 /// Format DATE value
-fn format_date(row: &tokio_postgres::Row, idx: usize) -> String {
-    if let Ok(v) = row.try_get::<_, String>(idx) {
+fn format_date(row: &PgRow, idx: usize) -> String {
+    if let Ok(v) = row.try_get::<String, _>(idx) {
         chrono::NaiveDate::parse_from_str(&v, "%Y-%m-%d")
             .map(|d| d.format("%Y-%m-%d").to_string())
             .unwrap_or(v)
@@ -640,8 +653,8 @@ fn format_date(row: &tokio_postgres::Row, idx: usize) -> String {
 }
 
 /// Format TIME value
-fn format_time(row: &tokio_postgres::Row, idx: usize) -> String {
-    if let Ok(v) = row.try_get::<_, String>(idx) {
+fn format_time(row: &PgRow, idx: usize) -> String {
+    if let Ok(v) = row.try_get::<String, _>(idx) {
         chrono::NaiveTime::parse_from_str(&v, "%H:%M:%S%.f")
             .map(|t| t.format("%H:%M:%S%.f").to_string())
             .or_else(|_| {
@@ -655,8 +668,8 @@ fn format_time(row: &tokio_postgres::Row, idx: usize) -> String {
 }
 
 /// Fallback: try to format as bytes (hex)
-fn format_bytes_fallback(row: &tokio_postgres::Row, idx: usize) -> String {
-    row.try_get::<_, Vec<u8>>(idx)
+fn format_bytes_fallback(row: &PgRow, idx: usize) -> String {
+    row.try_get::<Vec<u8>, _>(idx)
         .map(|v| {
             format!(
                 "\\x{}",

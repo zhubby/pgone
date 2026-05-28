@@ -1,6 +1,7 @@
 use crate::error::{Result, SqlError};
 use crate::models::{MaterializedViewInfo, ViewInfo};
 use crate::session::Session;
+use sqlx::Row;
 use tracing::info;
 
 impl Session {
@@ -8,9 +9,9 @@ impl Session {
     pub async fn list_views(&self, schema: Option<&str>) -> Result<Vec<ViewInfo>> {
         info!(schema = schema, "Listing views");
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
         let rows = if let Some(s) = schema {
-            conn.query(
+            sqlx::query(
                 r#"
                 SELECT 
                     v.table_schema AS schema,
@@ -24,11 +25,12 @@ impl Session {
                 WHERE v.table_schema = $1
                 ORDER BY v.table_schema, v.table_name
                 "#,
-                &[&s],
             )
+            .bind(s)
+            .fetch_all(pool)
             .await
         } else {
-            conn.query(
+            sqlx::query(
                 r#"
                 SELECT 
                     v.table_schema AS schema,
@@ -42,8 +44,8 @@ impl Session {
                 WHERE v.table_schema NOT IN ('pg_catalog', 'information_schema')
                 ORDER BY v.table_schema, v.table_name
                 "#,
-                &[],
             )
+            .fetch_all(pool)
             .await
         }
         .map_err(SqlError::Connection)?;
@@ -66,11 +68,10 @@ impl Session {
     pub async fn get_view_info(&self, schema: &str, view_name: &str) -> Result<ViewInfo> {
         info!(schema = schema, view_name = view_name, "Getting view info");
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
-        let row = conn
-            .query_opt(
-                r#"
+        let row = sqlx::query(
+            r#"
             SELECT 
                 v.table_schema AS schema,
                 v.table_name AS name,
@@ -82,13 +83,13 @@ impl Session {
             JOIN pg_catalog.pg_namespace n ON n.nspname = v.table_schema AND n.oid = c.relnamespace
             WHERE v.table_schema = $1 AND v.table_name = $2
             "#,
-                &[&schema, &view_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?
-            .ok_or_else(|| {
-                SqlError::NotFound(format!("View '{}.{}' not found", schema, view_name))
-            })?;
+        )
+        .bind(schema)
+        .bind(view_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(SqlError::Connection)?
+        .ok_or_else(|| SqlError::NotFound(format!("View '{}.{}' not found", schema, view_name)))?;
 
         Ok(ViewInfo {
             schema: row.get("schema"),
@@ -103,8 +104,9 @@ impl Session {
     pub async fn create_view(&self, ddl: &str) -> Result<()> {
         info!("Creating view with DDL");
 
-        let conn = self.get_connection().await?;
-        conn.execute(ddl, &[])
+        let pool = self.pool();
+        sqlx::query(ddl)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to create view: {}", e)))?;
 
@@ -121,7 +123,7 @@ impl Session {
     ) -> Result<()> {
         info!(schema = schema, view_name = view_name, "Altering view");
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
         // Drop and recreate
         let drop_sql = format!(
@@ -130,7 +132,8 @@ impl Session {
             quote_ident(view_name)
         );
 
-        conn.execute(&drop_sql, &[])
+        sqlx::query(&drop_sql)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to drop view: {}", e)))?;
 
@@ -141,7 +144,8 @@ impl Session {
             new_definition
         );
 
-        conn.execute(&create_sql, &[])
+        sqlx::query(&create_sql)
+            .execute(pool)
             .await
             .map_err(|e| SqlError::Execution(format!("Failed to recreate view: {}", e)))?;
 
@@ -182,8 +186,8 @@ impl Session {
             sql.push_str(" CASCADE");
         }
 
-        let conn = self.get_connection().await?;
-        conn.execute(&sql, &[]).await.map_err(|e| {
+        let pool = self.pool();
+        sqlx::query(&sql).execute(pool).await.map_err(|e| {
             let err_str = e.to_string();
             if err_str.contains("does not exist") {
                 SqlError::NotFound(format!("View '{}.{}' does not exist", schema, view_name))
@@ -202,9 +206,9 @@ impl Session {
     ) -> Result<Vec<MaterializedViewInfo>> {
         info!(schema = schema, "Listing materialized views");
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
         let rows = if let Some(s) = schema {
-            conn.query(
+            sqlx::query(
                 r#"
                 SELECT 
                     m.schemaname AS schema,
@@ -218,11 +222,12 @@ impl Session {
                 WHERE m.schemaname = $1
                 ORDER BY m.schemaname, m.matviewname
                 "#,
-                &[&s],
             )
+            .bind(s)
+            .fetch_all(pool)
             .await
         } else {
-            conn.query(
+            sqlx::query(
                 r#"
                 SELECT 
                     m.schemaname AS schema,
@@ -236,8 +241,8 @@ impl Session {
                 WHERE m.schemaname NOT IN ('pg_catalog', 'information_schema')
                 ORDER BY m.schemaname, m.matviewname
                 "#,
-                &[],
             )
+            .fetch_all(pool)
             .await
         }
         .map_err(SqlError::Connection)?;
@@ -268,11 +273,10 @@ impl Session {
             "Getting materialized view info"
         );
 
-        let conn = self.get_connection().await?;
+        let pool = self.pool();
 
-        let row = conn
-            .query_opt(
-                r#"
+        let row = sqlx::query(
+            r#"
             SELECT 
                 m.schemaname AS schema,
                 m.matviewname AS name,
@@ -284,16 +288,18 @@ impl Session {
             JOIN pg_catalog.pg_namespace n ON n.nspname = m.schemaname AND n.oid = c.relnamespace
             WHERE m.schemaname = $1 AND m.matviewname = $2
             "#,
-                &[&schema, &view_name],
-            )
-            .await
-            .map_err(SqlError::Connection)?
-            .ok_or_else(|| {
-                SqlError::NotFound(format!(
-                    "Materialized view '{}.{}' not found",
-                    schema, view_name
-                ))
-            })?;
+        )
+        .bind(schema)
+        .bind(view_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(SqlError::Connection)?
+        .ok_or_else(|| {
+            SqlError::NotFound(format!(
+                "Materialized view '{}.{}' not found",
+                schema, view_name
+            ))
+        })?;
 
         Ok(MaterializedViewInfo {
             schema: row.get("schema"),

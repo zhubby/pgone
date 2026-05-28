@@ -1,29 +1,33 @@
-use crate::error::{Result, SqlError};
-use bb8_postgres::{PostgresConnectionManager, bb8::Pool};
-use std::sync::Arc;
-use tokio_postgres::NoTls;
-use tracing::info;
+use crate::error::Result;
+use sqlx::postgres::{PgPool, PgPoolOptions};
+use tracing::debug;
 
 #[derive(Clone)]
 pub struct Session {
-    pool: Arc<Pool<PostgresConnectionManager<NoTls>>>,
+    pool: PgPool,
 }
 
 impl Session {
     /// Create a new session with a DSN connection string
     pub async fn new(dsn: &str) -> Result<Self> {
-        info!(dsn = dsn, "Creating database session");
+        debug!("Creating SQLx session pool");
+        let pool = PgPoolOptions::new()
+            .max_connections(10)
+            .connect(dsn)
+            .await?;
+        Ok(Self { pool })
+    }
 
-        let config = dsn
-            .parse::<tokio_postgres::Config>()
-            .map_err(SqlError::Connection)?;
+    /// Create a session from an existing SQLx PostgreSQL pool.
+    #[must_use]
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self { pool }
+    }
 
-        let manager = PostgresConnectionManager::new(config, NoTls);
-        let pool = Pool::builder().max_size(10).build(manager).await?;
-
-        Ok(Self {
-            pool: Arc::new(pool),
-        })
+    /// Get the underlying SQLx PostgreSQL pool.
+    #[must_use]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
     }
 
     /// Create a session connected to the 'postgres' system database
@@ -34,20 +38,13 @@ impl Session {
         Self::new(&dsn).await
     }
 
-    /// Get a connection from the pool
-    pub async fn get_connection(
-        &self,
-    ) -> Result<bb8_postgres::bb8::PooledConnection<'_, PostgresConnectionManager<NoTls>>> {
-        self.pool.get().await.map_err(SqlError::Pool)
-    }
-
     /// Get the current database name
     pub async fn current_database(&self) -> Result<String> {
-        let conn = self.get_connection().await?;
-        let row = conn
-            .query_one("SELECT current_database()", &[])
-            .await
-            .map_err(SqlError::Connection)?;
+        use sqlx::Row;
+
+        let row = sqlx::query("SELECT current_database()")
+            .fetch_one(&self.pool)
+            .await?;
         let db: String = row.get(0);
         Ok(db)
     }

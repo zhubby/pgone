@@ -2,7 +2,6 @@ use eframe::egui;
 use egui_plot::{Bar, BarChart, Plot};
 use poll_promise::Promise;
 use sqlx::Row;
-use sqlx::postgres::PgPoolOptions;
 
 #[derive(Clone)]
 struct ActivityData {
@@ -27,7 +26,7 @@ impl Default for ActivityMonitor {
 }
 
 impl ActivityMonitor {
-    fn load_data(&mut self, dsn: Option<&str>) {
+    fn load_data(&mut self, pools: crate::components::db_manager::PoolRegistry, dsn: Option<&str>) {
         if self.promise.is_some() {
             return;
         }
@@ -43,9 +42,8 @@ impl ActivityMonitor {
 
         crate::futures::spawn(async move {
             let result = async {
-                let pool = PgPoolOptions::new()
-                    .max_connections(1)
-                    .connect(&dsn)
+                let pool = pools
+                    .get_or_create_pool(&dsn)
                     .await
                     .map_err(|e| format!("连接失败: {}", e))?;
 
@@ -76,7 +74,12 @@ impl ActivityMonitor {
         });
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, dsn: Option<&str>) {
+    fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        pools: crate::components::db_manager::PoolRegistry,
+        dsn: Option<&str>,
+    ) {
         // 检查Promise状态
         if let Some(ref promise) = self.promise {
             if let Some(result) = promise.ready() {
@@ -95,7 +98,7 @@ impl ActivityMonitor {
 
         // 如果没有数据且没有错误，开始加载
         if self.data.is_empty() && self.error.is_none() && self.promise.is_none() {
-            self.load_data(dsn);
+            self.load_data(pools.clone(), dsn);
         }
 
         // 显示加载状态
@@ -178,12 +181,16 @@ impl ActivityMonitor {
 
 static MONITOR: std::sync::Mutex<Option<ActivityMonitor>> = std::sync::Mutex::new(None);
 
-pub fn show(ui: &mut egui::Ui, dsn: Option<&str>) {
+pub fn show(
+    ui: &mut egui::Ui,
+    pools: crate::components::db_manager::PoolRegistry,
+    dsn: Option<&str>,
+) {
     let mut monitor = MONITOR.lock().unwrap();
     if monitor.is_none() {
         *monitor = Some(ActivityMonitor::default());
     }
     if let Some(ref mut m) = *monitor {
-        m.ui(ui, dsn);
+        m.ui(ui, pools, dsn);
     }
 }

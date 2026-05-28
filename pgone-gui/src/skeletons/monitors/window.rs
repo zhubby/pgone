@@ -25,6 +25,7 @@ pub fn show_monitor_window(
 
     // 获取当前数据库的DSN
     let dsn = get_dsn(db_manager);
+    let pools = db_manager.pools.clone();
 
     Window::new(title)
         .id(Id::new("monitor_window"))
@@ -35,25 +36,25 @@ pub fn show_monitor_window(
         // .min_size([600.0, 400.0])
         .show(ctx, |ui| match metric {
             MonitorMetric::Activity => {
-                activity::show(ui, dsn.as_deref());
+                activity::show(ui, pools.clone(), dsn.as_deref());
             }
             MonitorMetric::Statements => {
-                statements::show(ui, dsn.as_deref());
+                statements::show(ui, pools.clone(), dsn.as_deref());
             }
             MonitorMetric::Tables => {
-                tables::show(ui, dsn.as_deref());
+                tables::show(ui, pools.clone(), dsn.as_deref());
             }
             MonitorMetric::Indexes => {
-                indexes::show(ui, dsn.as_deref());
+                indexes::show(ui, pools.clone(), dsn.as_deref());
             }
             MonitorMetric::Bgwriter => {
-                bgwriter::show(ui, dsn.as_deref());
+                bgwriter::show(ui, pools.clone(), dsn.as_deref());
             }
             MonitorMetric::Replication => {
-                replication::show(ui, dsn.as_deref());
+                replication::show(ui, pools.clone(), dsn.as_deref());
             }
             MonitorMetric::Locks => {
-                locks::show(ui, dsn.as_deref());
+                locks::show(ui, pools.clone(), dsn.as_deref());
             }
         });
 

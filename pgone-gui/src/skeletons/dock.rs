@@ -6,6 +6,7 @@ use crate::storage::SessionStorage;
 use eframe::egui::{Rect, Ui, WidgetText};
 use egui_dock::{DockArea, DockState, Node, NodeIndex, Style, TabViewer};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -13,6 +14,11 @@ pub enum DockTab {
     DatabaseStructure,
     SqlEditor,
     Results,
+    #[serde(skip)]
+    JsonViewer {
+        id: u64,
+        title: String,
+    },
     Chat,
 }
 
@@ -24,8 +30,15 @@ impl DockTab {
             }
             Self::SqlEditor => format!("{} SQL", egui_phosphor::regular::CODE),
             Self::Results => format!("{} Results", egui_phosphor::regular::TABLE),
+            Self::JsonViewer { title, .. } => {
+                format!("{} {}", egui_phosphor::regular::BRACKETS_CURLY, title)
+            }
             Self::Chat => format!("{} Agent", egui_phosphor::regular::SPARKLE),
         }
+    }
+
+    fn is_json_viewer(&self) -> bool {
+        matches!(self, Self::JsonViewer { .. })
     }
 }
 
@@ -51,7 +64,9 @@ impl DockLayout {
     }
 
     pub fn sanitized_state(&self) -> DockState<DockTab> {
-        let mut state = self.state.clone();
+        let mut state = self
+            .state
+            .filter_tabs(|tab| !matches!(tab, DockTab::JsonViewer { .. }));
         for surface in state.iter_surfaces_mut() {
             let Some(tree) = surface.node_tree_mut() else {
                 continue;
@@ -108,6 +123,47 @@ impl DockLayout {
             .style(Style::from_egui(ui.style().as_ref()))
             .show_leaf_collapse_buttons(false)
             .show_inside(ui, &mut viewer);
+
+        self.retain_live_json_viewer_tabs(results_table);
+
+        for tab in results_table.take_pending_json_viewer_tabs() {
+            self.push_json_viewer_tab(DockTab::JsonViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+    }
+
+    fn retain_live_json_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
+        self.state.retain_tabs(|tab| match tab {
+            DockTab::JsonViewer { id, .. } => results_table.json_viewer_tab(*id).is_some(),
+            _ => true,
+        });
+
+        let keep_ids = self
+            .state
+            .iter_all_tabs()
+            .filter_map(|(_, tab)| match tab {
+                DockTab::JsonViewer { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        results_table.retain_json_viewer_tabs(&keep_ids);
+    }
+
+    fn push_json_viewer_tab(&mut self, tab: DockTab) {
+        if let Some(results_path) = self.state.find_tab(&DockTab::Results) {
+            if let Ok(leaf) = self.state.leaf_mut(results_path.node_path()) {
+                leaf.append_tab(tab);
+                let active = leaf.tabs.len().saturating_sub(1);
+                let _ = leaf.set_active_tab(active);
+                self.state
+                    .set_focused_node_and_surface(results_path.node_path());
+                return;
+            }
+        }
+
+        self.state.push_to_focused_leaf(tab);
     }
 
     fn default_state() -> DockState<DockTab> {
@@ -162,7 +218,6 @@ impl DockTabViewer<'_> {
         self.results_table
             .sync_database_selection(Some(&mut sql_ctx));
         self.results_table.ui_sql_editor(ui, true);
-        self.db.pools = sql_ctx.db.pools;
     }
 
     fn show_results(&mut self, ui: &mut Ui) {
@@ -177,7 +232,10 @@ impl DockTabViewer<'_> {
 
         self.results_table
             .ui_results_table(ui, sql.as_deref(), Some(&mut sql_ctx), true);
-        self.db.pools = sql_ctx.db.pools;
+    }
+
+    fn show_json_viewer(&mut self, ui: &mut Ui, id: u64) {
+        self.results_table.ui_json_viewer(ui, id);
     }
 
     fn show_chat(&mut self, ui: &mut Ui) {
@@ -217,12 +275,13 @@ impl TabViewer for DockTabViewer<'_> {
             DockTab::DatabaseStructure => self.show_database_structure(ui),
             DockTab::SqlEditor => self.show_sql_editor(ui),
             DockTab::Results => self.show_results(ui),
+            DockTab::JsonViewer { id, .. } => self.show_json_viewer(ui, *id),
             DockTab::Chat => self.show_chat(ui),
         }
     }
 
-    fn is_closeable(&self, _tab: &Self::Tab) -> bool {
-        false
+    fn is_closeable(&self, tab: &Self::Tab) -> bool {
+        tab.is_json_viewer()
     }
 
     fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
@@ -231,7 +290,7 @@ impl TabViewer for DockTabViewer<'_> {
 
     fn scroll_bars(&self, tab: &Self::Tab) -> [bool; 2] {
         match tab {
-            DockTab::SqlEditor | DockTab::Results => [false, false],
+            DockTab::SqlEditor | DockTab::Results | DockTab::JsonViewer { .. } => [false, false],
             DockTab::DatabaseStructure | DockTab::Chat => [true, true],
         }
     }

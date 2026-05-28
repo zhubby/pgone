@@ -1,9 +1,10 @@
 use super::utils;
 use super::{QueryResult, ResultsTable};
 use crate::components::SqlCtx;
+use crate::components::db_manager::PoolRegistry;
 use crate::futures;
 use poll_promise::Promise;
-use sqlx::postgres::{PgPoolOptions, PgRow};
+use sqlx::postgres::{PgPool, PgRow};
 use sqlx::{Column, Row};
 use std::collections::HashSet;
 
@@ -13,7 +14,7 @@ impl ResultsTable {
         let Some((dsn, sql)) = self.query_request(ctxs, self.sql_input.clone()) else {
             return;
         };
-        self.start_query(dsn, sql);
+        self.start_query(ctxs.db.pools.clone(), dsn, sql);
     }
 
     pub(super) fn query_request(
@@ -53,17 +54,22 @@ impl ResultsTable {
         Some((dsn, sql))
     }
 
-    pub(super) fn start_query(&mut self, dsn: String, sql: String) {
+    pub(super) fn start_query(&mut self, pools: PoolRegistry, dsn: String, sql: String) {
         let (sender, promise) = Promise::new();
         self.query_promise = Some(promise);
         self.query_columns.clear();
         self.query_rows.clear();
+        self.selected_result_row = None;
+        self.clear_json_viewer_tabs();
         self.explain_info = None;
         self.explain_error = None;
         self.current_sql = Some(sql.clone());
 
         futures::spawn(async move {
-            let result = execute_query(&dsn, &sql).await;
+            let result = match pools.get_or_create_pool(&dsn).await {
+                Ok(pool) => execute_query(pool, &sql).await,
+                Err(error) => Err(error),
+            };
             sender.send(result);
         });
     }
@@ -82,6 +88,8 @@ impl ResultsTable {
                     }
                     Err(error) => {
                         self.sql_error = Some(error.clone());
+                        self.selected_result_row = None;
+                        self.clear_json_viewer_tabs();
                     }
                 }
                 self.query_promise = None;
@@ -90,13 +98,7 @@ impl ResultsTable {
     }
 }
 
-async fn execute_query(dsn: &str, sql: &str) -> Result<QueryResult, String> {
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(dsn)
-        .await
-        .map_err(|e| format!("Failed to create connection pool: {}", e))?;
-
+async fn execute_query(pool: PgPool, sql: &str) -> Result<QueryResult, String> {
     let primary_key_columns = detect_primary_keys(sql, &pool).await.unwrap_or_default();
     let explain = execute_explain(sql, &pool).await;
 

@@ -1,32 +1,84 @@
 use super::ResultsTable;
 use crate::components::SqlCtx;
 use egui_extras::{Column, TableBuilder};
+use serde_json::Value;
 
-fn truncate_cell_text(text: &str) -> (String, bool) {
-    const MAX_LENGTH: usize = 12;
-
-    let first_line = if let Some(crlf_pos) = text.find("\r\n") {
-        text.chars().take(crlf_pos).collect::<String>() + "..."
-    } else if let Some(newline_pos) = text.find('\n') {
-        text.chars().take(newline_pos).collect::<String>() + "..."
-    } else if let Some(carriage_pos) = text.find('\r') {
-        text.chars().take(carriage_pos).collect::<String>() + "..."
+fn truncate_cell_text(ui: &egui::Ui, text: &str, available_width: f32) -> (String, bool) {
+    let (first_line, truncated_by_line) = first_display_line(text);
+    let display = if truncated_by_line {
+        format!("{first_line}...")
     } else {
-        text.to_string()
+        first_line.clone()
     };
 
-    if first_line.chars().count() <= MAX_LENGTH {
-        let truncated = first_line != text;
-        (first_line, truncated)
-    } else {
-        (
-            format!(
-                "{}...",
-                first_line.chars().take(MAX_LENGTH).collect::<String>()
-            ),
-            true,
-        )
+    if text_width(ui, &display) <= available_width {
+        return (display, truncated_by_line);
     }
+
+    let ellipsis = "...";
+    if text_width(ui, ellipsis) > available_width {
+        return (ellipsis.to_string(), true);
+    }
+
+    let char_count = first_line.chars().count();
+    let mut low = 0;
+    let mut high = char_count;
+    while low < high {
+        let mid = (low + high).div_ceil(2);
+        let candidate = format!(
+            "{}{}",
+            first_line.chars().take(mid).collect::<String>(),
+            ellipsis
+        );
+        if text_width(ui, &candidate) <= available_width {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    (
+        format!(
+            "{}{}",
+            first_line.chars().take(low).collect::<String>(),
+            ellipsis
+        ),
+        true,
+    )
+}
+
+fn first_display_line(text: &str) -> (String, bool) {
+    let line_end = text
+        .find("\r\n")
+        .or_else(|| text.find('\n'))
+        .or_else(|| text.find('\r'));
+
+    if let Some(line_end) = line_end {
+        (text.chars().take(line_end).collect(), true)
+    } else {
+        (text.to_string(), false)
+    }
+}
+
+fn text_width(ui: &egui::Ui, text: &str) -> f32 {
+    let font_id = egui::TextStyle::Body.resolve(ui.style());
+    ui.painter()
+        .layout_no_wrap(text.to_string(), font_id, ui.visuals().text_color())
+        .size()
+        .x
+}
+
+fn parse_json_cell(value: &str) -> Option<Value> {
+    let trimmed = value.trim();
+    if !((trimmed.starts_with('{') && trimmed.ends_with('}'))
+        || (trimmed.starts_with('[') && trimmed.ends_with(']')))
+    {
+        return None;
+    }
+
+    serde_json::from_str::<Value>(trimmed)
+        .ok()
+        .filter(|value| value.is_object() || value.is_array())
 }
 
 impl ResultsTable {
@@ -36,7 +88,7 @@ impl ResultsTable {
         let Some((dsn, sql)) = self.query_request(ctxs, sql.to_string()) else {
             return;
         };
-        self.start_query(dsn, sql);
+        self.start_query(ctxs.db.pools.clone(), dsn, sql);
     }
 
     /// 渲染查询结果表格
@@ -176,6 +228,7 @@ impl ResultsTable {
         let columns = self.query_columns.clone();
         let rows = self.query_rows.clone();
         let primary_keys = self.primary_key_columns.clone();
+        let mut json_viewer_requests = Vec::new();
 
         egui::ScrollArea::both().show(ui, |ui| {
             let table = TableBuilder::new(ui)
@@ -197,22 +250,62 @@ impl ResultsTable {
                     }
                 })
                 .body(|mut body| {
-                    for row in &rows {
+                    let mut selected_row = self.selected_result_row;
+                    for (row_index, row) in rows.iter().enumerate() {
                         body.row(22.0, |mut table_row| {
+                            table_row.set_selected(selected_row == Some(row_index));
+                            let mut row_clicked = false;
                             for index in 0..columns.len() {
                                 table_row.col(|ui| {
                                     let value = row.get(index).map(String::as_str).unwrap_or("");
-                                    let (display_value, truncated) = truncate_cell_text(value);
-                                    let response = ui.label(display_value);
-                                    if truncated {
-                                        response.on_hover_text(value);
-                                    }
+                                    let json_value = parse_json_cell(value);
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                        let button_width =
+                                            if json_value.is_some() { 22.0 } else { 0.0 };
+                                        let available_width =
+                                            (ui.available_width() - button_width - 4.0).max(0.0);
+                                        let (display_value, truncated) =
+                                            truncate_cell_text(ui, value, available_width);
+                                        let response = ui.add(
+                                            egui::Label::new(display_value)
+                                                .sense(egui::Sense::click()),
+                                        );
+                                        row_clicked |= response.clicked();
+                                        if truncated {
+                                            response.on_hover_text(value);
+                                        }
+
+                                        if let Some(json_value) = json_value {
+                                            if ui
+                                                .small_button(
+                                                    egui_phosphor::regular::BRACKETS_CURLY,
+                                                )
+                                                .on_hover_text("Open JSON viewer")
+                                                .clicked()
+                                            {
+                                                json_viewer_requests.push((
+                                                    row_index,
+                                                    columns[index].clone(),
+                                                    json_value,
+                                                ));
+                                            }
+                                        }
+                                    });
                                 });
+                            }
+                            if row_clicked {
+                                selected_row = Some(row_index);
                             }
                         });
                     }
+                    self.selected_result_row = selected_row.filter(|index| *index < rows.len());
                 });
         });
+
+        for (row_index, column, value) in json_viewer_requests {
+            self.open_json_viewer(row_index, &column, value);
+        }
     }
 
     /// 导出查询结果为 CSV 文件

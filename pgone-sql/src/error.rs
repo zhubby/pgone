@@ -3,10 +3,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum SqlError {
     #[error("Database connection error: {0}")]
-    Connection(#[from] tokio_postgres::Error),
-
-    #[error("Pool error: {0}")]
-    Pool(#[from] bb8_postgres::bb8::RunError<tokio_postgres::Error>),
+    Connection(#[from] sqlx::Error),
 
     #[error("SQL execution error: {0}")]
     Execution(String),
@@ -47,13 +44,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sql_error_from_tokio_postgres_error() {
-        // Test that we can convert from tokio_postgres::Error
-        // This is a compile-time test - if it compiles, the From trait is implemented correctly
-        // We'll create a simple connection error to test the conversion
-        let config = "invalid_dsn".parse::<tokio_postgres::Config>();
-        if let Err(e) = config {
-            let _result: Result<()> = Err(SqlError::Connection(e));
-        }
+    fn test_sql_error_from_sqlx_error() {
+        let _result: Result<()> = Err(SqlError::Connection(sqlx::Error::RowNotFound));
     }
 }

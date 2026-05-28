@@ -2,6 +2,9 @@ use crate::futures;
 use crate::notify;
 use crate::storage_handle::{FileUploadTarget as StorageFileUploadTarget, GuiStorage};
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,12 +95,71 @@ pub struct DbManager {
     pub edit_db_id: Option<String>,
     pub edit_db_form: DbFormData,
     pub storage: Option<GuiStorage>,
-    pub pools: std::collections::HashMap<u64, PgPool>,
+    pub pools: PoolRegistry,
     pub delete_confirm_id: Option<String>,
     pub show_delete_confirm: bool,
     add_test_receiver: Option<mpsc::Receiver<ConnectionTestResult>>,
     edit_test_receiver: Option<mpsc::Receiver<ConnectionTestResult>>,
     storage_refresh_requested: bool,
+}
+
+#[derive(Clone, Default)]
+pub struct PoolRegistry {
+    pools: Arc<Mutex<HashMap<u64, PgPool>>>,
+}
+
+impl PoolRegistry {
+    pub async fn get_or_create_pool(&self, dsn: &str) -> Result<PgPool, String> {
+        let key = calculate_dsn_hash(dsn);
+        if let Some(pool) = self
+            .pools
+            .lock()
+            .ok()
+            .and_then(|pools| pools.get(&key).cloned())
+        {
+            return Ok(pool);
+        }
+
+        tracing::debug!(dsn_hash = key, "Creating GUI PostgreSQL pool");
+        let pool = PgPoolOptions::new()
+            .max_connections(10)
+            .connect(dsn)
+            .await
+            .map_err(|e| format!("Failed to create PostgreSQL pool: {}", e))?;
+
+        let mut pools = self
+            .pools
+            .lock()
+            .map_err(|_| "Database pool registry lock poisoned".to_string())?;
+        Ok(pools.entry(key).or_insert_with(|| pool).clone())
+    }
+
+    pub fn remove_dsn(&self, dsn: &str) {
+        let key = calculate_dsn_hash(dsn);
+        let pool = self
+            .pools
+            .lock()
+            .ok()
+            .and_then(|mut pools| pools.remove(&key));
+        if let Some(pool) = pool {
+            futures::spawn(async move {
+                pool.close().await;
+            });
+        }
+    }
+
+    fn take_all(&self) -> Vec<PgPool> {
+        self.pools
+            .lock()
+            .map(|mut pools| pools.drain().map(|(_, pool)| pool).collect())
+            .unwrap_or_default()
+    }
+}
+
+fn calculate_dsn_hash(dsn: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    dsn.hash(&mut hasher);
+    hasher.finish()
 }
 
 struct ConnectionTestResult {
@@ -214,7 +276,7 @@ impl DbManager {
     }
 
     pub fn shutdown(&mut self) {
-        let pools = std::mem::take(&mut self.pools);
+        let pools = self.pools.take_all();
         if pools.is_empty() {
             return;
         }
@@ -222,7 +284,7 @@ impl DbManager {
         tracing::info!("正在关闭 {} 个 GUI 数据库连接池", pools.len());
         futures::block_on_async(async move {
             let close_futures = pools
-                .into_values()
+                .into_iter()
                 .map(|pool| async move {
                     pool.close().await;
                 })
@@ -990,6 +1052,9 @@ impl DbManager {
                             .clicked()
                         {
                             if let Some(ref storage) = self.storage {
+                                if let Some(cfg) = storage.get_db_config(id) {
+                                    self.pools.remove_dsn(&cfg.dsn);
+                                }
                                 storage.delete_db_config(id);
                                 if self.active_db_config_id.as_ref() == Some(id) {
                                     self.active_db_config_id = None;
@@ -1327,7 +1392,11 @@ impl DbManager {
         };
 
         let previous_id = id.clone();
+        let previous_dsn = existing_cfg.dsn.clone();
         storage.upsert_db_config(cfg.clone());
+        if previous_dsn != cfg.dsn {
+            self.pools.remove_dsn(&previous_dsn);
+        }
         if self.active_db_config_id.as_ref() == Some(&previous_id) {
             self.active_db_config_id = Some(cfg.id.clone());
         }
