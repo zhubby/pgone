@@ -124,14 +124,14 @@ impl DockLayout {
             .show_leaf_collapse_buttons(false)
             .show_inside(ui, &mut viewer);
 
-        self.retain_live_json_viewer_tabs(results_table);
-
         for tab in results_table.take_pending_json_viewer_tabs() {
             self.push_json_viewer_tab(DockTab::JsonViewer {
                 id: tab.id,
                 title: tab.title,
             });
         }
+
+        self.retain_live_json_viewer_tabs(results_table);
     }
 
     fn retain_live_json_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
@@ -185,6 +185,32 @@ impl DockLayout {
         ]
         .into_iter()
         .all(|required| state.iter_all_tabs().any(|(_, tab)| *tab == required))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn pending_json_viewer_tab_survives_live_tab_retention() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_json_viewer(0, "payload", json!({ "ok": true }));
+
+        for tab in results_table.take_pending_json_viewer_tabs() {
+            layout.push_json_viewer_tab(DockTab::JsonViewer {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+        layout.retain_live_json_viewer_tabs(&mut results_table);
+
+        assert!(results_table.json_viewer_tab(id).is_some());
+        assert!(layout.state.iter_all_tabs().any(
+            |(_, tab)| matches!(tab, DockTab::JsonViewer { id: tab_id, .. } if *tab_id == id)
+        ));
     }
 }
 
