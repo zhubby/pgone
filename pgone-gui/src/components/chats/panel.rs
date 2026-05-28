@@ -17,6 +17,9 @@ use super::model_loader::ModelLoader;
 
 const AGENT_COMPOSER_OUTER_HEIGHT: f32 = 118.0;
 const AGENT_SECTION_SPACING: f32 = 8.0;
+const USER_BUBBLE_MAX_WIDTH_FRACTION: f32 = 0.82;
+const AGENT_BUBBLE_MIN_CONTENT_WIDTH: f32 = 120.0;
+const AGENT_BUBBLE_HORIZONTAL_MARGIN: i8 = 10;
 const DEFAULT_OPENAI_CHAT_COMPLETIONS_URL: &str = "https://api.openai.com/v1/chat/completions";
 
 fn image_file_dialog() -> FileDialog {
@@ -213,6 +216,10 @@ impl ChatPanel {
                     .auto_shrink([false, false])
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
+                        let viewport_width = ui.available_width();
+                        ui.set_width(viewport_width);
+                        ui.set_max_width(viewport_width);
+
                         let messages: Vec<Message> = ctxs
                             .state
                             .sessions
@@ -229,6 +236,7 @@ impl ChatPanel {
                                 ctxs,
                                 ui,
                                 message,
+                                viewport_width,
                                 &mut self.markdown_cache,
                                 self.in_flight.is_some(),
                                 egui::Id::new("agent_message_markdown")
@@ -256,6 +264,7 @@ impl ChatPanel {
                             show_assistant_message(
                                 ui,
                                 &message,
+                                viewport_width,
                                 &mut self.markdown_cache,
                                 egui::Id::new("agent_partial_markdown")
                                     .with(ctxs.state.current_index)
@@ -778,14 +787,17 @@ fn show_agent_message(
     ctxs: &mut ChatCtx,
     ui: &mut egui::Ui,
     message: &Message,
+    viewport_width: f32,
     markdown_cache: &mut CommonMarkCache,
     request_in_flight: bool,
     markdown_id: egui::Id,
 ) {
     match message.role {
-        Role::User => show_user_message(ctxs, ui, message),
-        Role::Assistant => show_assistant_message(ui, message, markdown_cache, markdown_id),
-        Role::System => show_system_message(ui, message),
+        Role::User => show_user_message(ctxs, ui, message, viewport_width),
+        Role::Assistant => {
+            show_assistant_message(ui, message, viewport_width, markdown_cache, markdown_id)
+        }
+        Role::System => show_system_message(ui, message, viewport_width),
     }
 
     if !request_in_flight
@@ -798,8 +810,13 @@ fn show_agent_message(
     }
 }
 
-fn show_user_message(ctxs: &mut ChatCtx, ui: &mut egui::Ui, message: &Message) {
-    let width = agent_bubble_width(ui);
+fn show_user_message(
+    ctxs: &mut ChatCtx,
+    ui: &mut egui::Ui,
+    message: &Message,
+    viewport_width: f32,
+) {
+    let width = user_bubble_width(viewport_width);
     ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
         message_bubble(
             ctxs,
@@ -821,6 +838,7 @@ fn show_user_message(ctxs: &mut ChatCtx, ui: &mut egui::Ui, message: &Message) {
 fn show_assistant_message(
     ui: &mut egui::Ui,
     message: &Message,
+    viewport_width: f32,
     markdown_cache: &mut CommonMarkCache,
     markdown_id: egui::Id,
 ) {
@@ -832,7 +850,7 @@ fn show_assistant_message(
         MessageBubbleStyle {
             label: "PgOne",
             icon: egui_phosphor::regular::SPARKLE,
-            max_width: agent_bubble_width(ui),
+            max_width: assistant_bubble_width(viewport_width),
             fill: ui.visuals().extreme_bg_color,
             stroke: egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
             accent: ui.visuals().hyperlink_color,
@@ -841,14 +859,14 @@ fn show_assistant_message(
     );
 }
 
-fn show_system_message(ui: &mut egui::Ui, message: &Message) {
+fn show_system_message(ui: &mut egui::Ui, message: &Message, viewport_width: f32) {
     plain_message_bubble(
         ui,
         message,
         MessageBubbleStyle {
             label: "System",
             icon: egui_phosphor::regular::USER_GEAR,
-            max_width: agent_bubble_width(ui),
+            max_width: assistant_bubble_width(viewport_width),
             fill: ui.visuals().widgets.inactive.bg_fill,
             stroke: ui.visuals().widgets.inactive.bg_stroke,
             accent: ui.visuals().weak_text_color(),
@@ -877,11 +895,12 @@ fn message_bubble(
         .fill(style.fill)
         .stroke(style.stroke)
         .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::symmetric(10, 8))
+        .inner_margin(egui::Margin::symmetric(AGENT_BUBBLE_HORIZONTAL_MARGIN, 8))
         .show(ui, |ui| {
-            ui.set_max_width(style.max_width);
-            bubble_header(ui, &style);
-            show_message_content(ctxs, ui, message, style.max_width);
+            constrained_bubble_ui(ui, style.max_width, |ui| {
+                bubble_header(ui, &style);
+                show_message_content(ctxs, ui, message, style.max_width);
+            });
         });
 }
 
@@ -890,13 +909,14 @@ fn plain_message_bubble(ui: &mut egui::Ui, message: &Message, style: MessageBubb
         .fill(style.fill)
         .stroke(style.stroke)
         .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::symmetric(10, 8))
+        .inner_margin(egui::Margin::symmetric(AGENT_BUBBLE_HORIZONTAL_MARGIN, 8))
         .show(ui, |ui| {
-            ui.set_max_width(style.max_width);
-            bubble_header(ui, &style);
-            if let MessageContent::Markdown(text) = &message.content {
-                ui.add(egui::Label::new(text.as_str()).wrap());
-            }
+            constrained_bubble_ui(ui, style.max_width, |ui| {
+                bubble_header(ui, &style);
+                if let MessageContent::Markdown(text) = &message.content {
+                    ui.add(egui::Label::new(text.as_str()).wrap());
+                }
+            });
         });
 }
 
@@ -911,18 +931,37 @@ fn markdown_message_bubble(
         .fill(style.fill)
         .stroke(style.stroke)
         .corner_radius(egui::CornerRadius::same(6))
-        .inner_margin(egui::Margin::symmetric(10, 8))
+        .inner_margin(egui::Margin::symmetric(AGENT_BUBBLE_HORIZONTAL_MARGIN, 8))
         .show(ui, |ui| {
-            ui.set_max_width(style.max_width);
-            bubble_header(ui, &style);
-            if let MessageContent::Markdown(text) = &message.content {
-                ui.push_id(markdown_id, |ui| {
-                    CommonMarkViewer::new()
-                        .default_width(Some(style.max_width as usize))
-                        .show(ui, markdown_cache, text);
-                });
-            }
+            constrained_bubble_ui(ui, style.max_width, |ui| {
+                bubble_header(ui, &style);
+                if let MessageContent::Markdown(text) = &message.content {
+                    ui.push_id(markdown_id, |ui| {
+                        egui::ScrollArea::horizontal()
+                            .id_salt("assistant_markdown_horizontal_scroll")
+                            .auto_shrink([false, true])
+                            .max_width(style.max_width)
+                            .show(ui, |ui| {
+                                CommonMarkViewer::new()
+                                    .default_width(Some(style.max_width as usize))
+                                    .show(ui, markdown_cache, text);
+                            });
+                    });
+                }
+            });
         });
+}
+
+fn constrained_bubble_ui(ui: &mut egui::Ui, width: f32, add_contents: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_min_width(width);
+            ui.set_max_width(width);
+            add_contents(ui);
+        },
+    );
 }
 
 fn bubble_header(ui: &mut egui::Ui, style: &MessageBubbleStyle) {
@@ -971,8 +1010,22 @@ fn show_message_content(ctxs: &mut ChatCtx, ui: &mut egui::Ui, message: &Message
     }
 }
 
-fn agent_bubble_width(ui: &egui::Ui) -> f32 {
-    (ui.available_width() * 0.82).max(120.0)
+fn user_bubble_width(available_width: f32) -> f32 {
+    bubble_content_width(available_width, USER_BUBBLE_MAX_WIDTH_FRACTION)
+}
+
+fn assistant_bubble_width(available_width: f32) -> f32 {
+    bubble_content_width(available_width, 1.0)
+}
+
+fn bubble_content_width(available_width: f32, width_fraction: f32) -> f32 {
+    let horizontal_margin = f32::from(AGENT_BUBBLE_HORIZONTAL_MARGIN) * 2.0;
+    let available_content_width = (available_width - horizontal_margin).max(0.0);
+    let preferred_width = available_width * width_fraction - horizontal_margin;
+
+    preferred_width
+        .max(AGENT_BUBBLE_MIN_CONTENT_WIDTH.min(available_content_width))
+        .min(available_content_width)
 }
 
 fn show_agent_tool_activity(ui: &mut egui::Ui, events: &[AgentEvent]) {
