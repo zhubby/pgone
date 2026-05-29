@@ -1,10 +1,10 @@
 use crate::components::{
     ChatCtx, ChatPanel, DbManager, DbTree, PreviewManager, ResultsTable, SqlCtx,
 };
-use crate::models::PersistedState;
+use crate::models::{ChatSession, PersistedState};
 use crate::storage::SessionStorage;
 use eframe::egui::{Rect, Ui, WidgetText};
-use egui_dock::{DockArea, DockState, Node, NodeIndex, Style, TabViewer};
+use egui_dock::{DockArea, DockState, Node, NodeIndex, NodePath, Style, TabViewer};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -21,6 +21,11 @@ pub enum DockTab {
     },
     #[serde(skip)]
     DdlViewer {
+        id: u64,
+        title: String,
+    },
+    #[serde(skip)]
+    SqlDraft {
         id: u64,
         title: String,
     },
@@ -49,6 +54,9 @@ impl DockTab {
             Self::DdlViewer { title, .. } => {
                 format!("{} {}", egui_phosphor::regular::CODE, title)
             }
+            Self::SqlDraft { title, .. } => {
+                format!("{} {}", egui_phosphor::regular::NOTE_PENCIL, title)
+            }
             Self::GraphViewer { title, .. } => {
                 format!("{} {}", egui_phosphor::regular::GRAPH, title)
             }
@@ -62,7 +70,10 @@ impl DockTab {
     fn is_temporary_viewer(&self) -> bool {
         matches!(
             self,
-            Self::JsonViewer { .. } | Self::DdlViewer { .. } | Self::GraphViewer { .. }
+            Self::JsonViewer { .. }
+                | Self::DdlViewer { .. }
+                | Self::SqlDraft { .. }
+                | Self::GraphViewer { .. }
         )
     }
 }
@@ -132,7 +143,7 @@ impl DockLayout {
         preview: &mut PreviewManager,
         storage: &mut SessionStorage,
     ) {
-        self.reconcile_agent_tabs(state);
+        self.reconcile_agent_tabs(state, Some(storage));
 
         {
             let mut viewer = DockTabViewer {
@@ -167,6 +178,12 @@ impl DockLayout {
                 title: tab.title,
             });
         }
+        for tab in results_table.take_pending_sql_draft_tabs() {
+            self.push_sql_panel_tab(DockTab::SqlDraft {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
         for tab in results_table.take_pending_graph_viewer_tabs() {
             self.push_results_viewer_tab(DockTab::GraphViewer {
                 id: tab.id,
@@ -176,11 +193,16 @@ impl DockLayout {
 
         self.retain_live_json_viewer_tabs(results_table);
         self.retain_live_ddl_viewer_tabs(results_table);
+        self.retain_live_sql_draft_tabs(results_table);
         self.retain_live_graph_viewer_tabs(results_table);
-        self.reconcile_agent_tabs(state);
+        self.reconcile_agent_tabs(state, Some(storage));
     }
 
-    fn reconcile_agent_tabs(&mut self, state: &mut PersistedState) {
+    fn reconcile_agent_tabs(
+        &mut self,
+        state: &mut PersistedState,
+        mut storage: Option<&mut SessionStorage>,
+    ) {
         normalize_current_session_index(state);
         let current_session_id = current_session_id(state);
 
@@ -205,11 +227,12 @@ impl DockLayout {
             _ => true,
         });
 
-        if !self.has_agent_tab()
-            && let Some(session_id) = current_session_id
-        {
-            self.push_or_focus_agent_tab(session_id);
+        if self.has_agent_tab() {
+            return;
         }
+
+        let session_id = create_replacement_agent_session(state, storage.as_deref_mut());
+        self.push_agent_tab_to_sidebar(session_id);
     }
 
     fn has_agent_tab(&self) -> bool {
@@ -243,6 +266,37 @@ impl DockLayout {
         }
 
         self.state.push_to_focused_leaf(tab);
+    }
+
+    fn push_agent_tab_to_sidebar(&mut self, session_id: String) {
+        if let Some(path) = self.state.find_tab_from(|tab| {
+            matches!(tab, DockTab::Agent { session_id: tab_session_id } if tab_session_id == &session_id)
+        }) {
+            let _ = self.state.set_active_tab(path);
+            self.state.set_focused_node_and_surface(path.node_path());
+            return;
+        }
+
+        let tab = DockTab::Agent { session_id };
+        if let Some(agent_path) = self
+            .state
+            .find_tab_from(|tab| matches!(tab, DockTab::Agent { .. } | DockTab::Chat))
+        {
+            if let Ok(leaf) = self.state.leaf_mut(agent_path.node_path()) {
+                leaf.append_tab(tab);
+                let active = leaf.tabs.len().saturating_sub(1);
+                let _ = leaf.set_active_tab(active);
+                self.state
+                    .set_focused_node_and_surface(agent_path.node_path());
+                return;
+            }
+        }
+
+        self.state
+            .main_surface_mut()
+            .split_right(NodeIndex::root(), 0.70, vec![tab]);
+        self.state
+            .set_focused_node_and_surface(NodePath::MAIN_ROOT.right_node());
     }
 
     fn retain_live_json_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
@@ -323,6 +377,10 @@ impl DockLayout {
     }
 
     fn push_ddl_viewer_tab(&mut self, tab: DockTab) {
+        self.push_sql_panel_tab(tab);
+    }
+
+    fn push_sql_panel_tab(&mut self, tab: DockTab) {
         if let Some(sql_path) = self.state.find_tab(&DockTab::SqlEditor) {
             if let Ok(leaf) = self.state.leaf_mut(sql_path.node_path()) {
                 leaf.append_tab(tab);
@@ -335,6 +393,23 @@ impl DockLayout {
         }
 
         self.state.push_to_focused_leaf(tab);
+    }
+
+    fn retain_live_sql_draft_tabs(&mut self, results_table: &mut ResultsTable) {
+        self.state.retain_tabs(|tab| match tab {
+            DockTab::SqlDraft { id, .. } => results_table.sql_draft_tab(*id).is_some(),
+            _ => true,
+        });
+
+        let keep_ids = self
+            .state
+            .iter_all_tabs()
+            .filter_map(|(_, tab)| match tab {
+                DockTab::SqlDraft { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        results_table.retain_sql_draft_tabs(&keep_ids);
     }
 
     fn retain_live_graph_viewer_tabs(&mut self, results_table: &mut ResultsTable) {
@@ -399,10 +474,29 @@ fn current_session_id(state: &PersistedState) -> Option<String> {
         .map(|session| session.id.clone())
 }
 
+fn create_replacement_agent_session(
+    state: &mut PersistedState,
+    storage: Option<&mut SessionStorage>,
+) -> String {
+    let new_id = state.next_session_id.to_string();
+    state.next_session_id = state.next_session_id.saturating_add(1);
+
+    let new_session = ChatSession::default_with_timestamp(new_id.clone());
+    state.sessions.push(new_session.clone());
+    state.current_index = state.sessions.len().saturating_sub(1);
+
+    if let Some(storage) = storage
+        && let Err(error) = storage.save_session(&new_session)
+    {
+        tracing::error!("Failed to save replacement Agent session: {error}");
+    }
+
+    new_id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ChatSession;
     use serde_json::json;
 
     fn agent_tab_count(layout: &DockLayout, session_id: &str) -> usize {
@@ -429,7 +523,7 @@ mod tests {
         };
         let mut state = PersistedState::default();
 
-        layout.reconcile_agent_tabs(&mut state);
+        layout.reconcile_agent_tabs(&mut state, None);
 
         assert_eq!(agent_tab_count(&layout, "1"), 1);
         assert!(
@@ -459,10 +553,45 @@ mod tests {
             ..PersistedState::default()
         };
 
-        layout.reconcile_agent_tabs(&mut state);
+        layout.reconcile_agent_tabs(&mut state, None);
 
         assert_eq!(agent_tab_count(&layout, "1"), 1);
         assert_eq!(agent_tab_count(&layout, "2"), 0);
+    }
+
+    #[test]
+    fn reconcile_agent_tabs_creates_new_session_when_last_agent_tab_is_closed() {
+        let mut layout = DockLayout::default();
+        layout
+            .state
+            .retain_tabs(|tab| !matches!(tab, DockTab::Agent { .. } | DockTab::Chat));
+        let mut state = PersistedState::default();
+        let initial_session_count = state.sessions.len();
+        let next_session_id = state.next_session_id;
+
+        layout.reconcile_agent_tabs(&mut state, None);
+
+        let new_session_id = next_session_id.to_string();
+        assert_eq!(state.sessions.len(), initial_session_count + 1);
+        assert_eq!(state.current_index, state.sessions.len() - 1);
+        assert_eq!(state.sessions[state.current_index].id, new_session_id);
+        assert_eq!(state.next_session_id, next_session_id + 1);
+        assert_eq!(agent_tab_count(&layout, &new_session_id), 1);
+        assert!(DockLayout::has_required_tabs(&layout.state));
+    }
+
+    #[test]
+    fn reconcile_agent_tabs_keeps_existing_agent_tab_without_creating_session() {
+        let mut layout = DockLayout::default();
+        let mut state = PersistedState::default();
+        let initial_session_count = state.sessions.len();
+        let next_session_id = state.next_session_id;
+
+        layout.reconcile_agent_tabs(&mut state, None);
+
+        assert_eq!(state.sessions.len(), initial_session_count);
+        assert_eq!(state.next_session_id, next_session_id);
+        assert_eq!(agent_tab_count(&layout, "1"), 1);
     }
 
     #[test]
@@ -508,6 +637,36 @@ mod tests {
         );
         assert!(
             matches!(&leaf[leaf.active], DockTab::DdlViewer { id: tab_id, .. } if *tab_id == id)
+        );
+    }
+
+    #[test]
+    fn pending_sql_draft_tab_opens_next_to_sql_editor() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_sql_draft(
+            "New Table",
+            "CREATE TABLE public.new_table (id SERIAL PRIMARY KEY);",
+            "postgres",
+        );
+
+        for tab in results_table.take_pending_sql_draft_tabs() {
+            layout.push_sql_panel_tab(DockTab::SqlDraft {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+
+        let sql_path = layout.state.find_tab(&DockTab::SqlEditor).unwrap();
+        let leaf = layout.state.leaf(sql_path.node_path()).unwrap();
+
+        assert!(
+            leaf.tabs
+                .iter()
+                .any(|tab| matches!(tab, DockTab::SqlDraft { id: tab_id, .. } if *tab_id == id))
+        );
+        assert!(
+            matches!(&leaf[leaf.active], DockTab::SqlDraft { id: tab_id, .. } if *tab_id == id)
         );
     }
 
@@ -759,6 +918,7 @@ impl TabViewer for DockTabViewer<'_> {
             DockTab::Results => self.show_results(ui),
             DockTab::JsonViewer { id, .. } => self.show_json_viewer(ui, *id),
             DockTab::DdlViewer { id, .. } => self.show_ddl_viewer(ui, *id),
+            DockTab::SqlDraft { id, .. } => self.results_table.ui_sql_draft(ui, *id),
             DockTab::GraphViewer { id, .. } => self.show_graph_viewer(ui, *id),
             DockTab::Agent { session_id } => self.show_chat(ui, Some(session_id.clone())),
             DockTab::Chat => self.show_chat(ui, None),
@@ -779,6 +939,7 @@ impl TabViewer for DockTabViewer<'_> {
             | DockTab::Results
             | DockTab::JsonViewer { .. }
             | DockTab::DdlViewer { .. }
+            | DockTab::SqlDraft { .. }
             | DockTab::GraphViewer { .. } => [false, false],
             DockTab::DatabaseStructure => [true, true],
             DockTab::Agent { .. } | DockTab::Chat => [false, false],

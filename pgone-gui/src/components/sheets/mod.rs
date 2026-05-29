@@ -11,6 +11,7 @@ mod database_loader;
 mod ddl_viewer;
 mod executor;
 mod json_viewer;
+mod sql_draft;
 mod sql_editor;
 mod table_view;
 mod utils;
@@ -56,6 +57,14 @@ pub struct DdlViewerTab {
 }
 
 #[derive(Clone)]
+pub struct SqlDraftTab {
+    pub id: u64,
+    pub title: String,
+    pub sql: String,
+    pub database: String,
+}
+
+#[derive(Clone)]
 pub struct GraphViewerTabInfo {
     pub id: u64,
     pub title: String,
@@ -93,6 +102,9 @@ pub struct ResultsTable {
     pub ddl_viewer_tabs: BTreeMap<u64, DdlViewerTab>,
     pub pending_ddl_viewer_tabs: Vec<DdlViewerTab>,
     pub next_ddl_viewer_tab_id: u64,
+    pub sql_draft_tabs: BTreeMap<u64, SqlDraftTab>,
+    pub pending_sql_draft_tabs: Vec<SqlDraftTab>,
+    pub next_sql_draft_tab_id: u64,
     pub graph_viewer_tabs: BTreeMap<u64, GraphViewerTab>,
     pub pending_graph_viewer_tabs: Vec<GraphViewerTabInfo>,
     pub next_graph_viewer_tab_id: u64,
@@ -147,6 +159,9 @@ impl ResultsTable {
             ddl_viewer_tabs: BTreeMap::new(),
             pending_ddl_viewer_tabs: Vec::new(),
             next_ddl_viewer_tab_id: 1,
+            sql_draft_tabs: BTreeMap::new(),
+            pending_sql_draft_tabs: Vec::new(),
+            next_sql_draft_tab_id: 1,
             graph_viewer_tabs: BTreeMap::new(),
             pending_graph_viewer_tabs: Vec::new(),
             next_graph_viewer_tab_id: 1,
@@ -219,6 +234,29 @@ impl ResultsTable {
         std::mem::take(&mut self.pending_ddl_viewer_tabs)
     }
 
+    pub fn open_sql_draft(
+        &mut self,
+        title: impl Into<String>,
+        sql: impl Into<String>,
+        database: impl Into<String>,
+    ) -> u64 {
+        let id = self.next_sql_draft_tab_id;
+        self.next_sql_draft_tab_id = self.next_sql_draft_tab_id.saturating_add(1);
+        let tab = SqlDraftTab {
+            id,
+            title: title.into(),
+            sql: sql.into(),
+            database: database.into(),
+        };
+        self.sql_draft_tabs.insert(id, tab.clone());
+        self.pending_sql_draft_tabs.push(tab);
+        id
+    }
+
+    pub fn take_pending_sql_draft_tabs(&mut self) -> Vec<SqlDraftTab> {
+        std::mem::take(&mut self.pending_sql_draft_tabs)
+    }
+
     pub fn open_graph_viewer(
         &mut self,
         database: impl Into<String>,
@@ -264,6 +302,10 @@ impl ResultsTable {
         self.ddl_viewer_tabs.get(&id)
     }
 
+    pub fn sql_draft_tab(&self, id: u64) -> Option<&SqlDraftTab> {
+        self.sql_draft_tabs.get(&id)
+    }
+
     pub fn graph_viewer_tab(&self, id: u64) -> Option<&GraphViewerTab> {
         self.graph_viewer_tabs.get(&id)
     }
@@ -283,6 +325,10 @@ impl ResultsTable {
 
     pub fn retain_ddl_viewer_tabs(&mut self, keep_ids: &HashSet<u64>) {
         self.ddl_viewer_tabs.retain(|id, _| keep_ids.contains(id));
+    }
+
+    pub fn retain_sql_draft_tabs(&mut self, keep_ids: &HashSet<u64>) {
+        self.sql_draft_tabs.retain(|id, _| keep_ids.contains(id));
     }
 
     pub fn retain_graph_viewer_tabs(&mut self, keep_ids: &HashSet<u64>) {
@@ -305,6 +351,16 @@ impl ResultsTable {
         } else {
             ui.centered_and_justified(|ui| {
                 ui.label("DDL viewer content is no longer available");
+            });
+        }
+    }
+
+    pub fn ui_sql_draft(&mut self, ui: &mut egui::Ui, id: u64) {
+        if self.sql_draft_tab(id).is_some() {
+            sql_draft::ui(ui, self, id);
+        } else {
+            ui.centered_and_justified(|ui| {
+                ui.label("SQL draft content is no longer available");
             });
         }
     }

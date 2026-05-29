@@ -969,29 +969,21 @@ impl DbTree {
                                 if menu_button(ui, egui_phosphor::regular::TABLE, "New Table")
                                     .clicked()
                                 {
-                                    use super::types::DialogType;
-                                    self.dialog = Some(DialogType::CreateTable {
-                                        database: db_name.clone(),
-                                        schema: schema_name.clone(),
-                                    });
-                                    self.dialog_ddl = format!(
+                                    let sql = format!(
                                         "CREATE TABLE {}.{} (\n    id SERIAL PRIMARY KEY\n);",
                                         schema_name, "new_table"
                                     );
+                                    results_table.open_sql_draft("New Table", sql, db_name.clone());
                                     ui.close();
                                 }
                                 if menu_button(ui, egui_phosphor::regular::EYE, "New View")
                                     .clicked()
                                 {
-                                    use super::types::DialogType;
-                                    self.dialog = Some(DialogType::CreateView {
-                                        database: db_name.clone(),
-                                        schema: schema_name.clone(),
-                                    });
-                                    self.dialog_ddl = format!(
+                                    let sql = format!(
                                         "CREATE VIEW {}.{} AS\nSELECT * FROM {};",
                                         schema_name, "new_view", "table_name"
                                     );
+                                    results_table.open_sql_draft("New View", sql, db_name.clone());
                                     ui.close();
                                 }
                                 if menu_button(
@@ -1001,29 +993,25 @@ impl DbTree {
                                 )
                                 .clicked()
                                 {
-                                    use super::types::DialogType;
-                                    self.dialog = Some(DialogType::CreateMaterializedView {
-                                        database: db_name.clone(),
-                                        schema: schema_name.clone(),
-                                    });
-                                    self.dialog_ddl = format!(
+                                    let sql = format!(
                                         "CREATE MATERIALIZED VIEW {}.{} AS\nSELECT * FROM {};",
                                         schema_name, "new_materialized_view", "table_name"
+                                    );
+                                    results_table.open_sql_draft(
+                                        "New Materialized View",
+                                        sql,
+                                        db_name.clone(),
                                     );
                                     ui.close();
                                 }
                                 if menu_button(ui, egui_phosphor::regular::FUNCTION, "New Function")
                                     .clicked()
                                 {
-                                    use super::types::DialogType;
-                                    self.dialog = Some(DialogType::CreateFunction {
-                                        database: db_name.clone(),
-                                        schema: schema_name.clone(),
-                                    });
-                                    self.dialog_ddl = format!(
+                                    let sql = format!(
                                         "CREATE OR REPLACE FUNCTION {}.{}()\nRETURNS INTEGER AS $$\nBEGIN\n    RETURN 1;\nEND;\n$$ LANGUAGE plpgsql;",
                                         schema_name, "new_function"
                                     );
+                                    results_table.open_sql_draft("New Function", sql, db_name.clone());
                                     ui.close();
                                 }
                                 if menu_button(ui, egui_phosphor::regular::GEAR, "Properties")
