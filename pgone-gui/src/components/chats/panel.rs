@@ -11,6 +11,7 @@ use pgone_agent::{
     AgentContext, AgentEvent, AgentMessage, AgentRole, AgentStreamEvent, AgentTurnRequest,
     OpenAiCompatibleProvider, PgOneAgentService, ProviderConfig, StorageBackedAgentToolServices,
 };
+use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use super::model_loader::ModelLoader;
@@ -35,6 +36,20 @@ struct AgentTurnResult {
     event: AgentStreamEvent,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentSqlPreviewRequest {
+    pub title: String,
+    pub sql: String,
+    pub database: String,
+}
+
+#[derive(Deserialize)]
+struct PreviewSqlToolResult {
+    title: Option<String>,
+    sql: String,
+    database_name: Option<String>,
+}
+
 pub struct ChatPanel {
     input: String,
     pending_resources: Vec<PathBuf>,
@@ -50,6 +65,8 @@ pub struct ChatPanel {
     next_request_id: u64,
     show_delete_confirm: bool,
     pending_agent_tab_requests: Vec<String>,
+    pending_sql_preview_requests: Vec<AgentSqlPreviewRequest>,
+    handled_sql_preview_results: Vec<String>,
 }
 
 impl Default for ChatPanel {
@@ -69,6 +86,8 @@ impl Default for ChatPanel {
             next_request_id: 1,
             show_delete_confirm: false,
             pending_agent_tab_requests: Vec::new(),
+            pending_sql_preview_requests: Vec::new(),
+            handled_sql_preview_results: Vec::new(),
         }
     }
 }
@@ -94,6 +113,8 @@ impl Clone for ChatPanel {
             next_request_id: self.next_request_id,
             show_delete_confirm: false,
             pending_agent_tab_requests: Vec::new(),
+            pending_sql_preview_requests: Vec::new(),
+            handled_sql_preview_results: Vec::new(),
         }
     }
 }
@@ -101,6 +122,10 @@ impl Clone for ChatPanel {
 impl ChatPanel {
     pub fn take_pending_agent_tab_requests(&mut self) -> Vec<String> {
         std::mem::take(&mut self.pending_agent_tab_requests)
+    }
+
+    pub fn take_pending_sql_preview_requests(&mut self) -> Vec<AgentSqlPreviewRequest> {
+        std::mem::take(&mut self.pending_sql_preview_requests)
     }
 
     pub fn ui(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
@@ -118,12 +143,15 @@ impl ChatPanel {
     }
 
     fn process_agent_response(&mut self, ctxs: &mut ChatCtx) {
-        let Some(receiver) = self.response_receiver.as_mut() else {
-            return;
-        };
-
         loop {
-            match receiver.try_recv() {
+            let result = {
+                let Some(receiver) = self.response_receiver.as_mut() else {
+                    return;
+                };
+                receiver.try_recv()
+            };
+
+            match result {
                 Ok(result) => {
                     if self.in_flight != Some(result.request_id) {
                         continue;
@@ -135,10 +163,14 @@ impl ChatPanel {
                             ctxs.should_scroll_to_bottom = true;
                         }
                         AgentStreamEvent::Event { event } => {
+                            self.handle_agent_event(&event);
                             self.events.push(event);
                             ctxs.should_scroll_to_bottom = true;
                         }
                         AgentStreamEvent::Completed { response } => {
+                            for event in &response.events {
+                                self.handle_agent_event(event);
+                            }
                             let fallback_content = std::mem::take(&mut self.partial_response);
                             let content = if response.message.content.trim().is_empty()
                                 && !fallback_content.trim().is_empty()
@@ -199,6 +231,28 @@ impl ChatPanel {
                     return;
                 }
             }
+        }
+    }
+
+    fn handle_agent_event(&mut self, event: &AgentEvent) {
+        let AgentEvent::ToolFinished { name, result } = event else {
+            return;
+        };
+        if name != "preview_sql" {
+            return;
+        }
+        if self
+            .handled_sql_preview_results
+            .iter()
+            .any(|handled| handled == result)
+        {
+            return;
+        }
+        self.handled_sql_preview_results.push(result.clone());
+
+        match preview_request_from_tool_result(result) {
+            Some(request) => self.pending_sql_preview_requests.push(request),
+            None => tracing::warn!("Ignoring malformed preview_sql result"),
         }
     }
 
@@ -513,6 +567,7 @@ impl ChatPanel {
         self.input.clear();
         self.error = None;
         self.events.clear();
+        self.handled_sql_preview_results.clear();
         self.partial_response.clear();
         let request_id = self.next_request_id;
         self.next_request_id += 1;
@@ -1199,6 +1254,32 @@ fn normalize_chat_completions_url(base_url: Option<&str>) -> String {
     }
 }
 
+fn preview_request_from_tool_result(result: &str) -> Option<AgentSqlPreviewRequest> {
+    let result: PreviewSqlToolResult = serde_json::from_str(result).ok()?;
+    let sql = result.sql.trim().to_owned();
+    if sql.is_empty() {
+        return None;
+    }
+
+    let title = result
+        .title
+        .map(|title| title.trim().to_owned())
+        .filter(|title| !title.is_empty())
+        .map(|title| format!("Preview SQL: {title}"))
+        .unwrap_or_else(|| "Preview SQL".to_owned());
+    let database = result
+        .database_name
+        .map(|database| database.trim().to_owned())
+        .filter(|database| !database.is_empty())
+        .unwrap_or_default();
+
+    Some(AgentSqlPreviewRequest {
+        title,
+        sql,
+        database,
+    })
+}
+
 const MAX_ATTACHMENT_BYTES: u64 = 64 * 1024;
 
 fn build_attachment_context(paths: &[PathBuf]) -> Vec<String> {
@@ -1362,6 +1443,59 @@ mod tests {
     #[test]
     fn frame_content_width_does_not_go_negative() {
         assert_eq!(frame_content_width(12.0, 8), 0.0);
+    }
+
+    #[test]
+    fn preview_sql_tool_result_becomes_preview_request() {
+        let request = preview_request_from_tool_result(
+            r#"{"title":"Create audit table","sql":" CREATE TABLE audit_log (id bigint); ","database_name":"app"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(request.title, "Preview SQL: Create audit table");
+        assert_eq!(request.sql, "CREATE TABLE audit_log (id bigint);");
+        assert_eq!(request.database, "app");
+    }
+
+    #[test]
+    fn preview_sql_tool_result_defaults_title_and_database() {
+        let request = preview_request_from_tool_result(r#"{"sql":"SELECT 1"}"#).unwrap();
+
+        assert_eq!(request.title, "Preview SQL");
+        assert_eq!(request.database, "");
+    }
+
+    #[test]
+    fn preview_sql_tool_result_rejects_malformed_or_empty_sql() {
+        assert!(preview_request_from_tool_result("not json").is_none());
+        assert!(preview_request_from_tool_result(r#"{"sql":"  "}"#).is_none());
+    }
+
+    #[test]
+    fn preview_sql_tool_finished_event_enqueues_once() {
+        let mut panel = ChatPanel::default();
+        let event = AgentEvent::ToolFinished {
+            name: "preview_sql".to_owned(),
+            result: r#"{"title":"Query","sql":"SELECT 1","database_name":"app"}"#.to_owned(),
+        };
+
+        panel.handle_agent_event(&event);
+        panel.handle_agent_event(&event);
+
+        let requests = panel.take_pending_sql_preview_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].title, "Preview SQL: Query");
+    }
+
+    #[test]
+    fn malformed_preview_sql_event_is_ignored() {
+        let mut panel = ChatPanel::default();
+        panel.handle_agent_event(&AgentEvent::ToolFinished {
+            name: "preview_sql".to_owned(),
+            result: "not json".to_owned(),
+        });
+
+        assert!(panel.take_pending_sql_preview_requests().is_empty());
     }
 
     #[test]

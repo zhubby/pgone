@@ -245,6 +245,9 @@ impl DockLayout {
         for session_id in chat.take_pending_agent_tab_requests() {
             self.push_or_focus_agent_tab(session_id);
         }
+        for request in chat.take_pending_sql_preview_requests() {
+            results_table.open_sql_draft(request.title, request.sql, request.database);
+        }
 
         for tab in results_table.take_pending_json_viewer_tabs() {
             self.push_json_viewer_tab(DockTab::JsonViewer {
