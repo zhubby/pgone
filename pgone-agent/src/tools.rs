@@ -682,7 +682,7 @@ fn target_database<'a>(
 ) -> Option<&'a str> {
     argument_database
         .filter(|database| !database.trim().is_empty())
-        .or_else(|| context.database_name.as_deref())
+        .or(context.database_name.as_deref())
         .filter(|database| !database.trim().is_empty())
 }
 
