@@ -1,173 +1,162 @@
+<div align="center">
+
 # PGone
 
-A comprehensive toolkit for PostgreSQL database intelligence, featuring a desktop GUI, MCP server, and local storage layer.
+<img src="pgone-gui/assets/images/banner.png" alt="PGone banner">
 
-## Overview
+**A local PostgreSQL workspace with a desktop GUI, SQL workbench, schema explorer, performance views, persistent sessions, and an MCP server for AI agents.**
 
-PGone provides:
-- **Interactive GUI** for database exploration and SQL experimentation
-- **MCP Server** exposing database capabilities via the Model Context Protocol
-- **Local Storage** using embedded SQLite (libsql/Turso) for session persistence
+PostgreSQL insight, query execution, visual exploration, and agent-ready introspection in one Rust workspace.
 
----
+</div>
 
-## Architecture
+## What PGone Does
 
-### Core Modules
+PGone is a toolkit for working with PostgreSQL locally. It combines a desktop application for humans with an MCP server for AI agents, backed by local storage for database configurations and sessions.
 
-- **`pgone-gui`** — Desktop application built with egui/eframe
-  - Database connection management
-  - SQL editor with syntax highlighting
-  - Query results visualization
-  - Chat panel with LLM integration
-  - Schema browser and graph visualization
-  - Performance monitoring
+Core capabilities:
 
-- **`pgone-mcp`** — MCP server/client implementation
-  - Connection registry (YAML-based or environment variables)
-  - Database introspection and schema discovery
-  - STDIO and Streamable HTTP transport modes
-
-- **`pgone-storage`** — Embedded local storage
-  - SQLite-based persistence (libsql/Turso)
-  - Session and message management
-  - Automatic migration from legacy JSON format
-
-### Supporting Modules
-
-- **`pgone-sql`** — SQL parsing and database models
-- **`pgone-util`** — Shared utilities and logging
-- **`pgone-cli`** — Unified `pgone` command entrypoint for GUI and MCP server runs
-
----
+- **Connection management**: save, edit, test, and reuse PostgreSQL connection profiles from the desktop GUI.
+- **SQL workbench**: write and run SQL, inspect paginated results, and switch the target database from the active connection.
+- **Schema exploration**: browse databases, schemas, tables, columns, indexes, constraints, triggers, routines, and custom types.
+- **Visual modeling**: inspect table relationships in the GUI and render schema output as Mermaid ER diagrams or DBML through MCP tools.
+- **Database monitoring**: view activity, statement statistics, tables, indexes, locks, replication, and bgwriter metrics.
+- **Agent integration**: expose read-only PostgreSQL introspection through the Model Context Protocol.
+- **Local persistence**: store database configs, chat sessions, and messages in `~/.pgone/pgone.db`.
 
 ## Quick Start
 
-### Build
+### 1. Build
 
 ```bash
 cargo build --workspace
 ```
 
-### Run GUI
+### 2. Launch The Desktop GUI
+
+The default command opens the GUI:
 
 ```bash
 cargo run -p pgone-cli --
 ```
 
-The explicit GUI command is also available:
+The explicit GUI command is equivalent:
 
 ```bash
 cargo run -p pgone-cli -- gui
 ```
 
-Set the log level for any CLI command with `--log-level`:
+After launch, add a PostgreSQL connection in the GUI. Connection settings are stored locally in `~/.pgone/pgone.db` and are not written to the repository.
 
-```bash
-cargo run -p pgone-cli -- --log-level debug gui
-```
+### 3. Explore And Query PostgreSQL
 
-### MCP Server
+Once a connection is selected, use the GUI to:
 
-**STDIO mode** (for agent integrations):
+- run SQL and inspect query results;
+- browse database structure, table DDL, indexes, and related objects;
+- open relationship graphs for selected database structures;
+- inspect PostgreSQL runtime monitoring panels.
+
+### 4. Run The MCP Server
+
+The MCP server uses database configurations saved in PGone local storage. Pass the saved configuration ID with `--dbconfig-id`.
+
+STDIO mode is intended for local agent integrations:
+
 ```bash
 cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio
 ```
 
-**Streamable HTTP mode** (default):
+Streamable HTTP mode exposes the MCP server over HTTP:
+
 ```bash
 cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol streamable --addr 127.0.0.1:3000
 ```
 
-Existing service-specific binaries, such as `pgone-gui` and the `pgone-mcp-server` binary from `pgone-mcp`, remain available for compatibility.
-
----
-
-## Configuration
-
-### Environment Variables
-
-- `PGONE_MCP_PROTOCOL` — MCP transport mode (`stdio` or `streamable`, default: `streamable`)
-- `PGONE_MCP_ADDR` — HTTP server address (default: `127.0.0.1:3000`)
-- `PGONE_CONNECTIONS_PATH` — Path to connections YAML file
-- `PGONE_PG_DSN` — PostgreSQL connection string for quick introspection
-- `RUST_LOG` — Logging filter (e.g., `info`, `debug`)
-
-### GitHub OAuth (GUI)
-
-1. Create a GitHub OAuth App with callback URL: `http://127.0.0.1:8765/oauth/github/callback`
-2. Set environment variables:
-   ```bash
-   export GITHUB_CLIENT_ID=<your_client_id>
-   export GITHUB_CLIENT_SECRET=<your_client_secret>
-   export OAUTH_REDIRECT=http://127.0.0.1:8765/oauth/github/callback
-   ```
-3. Launch GUI — authentication state is persisted in `~/.pgone/pgone.db`
-
----
-
-## Development
-
-### Build & Test
+You can also set the default protocol with an environment variable:
 
 ```bash
-cargo build --workspace
-cargo check -p pgone-cli
+PGONE_MCP_PROTOCOL=stdio cargo run -p pgone-cli -- mcp-server --dbconfig-id default
+```
+
+## MCP Tools
+
+PGone MCP currently exposes read-only PostgreSQL introspection tools:
+
+- `introspect_all`: return a database structure overview.
+- `get_table`: inspect columns, constraints, indexes, and table metadata.
+- `list_triggers`: list triggers.
+- `list_routines`: list functions and procedures.
+- `list_types`: list custom PostgreSQL types.
+- `render_er`: render a Mermaid ER diagram.
+- `render_dbml`: render DBML.
+- `health_check`: verify that the configured database connection is available.
+
+Example tool arguments:
+
+```json
+{"schemas":["public"],"with_indexes":true,"with_routines":true,"format":"markdown"}
+```
+
+```json
+{"schema":"public","table":"orders","format":"markdown"}
+```
+
+## Common Commands
+
+```bash
+cargo check --workspace
 cargo test --workspace
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-### Code Style
+Set the log level for CLI commands:
 
-- Rust 2024 edition
-- Modules/files: `snake_case`
-- Types/traits: `PascalCase`
-- Constants: `SCREAMING_SNAKE_CASE`
-- Error handling: `anyhow::Result<T>` for application code, `thiserror` for libraries
-- Logging: `tracing` with `RUST_LOG` filter
+```bash
+cargo run -p pgone-cli -- --log-level debug gui
+cargo run -p pgone-cli -- mcp-server --dbconfig-id default --protocol stdio --log-level warn
+```
 
-### Testing
+The compatibility MCP binary is still available:
 
-- Unit tests: `mod tests {}` next to source code
-- Integration tests: `tests/` directory per crate
-- Test naming: behavior-focused (e.g., `test_parses_triggers_markdown`)
+```bash
+cargo run -p pgone-mcp --bin pgone-mcp-server -- --dbconfig-id default --protocol stdio
+```
 
----
+## Workspace Layout
 
-## Storage
+- `pgone-cli`: unified command-line entrypoint for launching the GUI or MCP server.
+- `pgone-gui`: desktop application with connection management, SQL workbench, schema exploration, monitoring, and sessions.
+- `pgone-mcp`: MCP server, tool definitions, request handling, PostgreSQL introspection, and formatted output.
+- `pgone-sql`: PostgreSQL sessions, SQL parsing, and database metadata models.
+- `pgone-storage`: local SQLite/libsql storage for connection profiles, sessions, and messages.
+- `pgone-agent`: agent-side tool wrappers and direct local invocation support.
+- `pgone-util`: shared utilities and logging setup.
 
-The GUI automatically initializes `~/.pgone/pgone.db` (SQLite) on first launch. Indexed local files are copied under `~/.pgone/data/`. If legacy `./pgone.db` or `./data` storage exists and the new location is empty, it is copied into `~/.pgone`. Legacy `sessions.json` files are automatically migrated and removed.
+## Configuration And Data
 
-**Schema** (indexed, no foreign keys):
-- `db_configs` — Database connection configurations
-- `sessions` — Chat sessions linked to configurations
-- `messages` — Session messages (markdown, images, videos)
+Common environment variables:
 
----
+- `PGONE_MCP_PROTOCOL`: MCP transport protocol, either `stdio` or `streamable`.
+- `PGONE_MCP_ADDR`: Streamable HTTP bind address, defaulting to `127.0.0.1:3000`.
+- `RUST_LOG`: Rust log filter, such as `info` or `debug`.
+
+Local data paths:
+
+- `~/.pgone/pgone.db`: database configurations, sessions, and messages.
+- `~/.pgone/data/`: local indexed file data.
 
 ## Security
 
-- **Never commit secrets** — use environment variables or local YAML files
-- **Avoid logging credentials** — sanitize connection strings in error messages
-- **Prefer STDIO mode** for long-running agent integrations
-
----
-
-## Packaging
-
-```bash
-cargo install cargo-bundle
-cargo bundle --release
-```
-
----
+- Do not commit DSNs, passwords, tokens, or local storage files.
+- Store PostgreSQL credentials in PGone local storage, environment variables, or local-only configuration.
+- MCP tools are currently intended for read-only introspection and should not run destructive SQL.
+- Scrub credentials from logs, screenshots, examples, and generated output.
 
 ## License
 
 Apache-2.0
-
----
 
 ## Contributing
 
