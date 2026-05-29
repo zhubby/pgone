@@ -42,7 +42,8 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 binary_path="$repo_root/target/$target/release/pgone-gui"
 assets_dir="$repo_root/pgone-gui/assets"
-icon_path="$assets_dir/icon.icns"
+icon_name="Icon-macOS-Default-1024x1024@1x.png"
+icon_path="$assets_dir/$icon_name"
 template_path="$script_dir/Info.plist.template"
 app_name="PGone"
 bundle_identifier="com.github.zhubby.pgone"
@@ -83,13 +84,14 @@ sed \
     -e "s|__APP_NAME__|$app_name|g" \
     -e "s|__EXECUTABLE_NAME__|$app_name|g" \
     -e "s|__BUNDLE_IDENTIFIER__|$bundle_identifier|g" \
+    -e "s|__ICON_FILE__|$icon_name|g" \
     -e "s|__VERSION__|$version|g" \
     "$template_path" > "$plist_path"
 
 plutil -lint "$plist_path" >/dev/null
 
 [[ -x "$macos_dir/$app_name" ]]
-[[ -f "$resources_dir/icon.icns" ]]
+[[ -f "$resources_dir/$icon_name" ]]
 [[ -f "$plist_path" ]]
 
 echo "built app bundle at $app_dir"

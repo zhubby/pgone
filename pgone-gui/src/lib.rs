@@ -2,10 +2,7 @@
 
 use eframe::egui::{self, Context, ThemePreference};
 use egui_phosphor::Variant as PhosphorVariant;
-use icns::{IconFamily, IconType};
 use std::fs;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -34,6 +31,8 @@ mod skeletons;
 mod styles;
 
 const DOCK_LAYOUT_SAVE_INTERVAL: Duration = Duration::from_millis(750);
+const APP_ID: &str = "com.github.zhubby.pgone";
+const APP_ICON_PATH: &str = "Icon-macOS-Default-1024x1024@1x.png";
 
 fn asset_path(path: impl AsRef<Path>) -> PathBuf {
     let path = path.as_ref();
@@ -545,18 +544,12 @@ fn resize_cursor_icon(direction: egui::viewport::ResizeDirection) -> egui::Curso
 }
 
 pub fn run() -> anyhow::Result<()> {
-    let file = BufReader::new(File::open(asset_path("icon.icns"))?);
-    let icon_family = IconFamily::read(file).unwrap();
-    let image = icon_family
-        .get_icon_with_type(IconType::RGBA32_512x512_2x)
-        .unwrap();
-    let mut buf = Vec::new();
-    image.write_png(&mut buf)?;
-    let icon = eframe::icon_data::from_png_bytes(&buf).expect("Failed to load icon");
+    let icon_bytes = fs::read(asset_path(APP_ICON_PATH))?;
+    let icon = eframe::icon_data::from_png_bytes(&icon_bytes)?;
     let title = "PGone";
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_app_id("com.github.zhubby.pgone")
+            .with_app_id(APP_ID)
             .with_maximized(true)
             .with_icon(icon)
             .with_resizable(true)

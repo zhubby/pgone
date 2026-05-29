@@ -59,7 +59,6 @@ hex = { workspace = true }
 csv = { workspace = true }
 urlencoding = { workspace = true }
 url = { workspace = true }
-icns = { workspace = true }
 anyhow = { workspace = true }
 strum = { workspace = true }
 reqwest = { workspace = true }
@@ -88,10 +87,13 @@ vergen-gitcl = { workspace = true, features = ["build"] }
 # Add the following configuration
 [package.metadata.bundle]
 name = "PGone"
-identifier = "com.github.zhubby"
-icon = ["assets/icon.icns"]
+identifier = "com.github.zhubby.pgone"
+icon = ["assets/Icon-macOS-Default-1024x1024@1x.png"]
 version = "0.1.0"
 copyright = "Copyright 2025 zhubby"
 category = "Developer Tool"
 short_description = "PGone is a suite of tools for PostgreSQL"
-resources = ["assets/icon.icns", "assets/fonts/*.ttf"]
+resources = [
+    "assets/Icon-macOS-Default-1024x1024@1x.png",
+    "assets/fonts/*.ttf",
+]

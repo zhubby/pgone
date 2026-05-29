@@ -9,7 +9,7 @@
     <key>CFBundleExecutable</key>
     <string>__EXECUTABLE_NAME__</string>
     <key>CFBundleIconFile</key>
-    <string>icon.icns</string>
+    <string>__ICON_FILE__</string>
     <key>CFBundleIdentifier</key>
     <string>__BUNDLE_IDENTIFIER__</string>
     <key>CFBundleInfoDictionaryVersion</key>
