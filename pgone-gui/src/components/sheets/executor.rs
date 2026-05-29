@@ -23,6 +23,24 @@ impl ResultsTable {
         self.start_query(ctxs.db.pools.clone(), dsn, sql, 1);
     }
 
+    pub fn run_sql_text(
+        &mut self,
+        ctxs: &mut SqlCtx,
+        sql: impl Into<String>,
+        database: Option<String>,
+    ) {
+        let previous_database = self.selected_database.clone();
+        self.selected_database = database;
+
+        let Some((dsn, sql)) = self.query_request(ctxs, sql.into()) else {
+            self.selected_database = previous_database;
+            return;
+        };
+
+        self.start_query(ctxs.db.pools.clone(), dsn, sql, 1);
+        self.selected_database = previous_database;
+    }
+
     pub(super) fn query_request(
         &mut self,
         ctxs: &mut SqlCtx,

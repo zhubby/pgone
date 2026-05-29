@@ -355,9 +355,9 @@ impl ResultsTable {
         }
     }
 
-    pub fn ui_sql_draft(&mut self, ui: &mut egui::Ui, id: u64) {
+    pub fn ui_sql_draft(&mut self, ui: &mut egui::Ui, id: u64, ctxs: &mut SqlCtx) {
         if self.sql_draft_tab(id).is_some() {
-            sql_draft::ui(ui, self, id);
+            sql_draft::ui(ui, self, id, ctxs);
         } else {
             ui.centered_and_justified(|ui| {
                 ui.label("SQL draft content is no longer available");

@@ -1,8 +1,10 @@
 use super::ResultsTable;
+use crate::components::SqlCtx;
 
-pub fn ui(ui: &mut egui::Ui, results_table: &mut ResultsTable, id: u64) {
-    let mut send_to_editor = false;
+pub fn ui(ui: &mut egui::Ui, results_table: &mut ResultsTable, id: u64, ctxs: &mut SqlCtx) {
+    let mut execute_sql = None;
     let mut copy_sql = None;
+    let mut target_database = None;
 
     if let Some(tab) = results_table.sql_draft_tabs.get_mut(&id) {
         ui.horizontal(|ui| {
@@ -16,11 +18,12 @@ pub fn ui(ui: &mut egui::Ui, results_table: &mut ResultsTable, id: u64) {
                     copy_sql = Some(tab.sql.clone());
                 }
                 if ui
-                    .button(egui_phosphor::regular::ARROW_SQUARE_OUT)
-                    .on_hover_text("Use in SQL editor")
+                    .button(egui_phosphor::regular::PLAY)
+                    .on_hover_text("Execute SQL")
                     .clicked()
                 {
-                    send_to_editor = true;
+                    execute_sql = Some(tab.sql.clone());
+                    target_database = Some(tab.database.clone());
                 }
             });
         });
@@ -28,14 +31,14 @@ pub fn ui(ui: &mut egui::Ui, results_table: &mut ResultsTable, id: u64) {
         ui.separator();
 
         let current_sql = tab.sql.clone();
-        let available_height = ui.available_height().max(120.0);
+        let available_height = ui.available_height().max(0.0);
         ui.horizontal(|ui| {
             ui.add_space(5.0);
             ui.add_sized(
                 egui::vec2((ui.available_width() - 5.0).max(0.0), available_height),
                 egui::TextEdit::multiline(&mut tab.sql)
                     .id(ui.make_persistent_id(("sql_draft", id)))
-                    .desired_rows((available_height / 20.0) as usize)
+                    .desired_rows(((available_height / 20.0) as usize).max(1))
                     .layouter(&mut move |ui, _text, wrap_width| {
                         let mut job = crate::sql::highlight_sql(&current_sql, ui.visuals());
                         job.wrap.max_width = wrap_width;
@@ -49,9 +52,7 @@ pub fn ui(ui: &mut egui::Ui, results_table: &mut ResultsTable, id: u64) {
         ui.ctx().copy_text(sql);
     }
 
-    if send_to_editor && let Some(tab) = results_table.sql_draft_tabs.get(&id) {
-        results_table.sql_input = tab.sql.clone();
-        results_table.selected_database = Some(tab.database.clone());
-        results_table.sql_error = None;
+    if let Some(sql) = execute_sql {
+        results_table.run_sql_text(ctxs, sql, target_database);
     }
 }
