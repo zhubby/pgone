@@ -103,7 +103,7 @@ pub fn db_delete_success(db_name: &str) {
 
 /// SQL execution success notification
 #[allow(dead_code)]
-pub fn sql_execute_success(rows: usize) {
+pub fn sql_execute_success(rows: u64) {
     success(format!("SQL executed successfully, affected {} rows", rows));
 }
 

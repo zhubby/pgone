@@ -36,6 +36,7 @@ pub struct QueryResult {
     pub total_rows: Option<usize>,
     pub has_next_page: bool,
     pub pagination_enabled: bool,
+    pub rows_affected: Option<u64>,
 }
 
 pub const DEFAULT_RESULTS_PAGE_SIZE: usize = 100;

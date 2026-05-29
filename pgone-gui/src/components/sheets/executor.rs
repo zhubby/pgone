@@ -138,14 +138,19 @@ impl ResultsTable {
                         self.has_next_page = result.has_next_page;
                         self.pagination_enabled = result.pagination_enabled;
                         self.sql_error = None;
+                        if let Some(rows_affected) = result.rows_affected {
+                            crate::notify::sql_execute_success(rows_affected);
+                        }
                     }
                     Err(error) => {
+                        let error = error.clone();
                         self.sql_error = Some(error.clone());
                         self.selected_result_row = None;
                         self.clear_json_viewer_tabs();
                         self.total_rows = None;
                         self.has_next_page = false;
                         self.pagination_enabled = false;
+                        crate::notify::sql_execute_error(&error);
                     }
                 }
                 self.query_promise = None;
@@ -160,6 +165,24 @@ async fn execute_query(
     page: usize,
     page_size: usize,
 ) -> Result<QueryResult, String> {
+    if !statement_returns_rows(sql) {
+        let result = sqlx::query(sql)
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        return Ok(QueryResult {
+            columns: Vec::new(),
+            rows: Vec::new(),
+            primary_key_columns: HashSet::new(),
+            explain_info: None,
+            explain_error: None,
+            total_rows: None,
+            has_next_page: false,
+            pagination_enabled: false,
+            rows_affected: Some(result.rows_affected()),
+        });
+    }
+
     let primary_key_columns = detect_primary_keys(sql, &pool).await.unwrap_or_default();
     let explain = execute_explain(sql, &pool).await;
     let paginated_sql = build_paginated_sql(sql, page, page_size);
@@ -224,6 +247,7 @@ async fn execute_query(
         total_rows,
         has_next_page,
         pagination_enabled,
+        rows_affected: None,
     })
 }
 
@@ -254,6 +278,20 @@ pub(super) fn is_pageable_sql(sql: &str) -> bool {
         return false;
     };
     matches!(statements.as_slice(), [sqlparser::ast::Statement::Query(_)])
+}
+
+fn statement_returns_rows(sql: &str) -> bool {
+    let dialect = sqlparser::dialect::PostgreSqlDialect {};
+    let Ok(statements) = sqlparser::parser::Parser::parse_sql(&dialect, sql) else {
+        return true;
+    };
+    let [statement] = statements.as_slice() else {
+        return true;
+    };
+    match statement {
+        sqlparser::ast::Statement::Query(_) | sqlparser::ast::Statement::Explain { .. } => true,
+        _ => sql.to_ascii_lowercase().contains(" returning "),
+    }
 }
 
 async fn execute_count(pool: &sqlx::PgPool, sql: &str) -> Result<usize, String> {
@@ -473,6 +511,31 @@ mod tests {
                 build_paginated_sql(sql, 1, DEFAULT_RESULTS_PAGE_SIZE).is_none(),
                 "{sql}"
             );
+        }
+    }
+
+    #[test]
+    fn classifies_row_returning_statements() {
+        for sql in [
+            "SELECT * FROM users",
+            "WITH recent AS (SELECT * FROM users) SELECT * FROM recent",
+            "VALUES (1), (2)",
+            "EXPLAIN SELECT * FROM users",
+            "INSERT INTO users (name) VALUES ('Ada') RETURNING id",
+        ] {
+            assert!(statement_returns_rows(sql), "{sql}");
+        }
+    }
+
+    #[test]
+    fn classifies_non_returning_statements() {
+        for sql in [
+            "INSERT INTO users (name) VALUES ('Ada')",
+            "UPDATE users SET name = 'Ada'",
+            "DELETE FROM users",
+            "CREATE TABLE users (id int)",
+        ] {
+            assert!(!statement_returns_rows(sql), "{sql}");
         }
     }
 }
