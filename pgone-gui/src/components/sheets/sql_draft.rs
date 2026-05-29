@@ -4,11 +4,17 @@ use crate::components::SqlCtx;
 pub fn ui(ui: &mut egui::Ui, results_table: &mut ResultsTable, id: u64, ctxs: &mut SqlCtx) {
     let mut execute_sql = None;
     let mut copy_sql = None;
+    let mut format_sql = false;
     let mut target_database = None;
 
     if let Some(tab) = results_table.sql_draft_tabs.get_mut(&id) {
+        let database_label = if tab.database.trim().is_empty() {
+            "<Default>"
+        } else {
+            tab.database.as_str()
+        };
         ui.horizontal(|ui| {
-            ui.label(format!("Database: {}", tab.database));
+            ui.label(format!("Database: {database_label}"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .button(egui_phosphor::regular::COPY)
@@ -23,7 +29,15 @@ pub fn ui(ui: &mut egui::Ui, results_table: &mut ResultsTable, id: u64, ctxs: &m
                     .clicked()
                 {
                     execute_sql = Some(tab.sql.clone());
-                    target_database = Some(tab.database.clone());
+                    target_database =
+                        (!tab.database.trim().is_empty()).then(|| tab.database.clone());
+                }
+                if ui
+                    .button(egui_phosphor::regular::MAGIC_WAND)
+                    .on_hover_text("Beautify SQL")
+                    .clicked()
+                {
+                    format_sql = true;
                 }
             });
         });
@@ -46,6 +60,10 @@ pub fn ui(ui: &mut egui::Ui, results_table: &mut ResultsTable, id: u64, ctxs: &m
                     }),
             );
         });
+
+        if format_sql {
+            tab.sql = crate::sql::format_sql(&tab.sql);
+        }
     }
 
     if let Some(sql) = copy_sql {
