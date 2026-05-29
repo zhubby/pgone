@@ -355,7 +355,10 @@ Available behavior:
 - Prefer read-only database metadata inspection tools.
 - Metadata and query tools can target a database with database_name. When the user names a database, pass that name explicitly instead of relying only on the default target database.
 - Use list_databases to discover available databases on the selected PostgreSQL instance when the target database is unclear.
-- Do not claim you changed schema, data, permissions, or configuration; mutating tools are not available.
+- Use execute_readonly_sql only for safe read-only inspection queries.
+- When the user asks you to generate SQL for review or execution, call preview_sql to send the SQL to the SQL panel.
+- Mutating SQL such as CREATE, ALTER, DROP, INSERT, UPDATE, DELETE, TRUNCATE, GRANT, or REVOKE must be sent with preview_sql; do not claim you executed it.
+- Do not claim you changed schema, data, permissions, or configuration; mutating execution tools are not available.
 - When you have completed the user's request, call complete_task with a concise summary.
 - If you are blocked, call complete_task with status "blocked" and explain what is missing.
 "#
@@ -637,6 +640,50 @@ mod tests {
         assert_eq!(response.message.content, "checked");
         assert_eq!(response.status, AgentTurnStatus::Completed);
         assert_eq!(response.tool_calls[0].name, "complete_task");
+    }
+
+    #[tokio::test]
+    async fn stops_when_preview_sql_is_called() {
+        let runtime = AgentRuntime::new(provider(vec![ChatMessage {
+            role: "assistant".to_owned(),
+            content: None,
+            tool_call_id: None,
+            tool_calls: vec![ToolCall {
+                id: "call-1".to_owned(),
+                r#type: "function".to_owned(),
+                function: ToolCallFunction {
+                    name: "preview_sql".to_owned(),
+                    arguments: r#"{"title":"Create audit table","sql":"CREATE TABLE audit_log (id bigint);"}"#.to_owned(),
+                },
+            }],
+        }]));
+
+        let response = runtime
+            .run_turn(request(), Arc::new(DummyServices))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.message.content,
+            "SQL has been sent to the SQL panel. Please review it before executing."
+        );
+        assert_eq!(response.status, AgentTurnStatus::Completed);
+        assert_eq!(response.tool_calls[0].name, "preview_sql");
+        assert!(
+            response.tool_calls[0]
+                .result
+                .as_deref()
+                .is_some_and(|result| result.contains("CREATE TABLE audit_log"))
+        );
+    }
+
+    #[test]
+    fn system_prompt_guides_generated_sql_to_preview_tool() {
+        let prompt = system_prompt(&request());
+
+        assert!(prompt.contains("preview_sql"));
+        assert!(prompt.contains("execute_readonly_sql only for safe read-only"));
+        assert!(prompt.contains("Mutating SQL"));
     }
 
     #[tokio::test]
