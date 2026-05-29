@@ -17,6 +17,7 @@ use super::model_loader::ModelLoader;
 
 const AGENT_COMPOSER_OUTER_HEIGHT: f32 = 118.0;
 const AGENT_SECTION_SPACING: f32 = 8.0;
+const AGENT_PANEL_INNER_MARGIN: i8 = 8;
 const USER_BUBBLE_MAX_WIDTH_FRACTION: f32 = 0.82;
 const AGENT_BUBBLE_MIN_CONTENT_WIDTH: f32 = 120.0;
 const AGENT_BUBBLE_HORIZONTAL_MARGIN: i8 = 10;
@@ -207,6 +208,7 @@ impl ChatPanel {
             ctxs.should_scroll_to_bottom = false;
         }
 
+        let content_width = frame_content_width(ui.available_width(), AGENT_PANEL_INNER_MARGIN);
         egui::Frame::new()
             .fill(ui.visuals().panel_fill)
             .stroke(egui::Stroke::new(
@@ -214,10 +216,13 @@ impl ChatPanel {
                 ui.visuals().widgets.noninteractive.bg_stroke.color,
             ))
             .corner_radius(egui::CornerRadius::same(6))
-            .inner_margin(egui::Margin::same(8))
+            .inner_margin(egui::Margin::same(AGENT_PANEL_INNER_MARGIN))
             .show(ui, |ui| {
+                ui.set_width(content_width);
+                ui.set_max_width(content_width);
                 egui::ScrollArea::vertical()
                     .id_salt("agent_messages")
+                    .max_width(content_width)
                     .max_height(message_height)
                     .min_scrolled_height(message_height)
                     .auto_shrink([false, false])
@@ -238,14 +243,22 @@ impl ChatPanel {
                             show_agent_empty_state(ui);
                         }
 
+                        let final_message_index = current_turn_final_message_index(
+                            &messages,
+                            self.in_flight.is_some(),
+                            &self.events,
+                        );
                         for (message_index, message) in messages.iter().enumerate() {
+                            if final_message_index == Some(message_index) {
+                                show_agent_tool_activity(ui, &self.events, true);
+                                ui.add_space(8.0);
+                            }
                             show_agent_message(
                                 ctxs,
                                 ui,
                                 message,
                                 viewport_width,
                                 &mut self.markdown_cache,
-                                self.in_flight.is_some(),
                                 egui::Id::new("agent_message_markdown")
                                     .with(ctxs.state.current_index)
                                     .with(message_index),
@@ -253,8 +266,8 @@ impl ChatPanel {
                             ui.add_space(8.0);
                         }
 
-                        if !self.events.is_empty() {
-                            show_agent_tool_activity(ui, &self.events);
+                        if final_message_index.is_none() {
+                            show_agent_tool_activity(ui, &self.events, false);
                             ui.add_space(8.0);
                         }
 
@@ -295,6 +308,7 @@ impl ChatPanel {
     fn show_agent_composer(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) -> bool {
         let can_send = self.in_flight.is_none() && !self.input.trim().is_empty();
         let mut send_clicked = false;
+        let content_width = frame_content_width(ui.available_width(), AGENT_PANEL_INNER_MARGIN);
 
         egui::Frame::new()
             .fill(ui.visuals().extreme_bg_color)
@@ -303,13 +317,15 @@ impl ChatPanel {
                 ui.visuals().widgets.noninteractive.bg_stroke.color,
             ))
             .corner_radius(egui::CornerRadius::same(6))
-            .inner_margin(egui::Margin::symmetric(8, 8))
+            .inner_margin(egui::Margin::symmetric(AGENT_PANEL_INNER_MARGIN, 8))
             .show(ui, |ui| {
+                ui.set_width(content_width);
+                ui.set_max_width(content_width);
                 self.show_pending_resources(ctxs, ui);
                 let input_response = ui.add(
                     egui::TextEdit::multiline(&mut self.input)
                         .desired_rows(3)
-                        .desired_width(ui.available_width())
+                        .desired_width(content_width)
                         .return_key(egui::KeyboardShortcut::new(
                             egui::Modifiers::SHIFT,
                             egui::Key::Enter,
@@ -801,7 +817,6 @@ fn show_agent_message(
     message: &Message,
     viewport_width: f32,
     markdown_cache: &mut CommonMarkCache,
-    request_in_flight: bool,
     markdown_id: egui::Id,
 ) {
     match message.role {
@@ -810,15 +825,6 @@ fn show_agent_message(
             show_assistant_message(ui, message, viewport_width, markdown_cache, markdown_id)
         }
         Role::System => show_system_message(ui, message, viewport_width),
-    }
-
-    if !request_in_flight
-        && let MessageContent::Markdown(text) = &message.content
-        && ui
-            .small_button(format!("{} Copy", egui_phosphor::regular::COPY))
-            .clicked()
-    {
-        ui.ctx().copy_text(text.clone());
     }
 }
 
@@ -976,6 +982,10 @@ fn constrained_bubble_ui(ui: &mut egui::Ui, width: f32, add_contents: impl FnOnc
     );
 }
 
+fn frame_content_width(available_width: f32, inner_margin: i8) -> f32 {
+    (available_width - f32::from(inner_margin) * 2.0).max(0.0)
+}
+
 fn bubble_header(ui: &mut egui::Ui, style: &MessageBubbleStyle) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(style.icon).small().color(style.accent));
@@ -1040,20 +1050,49 @@ fn bubble_content_width(available_width: f32, width_fraction: f32) -> f32 {
         .min(available_content_width)
 }
 
-fn show_agent_tool_activity(ui: &mut egui::Ui, events: &[AgentEvent]) {
+fn current_turn_final_message_index(
+    messages: &[Message],
+    request_in_flight: bool,
+    events: &[AgentEvent],
+) -> Option<usize> {
+    if request_in_flight || events.is_empty() {
+        return None;
+    }
+
+    messages
+        .iter()
+        .rposition(|message| matches!(message.role, Role::Assistant))
+}
+
+fn show_agent_tool_activity(
+    ui: &mut egui::Ui,
+    events: &[AgentEvent],
+    hide_completion_summary: bool,
+) {
+    let visible_events = events
+        .iter()
+        .filter(|event| !(hide_completion_summary && matches!(event, AgentEvent::Completed { .. })))
+        .collect::<Vec<_>>();
+    if visible_events.is_empty() {
+        return;
+    }
+
     egui::CollapsingHeader::new(format!("{} Tool activity", egui_phosphor::regular::WRENCH))
         .default_open(false)
         .show(ui, |ui| {
-            for event in events {
+            for event in visible_events {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(agent_event_icon(event))
                             .color(agent_event_color(ui, event)),
                     );
-                    ui.label(
-                        egui::RichText::new(format_agent_event(event))
-                            .small()
-                            .color(ui.visuals().weak_text_color()),
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(format_agent_event(event))
+                                .small()
+                                .color(ui.visuals().weak_text_color()),
+                        )
+                        .wrap(),
                     );
                 });
             }
@@ -1313,5 +1352,58 @@ mod tests {
         assert!(prompt.contains("Explain this"));
         assert!(prompt.contains("Attached context"));
         assert!(prompt.contains("query.sql"));
+    }
+
+    #[test]
+    fn frame_content_width_subtracts_horizontal_inner_margin() {
+        assert_eq!(frame_content_width(320.0, 8), 304.0);
+    }
+
+    #[test]
+    fn frame_content_width_does_not_go_negative() {
+        assert_eq!(frame_content_width(12.0, 8), 0.0);
+    }
+
+    #[test]
+    fn current_turn_final_message_is_last_assistant_after_tool_events_complete() {
+        let messages = vec![
+            Message {
+                role: Role::User,
+                timestamp: Utc::now(),
+                content: MessageContent::Markdown("list tables".to_owned()),
+            },
+            Message {
+                role: Role::Assistant,
+                timestamp: Utc::now(),
+                content: MessageContent::Markdown("there are 25 tables".to_owned()),
+            },
+        ];
+        let events = vec![AgentEvent::ToolFinished {
+            name: "introspect_database".to_owned(),
+            result: "done".to_owned(),
+        }];
+
+        assert_eq!(
+            current_turn_final_message_index(&messages, false, &events),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn current_turn_final_message_is_not_selected_while_request_is_in_flight() {
+        let messages = vec![Message {
+            role: Role::Assistant,
+            timestamp: Utc::now(),
+            content: MessageContent::Markdown("previous answer".to_owned()),
+        }];
+        let events = vec![AgentEvent::ToolStarted {
+            name: "introspect_database".to_owned(),
+            arguments: serde_json::json!({}),
+        }];
+
+        assert_eq!(
+            current_turn_final_message_index(&messages, true, &events),
+            None
+        );
     }
 }
