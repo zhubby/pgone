@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use pgone_mcp::adapter::SqlSessionIntrospector;
 use pgone_mcp::core::models::{
     DatabaseSchema, IntrospectOptions, RoutineDetail, RoutineKind, TableDetail, TriggerDetail,
@@ -525,6 +526,26 @@ fn format_cell(row: &PgRow, index: usize) -> String {
 
     let type_name = row.columns()[index].type_info().name().to_ascii_lowercase();
     match type_name.as_str() {
+        "timestamptz" | "timestamp with time zone" => row
+            .try_get::<DateTime<Utc>, _>(index)
+            .map(|value| value.format("%Y-%m-%d %H:%M:%S%.f %z").to_string())
+            .or_else(|_| {
+                row.try_get::<DateTime<FixedOffset>, _>(index)
+                    .map(|value| value.format("%Y-%m-%d %H:%M:%S%.f %z").to_string())
+            })
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "timestamp" | "timestamp without time zone" => row
+            .try_get::<NaiveDateTime, _>(index)
+            .map(|value| value.format("%Y-%m-%d %H:%M:%S%.f").to_string())
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "date" => row
+            .try_get::<NaiveDate, _>(index)
+            .map(|value| value.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "time" | "time without time zone" => row
+            .try_get::<NaiveTime, _>(index)
+            .map(|value| value.format("%H:%M:%S%.f").to_string())
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
         "text" | "varchar" | "bpchar" | "name" | "citext" | "json" | "jsonb" => row
             .try_get::<String, _>(index)
             .unwrap_or_else(|_| "<unprintable>".to_owned()),
