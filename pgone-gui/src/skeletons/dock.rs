@@ -4,7 +4,7 @@ use crate::components::{
 use crate::models::{ChatSession, PersistedState};
 use crate::storage::SessionStorage;
 use eframe::egui::{Rect, Ui, WidgetText};
-use egui_dock::{DockArea, DockState, Node, NodeIndex, NodePath, Style, TabViewer};
+use egui_dock::{DockArea, DockState, Node, NodeIndex, NodePath, Split, Style, TabViewer};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -38,6 +38,14 @@ pub enum DockTab {
         session_id: String,
     },
     Chat,
+}
+
+#[derive(Clone, Copy)]
+pub enum DockPanel {
+    Structure,
+    Agent,
+    Sql,
+    Results,
 }
 
 impl DockTab {
@@ -80,19 +88,24 @@ impl DockTab {
 
 pub struct DockLayout {
     state: DockState<DockTab>,
+    agent_explicitly_hidden: bool,
 }
 
 impl Default for DockLayout {
     fn default() -> Self {
         Self {
             state: Self::default_state(),
+            agent_explicitly_hidden: false,
         }
     }
 }
 
 impl DockLayout {
     pub fn from_state(state: DockState<DockTab>) -> Option<Self> {
-        Self::has_required_tabs(&state).then_some(Self { state })
+        Self::has_required_tabs(&state).then_some(Self {
+            state,
+            agent_explicitly_hidden: false,
+        })
     }
 
     pub fn state(&self) -> &DockState<DockTab> {
@@ -130,6 +143,73 @@ impl DockLayout {
 
     pub fn reset(&mut self) {
         self.state = Self::default_state();
+        self.agent_explicitly_hidden = false;
+    }
+
+    pub fn is_panel_visible(&self, panel: DockPanel) -> bool {
+        match panel {
+            DockPanel::Structure => self.state.find_tab(&DockTab::DatabaseStructure).is_some(),
+            DockPanel::Sql => self.state.find_tab(&DockTab::SqlEditor).is_some(),
+            DockPanel::Results => self.state.find_tab(&DockTab::Results).is_some(),
+            DockPanel::Agent => self.has_agent_tab(),
+        }
+    }
+
+    pub fn toggle_panel(&mut self, panel: DockPanel, state: &mut PersistedState) {
+        if self.is_panel_visible(panel) {
+            self.hide_panel(panel);
+        } else {
+            self.show_panel(panel, state);
+        }
+    }
+
+    fn hide_panel(&mut self, panel: DockPanel) {
+        if matches!(panel, DockPanel::Agent) {
+            self.agent_explicitly_hidden = true;
+        }
+
+        self.state.retain_tabs(|tab| match panel {
+            DockPanel::Structure => !matches!(tab, DockTab::DatabaseStructure),
+            DockPanel::Sql => !matches!(
+                tab,
+                DockTab::SqlEditor | DockTab::DdlViewer { .. } | DockTab::SqlDraft { .. }
+            ),
+            DockPanel::Results => !matches!(
+                tab,
+                DockTab::Results | DockTab::JsonViewer { .. } | DockTab::GraphViewer { .. }
+            ),
+            DockPanel::Agent => !matches!(tab, DockTab::Agent { .. } | DockTab::Chat),
+        });
+    }
+
+    fn show_panel(&mut self, panel: DockPanel, state: &mut PersistedState) {
+        match panel {
+            DockPanel::Structure => {
+                self.show_static_panel(DockTab::DatabaseStructure, Split::Left, 0.78)
+            }
+            DockPanel::Sql => self.show_static_panel(DockTab::SqlEditor, Split::Above, 0.55),
+            DockPanel::Results => self.show_static_panel(DockTab::Results, Split::Below, 0.55),
+            DockPanel::Agent => {
+                self.agent_explicitly_hidden = false;
+                normalize_current_session_index(state);
+                let session_id = current_session_id(state)
+                    .unwrap_or_else(|| create_replacement_agent_session(state, None));
+                self.push_agent_tab_to_sidebar(session_id);
+            }
+        }
+    }
+
+    fn show_static_panel(&mut self, tab: DockTab, split: Split, fraction: f32) {
+        if self.state.find_tab(&tab).is_some() {
+            return;
+        }
+
+        self.state.split(
+            NodePath::MAIN_ROOT,
+            split,
+            fraction,
+            Node::leaf_with(vec![tab]),
+        );
     }
 
     pub fn ui(
@@ -227,7 +307,7 @@ impl DockLayout {
             _ => true,
         });
 
-        if self.has_agent_tab() {
+        if self.has_agent_tab() || self.agent_explicitly_hidden {
             return;
         }
 
@@ -520,6 +600,7 @@ mod tests {
     fn legacy_chat_tab_reconciles_to_current_agent_tab() {
         let mut layout = DockLayout {
             state: DockState::new(vec![DockTab::Chat]),
+            agent_explicitly_hidden: false,
         };
         let mut state = PersistedState::default();
 
@@ -591,6 +672,44 @@ mod tests {
 
         assert_eq!(state.sessions.len(), initial_session_count);
         assert_eq!(state.next_session_id, next_session_id);
+        assert_eq!(agent_tab_count(&layout, "1"), 1);
+    }
+
+    #[test]
+    fn toggle_panel_hides_and_restores_structure() {
+        let mut layout = DockLayout::default();
+        let mut state = PersistedState::default();
+
+        layout.toggle_panel(DockPanel::Structure, &mut state);
+        assert!(!layout.is_panel_visible(DockPanel::Structure));
+
+        layout.toggle_panel(DockPanel::Structure, &mut state);
+        assert!(layout.is_panel_visible(DockPanel::Structure));
+        assert!(DockLayout::has_required_tabs(&layout.state));
+    }
+
+    #[test]
+    fn toggle_panel_hides_agent_without_auto_reconcile() {
+        let mut layout = DockLayout::default();
+        let mut state = PersistedState::default();
+        let initial_session_count = state.sessions.len();
+
+        layout.toggle_panel(DockPanel::Agent, &mut state);
+        layout.reconcile_agent_tabs(&mut state, None);
+
+        assert!(!layout.is_panel_visible(DockPanel::Agent));
+        assert_eq!(state.sessions.len(), initial_session_count);
+    }
+
+    #[test]
+    fn toggle_panel_restores_agent_after_explicit_hide() {
+        let mut layout = DockLayout::default();
+        let mut state = PersistedState::default();
+
+        layout.toggle_panel(DockPanel::Agent, &mut state);
+        layout.toggle_panel(DockPanel::Agent, &mut state);
+
+        assert!(layout.is_panel_visible(DockPanel::Agent));
         assert_eq!(agent_tab_count(&layout, "1"), 1);
     }
 
@@ -845,6 +964,11 @@ impl DockTabViewer<'_> {
         self.results_table.ui_ddl_viewer(ui, id);
     }
 
+    fn show_sql_draft(&mut self, ui: &mut Ui, id: u64) {
+        let mut sql_ctx = self.make_sql_ctx();
+        self.results_table.ui_sql_draft(ui, id, &mut sql_ctx);
+    }
+
     fn show_graph_viewer(&mut self, ui: &mut Ui, id: u64) {
         let pools = self.db.pools.clone();
         self.results_table.ui_graph_viewer(ui, id, pools);
@@ -918,7 +1042,7 @@ impl TabViewer for DockTabViewer<'_> {
             DockTab::Results => self.show_results(ui),
             DockTab::JsonViewer { id, .. } => self.show_json_viewer(ui, *id),
             DockTab::DdlViewer { id, .. } => self.show_ddl_viewer(ui, *id),
-            DockTab::SqlDraft { id, .. } => self.results_table.ui_sql_draft(ui, *id),
+            DockTab::SqlDraft { id, .. } => self.show_sql_draft(ui, *id),
             DockTab::GraphViewer { id, .. } => self.show_graph_viewer(ui, *id),
             DockTab::Agent { session_id } => self.show_chat(ui, Some(session_id.clone())),
             DockTab::Chat => self.show_chat(ui, None),

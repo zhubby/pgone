@@ -1,4 +1,6 @@
 use crate::components::DbManager;
+use crate::models::PersistedState;
+use crate::skeletons::dock::{DockLayout, DockPanel};
 use crate::skeletons::monitors::MonitorMetric;
 use eframe::egui::{Panel, Ui};
 #[cfg(target_os = "macos")]
@@ -8,6 +10,8 @@ pub fn show_menu_bar(
     root_ui: &mut Ui,
     frame: &eframe::Frame,
     db: &mut DbManager,
+    dock_layout: &mut DockLayout,
+    state: &mut PersistedState,
     reset_dock_layout: &mut bool,
     show_settings: &mut bool,
     show_about: &mut bool,
@@ -18,71 +22,131 @@ pub fn show_menu_bar(
     Panel::top("menu_top").show_inside(root_ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.button("New Connection").clicked() {
+                if menu_button(ui, egui_phosphor::regular::DATABASE, "New Connection").clicked() {
                     db.show_add_db = true;
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("Export").clicked() {
+                if menu_button(ui, egui_phosphor::regular::EXPORT, "Export").clicked() {
                     *show_export = true;
                     ui.close();
                 }
-                if ui.button("Import").clicked() {
+                if menu_button(ui, egui_phosphor::regular::DOWNLOAD_SIMPLE, "Import").clicked() {
                     *show_import = true;
                     ui.close();
                 }
 
                 ui.separator();
 
-                if ui.button("Preferences").clicked() {
+                if menu_button(ui, egui_phosphor::regular::GEAR, "Preferences").clicked() {
                     *show_settings = true;
                     ui.close();
                 }
 
                 ui.separator();
 
-                if ui.button("Exit").clicked() {
+                if menu_button(ui, egui_phosphor::regular::SIGN_OUT, "Exit").clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                     ui.close();
                 }
             });
             ui.menu_button("View", |ui| {
-                if ui.button("Reset Layout").clicked() {
+                if toggle_panel_button(
+                    ui,
+                    dock_layout,
+                    state,
+                    DockPanel::Structure,
+                    egui_phosphor::regular::TREE_STRUCTURE,
+                    "Structure",
+                )
+                .clicked()
+                {
+                    ui.close();
+                }
+                if toggle_panel_button(
+                    ui,
+                    dock_layout,
+                    state,
+                    DockPanel::Agent,
+                    egui_phosphor::regular::SPARKLE,
+                    "Agent",
+                )
+                .clicked()
+                {
+                    ui.close();
+                }
+                if toggle_panel_button(
+                    ui,
+                    dock_layout,
+                    state,
+                    DockPanel::Sql,
+                    egui_phosphor::regular::CODE,
+                    "SQL",
+                )
+                .clicked()
+                {
+                    ui.close();
+                }
+                if toggle_panel_button(
+                    ui,
+                    dock_layout,
+                    state,
+                    DockPanel::Results,
+                    egui_phosphor::regular::TABLE,
+                    "Results",
+                )
+                .clicked()
+                {
+                    ui.close();
+                }
+                ui.separator();
+                if menu_button(ui, egui_phosphor::regular::LAYOUT, "Reset Layout").clicked() {
                     *reset_dock_layout = true;
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("Clear Current Session").clicked() {
+                if menu_button(
+                    ui,
+                    egui_phosphor::regular::CHAT_CIRCLE_TEXT,
+                    "Clear Current Session",
+                )
+                .clicked()
+                {
                     // self.clear_current_session();
                     ui.close();
                 }
             });
             ui.menu_button("Monitor", |ui| {
-                if ui.button("Activity").clicked() {
+                if menu_button(ui, egui_phosphor::regular::ACTIVITY, "Activity").clicked() {
                     *show_monitor = Some(MonitorMetric::Activity);
                     ui.close();
                 }
-                if ui.button("Statements").clicked() {
+                if menu_button(ui, egui_phosphor::regular::FILE_TEXT, "Statements").clicked() {
                     *show_monitor = Some(MonitorMetric::Statements);
                     ui.close();
                 }
-                if ui.button("Tables").clicked() {
+                if menu_button(ui, egui_phosphor::regular::TABLE, "Tables").clicked() {
                     *show_monitor = Some(MonitorMetric::Tables);
                     ui.close();
                 }
-                if ui.button("Indexes").clicked() {
+                if menu_button(ui, egui_phosphor::regular::LIST_MAGNIFYING_GLASS, "Indexes")
+                    .clicked()
+                {
                     *show_monitor = Some(MonitorMetric::Indexes);
                     ui.close();
                 }
-                if ui.button("Bgwriter").clicked() {
+                if menu_button(ui, egui_phosphor::regular::PENCIL_SIMPLE_LINE, "Bgwriter").clicked()
+                {
                     *show_monitor = Some(MonitorMetric::Bgwriter);
                     ui.close();
                 }
-                if ui.button("Replication").clicked() {
+                if menu_button(ui, egui_phosphor::regular::ARROWS_CLOCKWISE, "Replication")
+                    .clicked()
+                {
                     *show_monitor = Some(MonitorMetric::Replication);
                     ui.close();
                 }
-                if ui.button("Locks").clicked() {
+                if menu_button(ui, egui_phosphor::regular::LOCK, "Locks").clicked() {
                     *show_monitor = Some(MonitorMetric::Locks);
                     ui.close();
                 }
@@ -94,11 +158,12 @@ pub fn show_menu_bar(
             //     }
             // });
             ui.menu_button("Help", |ui| {
-                if ui.button("About").clicked() {
+                if menu_button(ui, egui_phosphor::regular::INFO, "About").clicked() {
                     *show_about = true;
                     ui.close();
                 }
-                if ui.button("Project Address").clicked() {
+                if menu_button(ui, egui_phosphor::regular::GITHUB_LOGO, "Project Address").clicked()
+                {
                     let _ = webbrowser::open("https://github.com/zhubby/pgone");
                     ui.close();
                 }
@@ -155,6 +220,31 @@ pub fn show_menu_bar(
             });
         });
     });
+}
+
+fn menu_button(ui: &mut Ui, icon: &str, label: &str) -> egui::Response {
+    ui.button(format!("{icon} {label}"))
+}
+
+fn toggle_panel_button(
+    ui: &mut Ui,
+    dock_layout: &mut DockLayout,
+    state: &mut PersistedState,
+    panel: DockPanel,
+    icon: &str,
+    label: &str,
+) -> egui::Response {
+    let visible = dock_layout.is_panel_visible(panel);
+    let check = if visible {
+        egui_phosphor::regular::CHECK
+    } else {
+        " "
+    };
+    let response = ui.button(format!("{check} {icon} {label}"));
+    if response.clicked() {
+        dock_layout.toggle_panel(panel, state);
+    }
+    response
 }
 
 fn minimize_window(ui: &Ui, frame: &eframe::Frame) {

@@ -355,6 +355,8 @@ impl eframe::App for AppFrame {
             ui,
             frame,
             &mut self.db,
+            &mut self.dock_layout,
+            &mut self.state,
             &mut reset_dock_layout,
             &mut self.show_settings,
             &mut self.show_about,
