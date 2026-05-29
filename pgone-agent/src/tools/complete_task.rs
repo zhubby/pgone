@@ -58,6 +58,7 @@ impl Tool for CompleteTaskTool {
                 status,
                 summary: args.summary,
             }),
+            ui_payload: None,
         })
     }
 }

@@ -11,7 +11,6 @@ use crate::{
 };
 
 mod complete_task;
-mod execute_readonly_sql;
 mod get_table;
 mod health_check;
 mod introspect_database;
@@ -22,10 +21,9 @@ mod list_types;
 mod preview_sql;
 mod render_dbml;
 mod render_er;
+mod render_sql_result;
 
 use complete_task::CompleteTaskTool;
-use execute_readonly_sql::ExecuteReadonlySqlTool;
-pub use execute_readonly_sql::validate_readonly_sql;
 use get_table::GetTableTool;
 use health_check::HealthCheckTool;
 use introspect_database::IntrospectDatabaseTool;
@@ -36,11 +34,14 @@ use list_types::ListTypesTool;
 use preview_sql::PreviewSqlTool;
 use render_dbml::RenderDbmlTool;
 use render_er::RenderErTool;
+use render_sql_result::RenderSqlResultTool;
+pub use render_sql_result::validate_readonly_sql;
 
 #[derive(Clone, Debug)]
 pub struct ToolOutput {
     pub content: String,
     pub completion: Option<CompletionSignal>,
+    pub ui_payload: Option<Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -89,7 +90,7 @@ impl ToolRegistry {
                 Arc::new(ListTriggersTool),
                 Arc::new(ListRoutinesTool),
                 Arc::new(ListTypesTool),
-                Arc::new(ExecuteReadonlySqlTool),
+                Arc::new(RenderSqlResultTool),
                 Arc::new(PreviewSqlTool),
                 Arc::new(RenderErTool),
                 Arc::new(RenderDbmlTool),
@@ -113,6 +114,7 @@ pub struct ToolExecutionRecord {
     pub summary: AgentToolCallSummary,
     pub event: AgentEvent,
     pub output: Option<ToolOutput>,
+    pub ui_payload: Option<Value>,
 }
 
 impl ToolExecutionRecord {
@@ -125,6 +127,7 @@ impl ToolExecutionRecord {
                 error: None,
             },
             event: AgentEvent::ToolFinished { name, result },
+            ui_payload: output.ui_payload.clone(),
             output: Some(output),
         }
     }
@@ -139,6 +142,7 @@ impl ToolExecutionRecord {
             },
             event: AgentEvent::ToolFailed { name, error },
             output: None,
+            ui_payload: None,
         }
     }
 }
@@ -160,6 +164,7 @@ where
     Ok(ToolOutput {
         content,
         completion: None,
+        ui_payload: None,
     })
 }
 
@@ -481,7 +486,8 @@ mod tests {
         assert!(definitions.contains(&"list_triggers".to_owned()));
         assert!(definitions.contains(&"list_routines".to_owned()));
         assert!(definitions.contains(&"list_types".to_owned()));
-        assert!(definitions.contains(&"execute_readonly_sql".to_owned()));
+        assert!(definitions.contains(&"render_sql_result".to_owned()));
+        assert!(!definitions.contains(&"execute_readonly_sql".to_owned()));
         assert!(definitions.contains(&"preview_sql".to_owned()));
         assert!(definitions.contains(&"render_er".to_owned()));
         assert!(definitions.contains(&"render_dbml".to_owned()));

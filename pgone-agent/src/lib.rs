@@ -133,6 +133,10 @@ pub enum AgentEvent {
         name: String,
         result: String,
     },
+    ToolUiPayload {
+        name: String,
+        payload: Value,
+    },
     ToolFailed {
         name: String,
         error: String,

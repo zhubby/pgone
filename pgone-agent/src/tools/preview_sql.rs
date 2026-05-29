@@ -74,6 +74,7 @@ impl Tool for PreviewSqlTool {
                 status: AgentTurnStatus::Completed,
                 summary,
             }),
+            ui_payload: None,
         })
     }
 }

@@ -34,6 +34,11 @@ pub enum DockTab {
         id: u64,
         title: String,
     },
+    #[serde(skip)]
+    SqlResult {
+        id: u64,
+        title: String,
+    },
     Agent {
         session_id: String,
     },
@@ -68,6 +73,9 @@ impl DockTab {
             Self::GraphViewer { title, .. } => {
                 format!("{} {}", egui_phosphor::regular::GRAPH, title)
             }
+            Self::SqlResult { title, .. } => {
+                format!("{} {}", egui_phosphor::regular::TABLE, title)
+            }
             Self::Agent { session_id } => {
                 format!("{} Agent {}", egui_phosphor::regular::SPARKLE, session_id)
             }
@@ -82,6 +90,7 @@ impl DockTab {
                 | Self::DdlViewer { .. }
                 | Self::SqlDraft { .. }
                 | Self::GraphViewer { .. }
+                | Self::SqlResult { .. }
         )
     }
 }
@@ -248,6 +257,18 @@ impl DockLayout {
         for request in chat.take_pending_sql_preview_requests() {
             results_table.open_sql_draft(request.title, request.sql, request.database);
         }
+        for request in chat.take_pending_sql_result_requests() {
+            results_table.open_sql_result(
+                request.title,
+                request.sql,
+                request.database,
+                request.columns,
+                request.rows,
+                request.row_count,
+                request.truncated,
+                request.explain,
+            );
+        }
 
         for tab in results_table.take_pending_json_viewer_tabs() {
             self.push_json_viewer_tab(DockTab::JsonViewer {
@@ -273,11 +294,18 @@ impl DockLayout {
                 title: tab.title,
             });
         }
+        for tab in results_table.take_pending_sql_result_tabs() {
+            self.push_results_viewer_tab(DockTab::SqlResult {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
 
         self.retain_live_json_viewer_tabs(results_table);
         self.retain_live_ddl_viewer_tabs(results_table);
         self.retain_live_sql_draft_tabs(results_table);
         self.retain_live_graph_viewer_tabs(results_table);
+        self.retain_live_sql_result_tabs(results_table);
         self.reconcile_agent_tabs(state, Some(storage));
     }
 
@@ -425,6 +453,15 @@ impl DockLayout {
                                 ..
                             }
                         ) if new_id == existing_id
+                    ) || matches!(
+                        (&tab, existing),
+                        (
+                            DockTab::SqlResult { id: new_id, .. },
+                            DockTab::SqlResult {
+                                id: existing_id,
+                                ..
+                            }
+                        ) if new_id == existing_id
                     )
                 }) {
                     index
@@ -510,6 +547,23 @@ impl DockLayout {
             })
             .collect::<HashSet<_>>();
         results_table.retain_graph_viewer_tabs(&keep_ids);
+    }
+
+    fn retain_live_sql_result_tabs(&mut self, results_table: &mut ResultsTable) {
+        self.state.retain_tabs(|tab| match tab {
+            DockTab::SqlResult { id, .. } => results_table.sql_result_tab(*id).is_some(),
+            _ => true,
+        });
+
+        let keep_ids = self
+            .state
+            .iter_all_tabs()
+            .filter_map(|(_, tab)| match tab {
+                DockTab::SqlResult { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        results_table.retain_sql_result_tabs(&keep_ids);
     }
 
     fn default_state() -> DockState<DockTab> {
@@ -866,6 +920,103 @@ mod tests {
     }
 
     #[test]
+    fn pending_sql_result_tab_opens_in_results_leaf() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_sql_result(
+            "Query Result",
+            "SELECT 1",
+            "app",
+            vec!["?column?".to_owned()],
+            vec![vec!["1".to_owned()]],
+            1,
+            false,
+            None,
+        );
+
+        for tab in results_table.take_pending_sql_result_tabs() {
+            layout.push_results_viewer_tab(DockTab::SqlResult {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+
+        let results_path = layout.state.find_tab(&DockTab::Results).unwrap();
+        let leaf = layout.state.leaf(results_path.node_path()).unwrap();
+
+        assert!(
+            leaf.tabs
+                .iter()
+                .any(|tab| matches!(tab, DockTab::SqlResult { id: tab_id, .. } if *tab_id == id))
+        );
+        assert!(
+            matches!(&leaf[leaf.active], DockTab::SqlResult { id: tab_id, .. } if *tab_id == id)
+        );
+    }
+
+    #[test]
+    fn sql_result_tab_survives_live_tab_retention() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_sql_result(
+            "Query Result",
+            "SELECT 1",
+            "app",
+            vec!["?column?".to_owned()],
+            vec![vec!["1".to_owned()]],
+            1,
+            false,
+            None,
+        );
+
+        for tab in results_table.take_pending_sql_result_tabs() {
+            layout.push_results_viewer_tab(DockTab::SqlResult {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+        layout.retain_live_sql_result_tabs(&mut results_table);
+
+        assert!(results_table.sql_result_tab(id).is_some());
+        assert!(
+            layout.state.iter_all_tabs().any(
+                |(_, tab)| matches!(tab, DockTab::SqlResult { id: tab_id, .. } if *tab_id == id)
+            )
+        );
+    }
+
+    #[test]
+    fn sanitized_state_removes_sql_result_tabs() {
+        let mut layout = DockLayout::default();
+        let mut results_table = ResultsTable::new();
+        let id = results_table.open_sql_result(
+            "Query Result",
+            "SELECT 1",
+            "app",
+            vec!["?column?".to_owned()],
+            vec![vec!["1".to_owned()]],
+            1,
+            false,
+            None,
+        );
+
+        for tab in results_table.take_pending_sql_result_tabs() {
+            layout.push_results_viewer_tab(DockTab::SqlResult {
+                id: tab.id,
+                title: tab.title,
+            });
+        }
+
+        let sanitized = layout.sanitized_state();
+
+        assert!(
+            !sanitized.iter_all_tabs().any(
+                |(_, tab)| matches!(tab, DockTab::SqlResult { id: tab_id, .. } if *tab_id == id)
+            )
+        );
+    }
+
+    #[test]
     fn graph_viewer_tab_survives_live_tab_retention() {
         let mut layout = DockLayout::default();
         let mut results_table = ResultsTable::new();
@@ -977,6 +1128,10 @@ impl DockTabViewer<'_> {
         self.results_table.ui_graph_viewer(ui, id, pools);
     }
 
+    fn show_sql_result(&mut self, ui: &mut Ui, id: u64) {
+        self.results_table.ui_sql_result(ui, id);
+    }
+
     fn show_chat(&mut self, ui: &mut Ui, session_id: Option<String>) {
         if let Some(session_id) = session_id {
             if let Some(index) = self
@@ -1047,6 +1202,7 @@ impl TabViewer for DockTabViewer<'_> {
             DockTab::DdlViewer { id, .. } => self.show_ddl_viewer(ui, *id),
             DockTab::SqlDraft { id, .. } => self.show_sql_draft(ui, *id),
             DockTab::GraphViewer { id, .. } => self.show_graph_viewer(ui, *id),
+            DockTab::SqlResult { id, .. } => self.show_sql_result(ui, *id),
             DockTab::Agent { session_id } => self.show_chat(ui, Some(session_id.clone())),
             DockTab::Chat => self.show_chat(ui, None),
         }
@@ -1067,7 +1223,8 @@ impl TabViewer for DockTabViewer<'_> {
             | DockTab::JsonViewer { .. }
             | DockTab::DdlViewer { .. }
             | DockTab::SqlDraft { .. }
-            | DockTab::GraphViewer { .. } => [false, false],
+            | DockTab::GraphViewer { .. }
+            | DockTab::SqlResult { .. } => [false, false],
             DockTab::DatabaseStructure => [true, true],
             DockTab::Agent { .. } | DockTab::Chat => [false, false],
         }

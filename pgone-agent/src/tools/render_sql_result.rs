@@ -2,41 +2,43 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlparser::ast::Statement;
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 use super::{
     AgentContext, AgentError, AgentToolServices, Result, Tool, ToolOutput, database_name_property,
-    integer_property, json_output, object_schema, parse_args, string_property, target_database,
+    integer_property, object_schema, parse_args, string_property, target_database,
 };
 use crate::ReadonlySqlRequest;
 
-pub(super) struct ExecuteReadonlySqlTool;
+pub(super) struct RenderSqlResultTool;
 
 #[derive(Deserialize)]
-struct ExecuteReadonlySqlArgs {
+struct RenderSqlResultArgs {
     database_name: Option<String>,
+    title: Option<String>,
     sql: String,
     max_rows: Option<u32>,
 }
 
 #[async_trait]
-impl Tool for ExecuteReadonlySqlTool {
+impl Tool for RenderSqlResultTool {
     fn name(&self) -> &'static str {
-        "execute_readonly_sql"
+        "render_sql_result"
     }
 
     fn description(&self) -> &'static str {
-        "Execute one read-only PostgreSQL query such as SELECT, WITH, VALUES, or EXPLAIN and return bounded rows."
+        "Execute one read-only PostgreSQL query and render the rows in PgOne's Results panel. Returns only render status to the model."
     }
 
     fn parameters(&self) -> Value {
         object_schema(vec![
             database_name_property().optional(),
-            string_property("sql", "One read-only SQL statement to execute"),
-            integer_property("max_rows", "Maximum rows to return; defaults to 100").optional(),
+            string_property("title", "Short title for the result tab").optional(),
+            string_property("sql", "One read-only SQL statement to execute and render"),
+            integer_property("max_rows", "Maximum rows to render; defaults to 100").optional(),
         ])
     }
 
@@ -47,21 +49,41 @@ impl Tool for ExecuteReadonlySqlTool {
         context: &AgentContext,
         services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
-        let args: ExecuteReadonlySqlArgs = parse_args(args)?;
-        validate_readonly_sql(&args.sql)?;
+        let args: RenderSqlResultArgs = parse_args(args)?;
+        let sql = args.sql.trim().to_owned();
+        validate_readonly_sql(&sql)?;
+        let title = args
+            .title
+            .map(|title| title.trim().to_owned())
+            .filter(|title| !title.is_empty());
+        let database_name =
+            target_database(args.database_name.as_deref(), context).map(ToOwned::to_owned);
         let result = services
             .execute_readonly_sql(
                 dbconfig_id,
                 ReadonlySqlRequest {
-                    sql: args.sql,
-                    database_name: target_database(args.database_name.as_deref(), context)
-                        .map(ToOwned::to_owned),
+                    sql: sql.clone(),
+                    database_name: database_name.clone(),
                     max_rows: args.max_rows.unwrap_or(100),
                     timeout_ms: 20_000,
                 },
             )
             .await?;
-        json_output(&result)
+
+        Ok(ToolOutput {
+            content: json!({"rendered": true}).to_string(),
+            completion: None,
+            ui_payload: Some(json!({
+                "title": title,
+                "database_name": database_name,
+                "sql": sql,
+                "columns": result.columns,
+                "rows": result.rows,
+                "row_count": result.row_count,
+                "truncated": result.truncated,
+                "explain": result.explain,
+            })),
+        })
     }
 }
 
@@ -142,11 +164,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn executes_against_services_with_context_database() {
+    async fn renders_against_services_without_returning_rows_to_model() {
         let services = Arc::new(MockServices::default());
-        let output = ExecuteReadonlySqlTool
+        let output = RenderSqlResultTool
             .execute(
-                json!({"sql": "SELECT 1", "max_rows": 1}),
+                json!({"title": "Users", "sql": "SELECT 1", "max_rows": 1}),
                 "local",
                 &context(),
                 services.clone(),
@@ -154,8 +176,16 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(output.content.contains("\"columns\""));
-        assert!(output.content.contains("\"truncated\": false"));
+        assert_eq!(output.content, r#"{"rendered":true}"#);
+        assert!(!output.content.contains("\"rows\""));
+
+        let payload = output.ui_payload.unwrap();
+        assert_eq!(payload["title"], json!("Users"));
+        assert_eq!(payload["database_name"], json!("app"));
+        assert_eq!(payload["sql"], json!("SELECT 1"));
+        assert_eq!(payload["columns"], json!(["id"]));
+        assert_eq!(payload["rows"], json!([["1"]]));
+        assert_eq!(payload["row_count"], json!(1));
         assert_eq!(
             services.seen_database_name().await,
             Some(Some("app".to_owned()))

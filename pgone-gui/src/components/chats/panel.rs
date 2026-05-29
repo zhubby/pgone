@@ -12,6 +12,7 @@ use pgone_agent::{
     OpenAiCompatibleProvider, PgOneAgentService, ProviderConfig, StorageBackedAgentToolServices,
 };
 use serde::Deserialize;
+use serde_json::Value;
 use tokio::sync::mpsc;
 
 use super::model_loader::ModelLoader;
@@ -43,11 +44,35 @@ pub struct AgentSqlPreviewRequest {
     pub database: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentSqlResultRequest {
+    pub title: String,
+    pub sql: String,
+    pub database: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub row_count: usize,
+    pub truncated: bool,
+    pub explain: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct PreviewSqlToolResult {
     title: Option<String>,
     sql: String,
     database_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RenderSqlResultPayload {
+    title: Option<String>,
+    sql: String,
+    database_name: Option<String>,
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    row_count: usize,
+    truncated: bool,
+    explain: Option<String>,
 }
 
 pub struct ChatPanel {
@@ -66,7 +91,9 @@ pub struct ChatPanel {
     show_delete_confirm: bool,
     pending_agent_tab_requests: Vec<String>,
     pending_sql_preview_requests: Vec<AgentSqlPreviewRequest>,
+    pending_sql_result_requests: Vec<AgentSqlResultRequest>,
     handled_sql_preview_results: Vec<String>,
+    handled_sql_result_payloads: Vec<String>,
 }
 
 impl Default for ChatPanel {
@@ -87,7 +114,9 @@ impl Default for ChatPanel {
             show_delete_confirm: false,
             pending_agent_tab_requests: Vec::new(),
             pending_sql_preview_requests: Vec::new(),
+            pending_sql_result_requests: Vec::new(),
             handled_sql_preview_results: Vec::new(),
+            handled_sql_result_payloads: Vec::new(),
         }
     }
 }
@@ -114,7 +143,9 @@ impl Clone for ChatPanel {
             show_delete_confirm: false,
             pending_agent_tab_requests: Vec::new(),
             pending_sql_preview_requests: Vec::new(),
+            pending_sql_result_requests: Vec::new(),
             handled_sql_preview_results: Vec::new(),
+            handled_sql_result_payloads: Vec::new(),
         }
     }
 }
@@ -126,6 +157,10 @@ impl ChatPanel {
 
     pub fn take_pending_sql_preview_requests(&mut self) -> Vec<AgentSqlPreviewRequest> {
         std::mem::take(&mut self.pending_sql_preview_requests)
+    }
+
+    pub fn take_pending_sql_result_requests(&mut self) -> Vec<AgentSqlResultRequest> {
+        std::mem::take(&mut self.pending_sql_result_requests)
     }
 
     pub fn ui(&mut self, ctxs: &mut ChatCtx, ui: &mut egui::Ui) {
@@ -235,24 +270,39 @@ impl ChatPanel {
     }
 
     fn handle_agent_event(&mut self, event: &AgentEvent) {
-        let AgentEvent::ToolFinished { name, result } = event else {
-            return;
-        };
-        if name != "preview_sql" {
-            return;
-        }
-        if self
-            .handled_sql_preview_results
-            .iter()
-            .any(|handled| handled == result)
-        {
-            return;
-        }
-        self.handled_sql_preview_results.push(result.clone());
+        match event {
+            AgentEvent::ToolFinished { name, result } if name == "preview_sql" => {
+                if self
+                    .handled_sql_preview_results
+                    .iter()
+                    .any(|handled| handled == result)
+                {
+                    return;
+                }
+                self.handled_sql_preview_results.push(result.clone());
 
-        match preview_request_from_tool_result(result) {
-            Some(request) => self.pending_sql_preview_requests.push(request),
-            None => tracing::warn!("Ignoring malformed preview_sql result"),
+                match preview_request_from_tool_result(result) {
+                    Some(request) => self.pending_sql_preview_requests.push(request),
+                    None => tracing::warn!("Ignoring malformed preview_sql result"),
+                }
+            }
+            AgentEvent::ToolUiPayload { name, payload } if name == "render_sql_result" => {
+                let payload_key = payload.to_string();
+                if self
+                    .handled_sql_result_payloads
+                    .iter()
+                    .any(|handled| handled == &payload_key)
+                {
+                    return;
+                }
+                self.handled_sql_result_payloads.push(payload_key);
+
+                match sql_result_request_from_payload(payload.clone()) {
+                    Some(request) => self.pending_sql_result_requests.push(request),
+                    None => tracing::warn!("Ignoring malformed render_sql_result payload"),
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1194,6 +1244,7 @@ fn agent_event_icon(event: &AgentEvent) -> &'static str {
     match event {
         AgentEvent::ToolStarted { .. } => egui_phosphor::regular::CIRCLE_NOTCH,
         AgentEvent::ToolFinished { .. } => egui_phosphor::regular::CHECK_CIRCLE,
+        AgentEvent::ToolUiPayload { .. } => egui_phosphor::regular::TABLE,
         AgentEvent::ToolFailed { .. } => egui_phosphor::regular::WARNING_CIRCLE,
         AgentEvent::Completed { .. } => egui_phosphor::regular::CHECK,
     }
@@ -1202,9 +1253,9 @@ fn agent_event_icon(event: &AgentEvent) -> &'static str {
 fn agent_event_color(ui: &egui::Ui, event: &AgentEvent) -> egui::Color32 {
     match event {
         AgentEvent::ToolStarted { .. } => ui.visuals().hyperlink_color,
-        AgentEvent::ToolFinished { .. } | AgentEvent::Completed { .. } => {
-            ui.visuals().weak_text_color()
-        }
+        AgentEvent::ToolFinished { .. }
+        | AgentEvent::ToolUiPayload { .. }
+        | AgentEvent::Completed { .. } => ui.visuals().weak_text_color(),
         AgentEvent::ToolFailed { .. } => ui.visuals().error_fg_color,
     }
 }
@@ -1213,6 +1264,7 @@ fn format_agent_event(event: &AgentEvent) -> String {
     match event {
         AgentEvent::ToolStarted { name, .. } => format!("Started {name}"),
         AgentEvent::ToolFinished { name, .. } => format!("Finished {name}"),
+        AgentEvent::ToolUiPayload { name, .. } => format!("Rendered {name}"),
         AgentEvent::ToolFailed { name, error } => format!("{name} failed: {error}"),
         AgentEvent::Completed { status, summary } => format!("{status:?}: {summary}"),
     }
@@ -1277,6 +1329,36 @@ fn preview_request_from_tool_result(result: &str) -> Option<AgentSqlPreviewReque
         title,
         sql,
         database,
+    })
+}
+
+fn sql_result_request_from_payload(payload: Value) -> Option<AgentSqlResultRequest> {
+    let payload: RenderSqlResultPayload = serde_json::from_value(payload).ok()?;
+    let sql = payload.sql.trim().to_owned();
+    if sql.is_empty() {
+        return None;
+    }
+
+    let title = payload
+        .title
+        .map(|title| title.trim().to_owned())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "Query Result".to_owned());
+    let database = payload
+        .database_name
+        .map(|database| database.trim().to_owned())
+        .filter(|database| !database.is_empty())
+        .unwrap_or_default();
+
+    Some(AgentSqlResultRequest {
+        title,
+        sql,
+        database,
+        columns: payload.columns,
+        rows: payload.rows,
+        row_count: payload.row_count,
+        truncated: payload.truncated,
+        explain: payload.explain,
     })
 }
 
@@ -1485,6 +1567,72 @@ mod tests {
         let requests = panel.take_pending_sql_preview_requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].title, "Preview SQL: Query");
+    }
+
+    #[test]
+    fn render_sql_result_payload_becomes_result_request() {
+        let request = sql_result_request_from_payload(serde_json::json!({
+            "title": "Active users",
+            "sql": " SELECT id FROM users ",
+            "database_name": "app",
+            "columns": ["id"],
+            "rows": [["1"]],
+            "row_count": 1,
+            "truncated": false,
+            "explain": "Result"
+        }))
+        .unwrap();
+
+        assert_eq!(request.title, "Active users");
+        assert_eq!(request.sql, "SELECT id FROM users");
+        assert_eq!(request.database, "app");
+        assert_eq!(request.columns, vec!["id"]);
+        assert_eq!(request.rows, vec![vec!["1"]]);
+        assert_eq!(request.row_count, 1);
+        assert!(!request.truncated);
+        assert_eq!(request.explain.as_deref(), Some("Result"));
+    }
+
+    #[test]
+    fn render_sql_result_payload_defaults_title_and_database() {
+        let request = sql_result_request_from_payload(serde_json::json!({
+            "sql": "SELECT 1",
+            "columns": ["?column?"],
+            "rows": [["1"]],
+            "row_count": 1,
+            "truncated": false,
+            "explain": null
+        }))
+        .unwrap();
+
+        assert_eq!(request.title, "Query Result");
+        assert_eq!(request.database, "");
+    }
+
+    #[test]
+    fn render_sql_result_tool_ui_payload_enqueues_once() {
+        let mut panel = ChatPanel::default();
+        let event = AgentEvent::ToolUiPayload {
+            name: "render_sql_result".to_owned(),
+            payload: serde_json::json!({
+                "title": "Query",
+                "sql": "SELECT 1",
+                "database_name": "app",
+                "columns": ["?column?"],
+                "rows": [["1"]],
+                "row_count": 1,
+                "truncated": false,
+                "explain": null
+            }),
+        };
+
+        panel.handle_agent_event(&event);
+        panel.handle_agent_event(&event);
+
+        let requests = panel.take_pending_sql_result_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].title, "Query");
+        assert_eq!(requests[0].rows, vec![vec!["1"]]);
     }
 
     #[test]

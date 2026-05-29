@@ -205,6 +205,16 @@ impl AgentRuntime {
                         })
                         .await;
                 }
+                if let Some(payload) = record.ui_payload.clone() {
+                    let event = AgentEvent::ToolUiPayload {
+                        name: name.clone(),
+                        payload,
+                    };
+                    events.push(event.clone());
+                    if let Some(sender) = stream_sender.as_deref_mut() {
+                        let _ = sender.send(AgentStreamEvent::Event { event }).await;
+                    }
+                }
                 tool_calls.push(record.summary.clone());
 
                 match record.output {
@@ -355,7 +365,7 @@ Available behavior:
 - Prefer read-only database metadata inspection tools.
 - Metadata and query tools can target a database with database_name. When the user names a database, pass that name explicitly instead of relying only on the default target database.
 - Use list_databases to discover available databases on the selected PostgreSQL instance when the target database is unclear.
-- Use execute_readonly_sql only for safe read-only inspection queries.
+- Use render_sql_result when the user asks you to run, show, display, or render the result of a safe read-only query; it renders rows in PgOne's Results panel and only returns render status to you.
 - When the user asks you to generate SQL for review or execution, call preview_sql to send the SQL to the SQL panel.
 - Mutating SQL such as CREATE, ALTER, DROP, INSERT, UPDATE, DELETE, TRUNCATE, GRANT, or REVOKE must be sent with preview_sql; do not claim you executed it.
 - Do not claim you changed schema, data, permissions, or configuration; mutating execution tools are not available.
@@ -682,7 +692,8 @@ mod tests {
         let prompt = system_prompt(&request());
 
         assert!(prompt.contains("preview_sql"));
-        assert!(prompt.contains("execute_readonly_sql only for safe read-only"));
+        assert!(prompt.contains("render_sql_result"));
+        assert!(prompt.contains("renders rows in PgOne's Results panel"));
         assert!(prompt.contains("Mutating SQL"));
     }
 

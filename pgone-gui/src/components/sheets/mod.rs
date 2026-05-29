@@ -70,6 +70,19 @@ pub struct GraphViewerTabInfo {
     pub title: String,
 }
 
+#[derive(Clone)]
+pub struct SqlResultTab {
+    pub id: u64,
+    pub title: String,
+    pub sql: String,
+    pub database: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub row_count: usize,
+    pub truncated: bool,
+    pub explain: Option<String>,
+}
+
 pub struct GraphViewerTab {
     pub id: u64,
     pub title: String,
@@ -107,6 +120,10 @@ pub struct ResultsTable {
     pub graph_viewer_tabs: BTreeMap<u64, GraphViewerTab>,
     pub pending_graph_viewer_tabs: Vec<GraphViewerTabInfo>,
     pub next_graph_viewer_tab_id: u64,
+    pub sql_result_tabs: BTreeMap<u64, SqlResultTab>,
+    pub pending_sql_result_tabs: Vec<SqlResultTab>,
+    pub next_sql_result_tab_id: u64,
+    pub selected_sql_result_rows: BTreeMap<u64, Option<usize>>,
     pub current_page: usize,
     pub page_size: usize,
     pub total_rows: Option<usize>,
@@ -164,6 +181,10 @@ impl ResultsTable {
             graph_viewer_tabs: BTreeMap::new(),
             pending_graph_viewer_tabs: Vec::new(),
             next_graph_viewer_tab_id: 1,
+            sql_result_tabs: BTreeMap::new(),
+            pending_sql_result_tabs: Vec::new(),
+            next_sql_result_tab_id: 1,
+            selected_sql_result_rows: BTreeMap::new(),
             current_page: 1,
             page_size: DEFAULT_RESULTS_PAGE_SIZE,
             total_rows: None,
@@ -305,6 +326,41 @@ impl ResultsTable {
         std::mem::take(&mut self.pending_graph_viewer_tabs)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_sql_result(
+        &mut self,
+        title: impl Into<String>,
+        sql: impl Into<String>,
+        database: impl Into<String>,
+        columns: Vec<String>,
+        rows: Vec<Vec<String>>,
+        row_count: usize,
+        truncated: bool,
+        explain: Option<String>,
+    ) -> u64 {
+        let id = self.next_sql_result_tab_id;
+        self.next_sql_result_tab_id = self.next_sql_result_tab_id.saturating_add(1);
+        let tab = SqlResultTab {
+            id,
+            title: title.into(),
+            sql: sql.into(),
+            database: database.into(),
+            columns,
+            rows,
+            row_count,
+            truncated,
+            explain,
+        };
+        self.sql_result_tabs.insert(id, tab.clone());
+        self.selected_sql_result_rows.insert(id, None);
+        self.pending_sql_result_tabs.push(tab);
+        id
+    }
+
+    pub fn take_pending_sql_result_tabs(&mut self) -> Vec<SqlResultTab> {
+        std::mem::take(&mut self.pending_sql_result_tabs)
+    }
+
     pub fn ddl_viewer_tab(&self, id: u64) -> Option<&DdlViewerTab> {
         self.ddl_viewer_tabs.get(&id)
     }
@@ -319,6 +375,10 @@ impl ResultsTable {
 
     pub fn json_viewer_tab(&self, id: u64) -> Option<&JsonViewerTab> {
         self.json_viewer_tabs.get(&id)
+    }
+
+    pub fn sql_result_tab(&self, id: u64) -> Option<&SqlResultTab> {
+        self.sql_result_tabs.get(&id)
     }
 
     pub fn clear_json_viewer_tabs(&mut self) {
@@ -336,6 +396,12 @@ impl ResultsTable {
 
     pub fn retain_sql_draft_tabs(&mut self, keep_ids: &HashSet<u64>) {
         self.sql_draft_tabs.retain(|id, _| keep_ids.contains(id));
+    }
+
+    pub fn retain_sql_result_tabs(&mut self, keep_ids: &HashSet<u64>) {
+        self.sql_result_tabs.retain(|id, _| keep_ids.contains(id));
+        self.selected_sql_result_rows
+            .retain(|id, _| keep_ids.contains(id));
     }
 
     pub fn retain_graph_viewer_tabs(&mut self, keep_ids: &HashSet<u64>) {
