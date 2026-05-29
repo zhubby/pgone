@@ -17,14 +17,14 @@ pub fn ui(ui: &mut egui::Ui, tab: &DdlViewerTab) {
 
     let ddl = tab.ddl.clone();
     let mut display = ddl.clone();
-    let available_height = ui.available_height().max(120.0);
+    let available_height = ui.available_height().max(0.0);
 
     ui.horizontal(|ui| {
         ui.add_space(5.0);
         ui.add_sized(
             egui::vec2((ui.available_width() - 5.0).max(0.0), available_height),
             egui::TextEdit::multiline(&mut display)
-                .desired_rows((available_height / 20.0) as usize)
+                .desired_rows(((available_height / 20.0) as usize).max(1))
                 .interactive(false)
                 .layouter(&mut move |ui, _text, wrap_width| {
                     let mut job = crate::sql::highlight_sql(&ddl, ui.visuals());

@@ -75,7 +75,7 @@ impl ResultsTable {
         });
 
         let current_sql = self.sql_input.clone();
-        let available_height = ui.available_height() - 4.0;
+        let available_height = (ui.available_height() - 4.0).max(0.0);
 
         // Add left and right padding (5 each)
         ui.horizontal(|ui| {
@@ -91,7 +91,7 @@ impl ResultsTable {
                 egui::Vec2::new(ui.available_width() - 5.0, available_height),
                 egui::TextEdit::multiline(&mut self.sql_input)
                     .id(editor_id)
-                    .desired_rows((available_height / 20.0) as usize)
+                    .desired_rows(((available_height / 20.0) as usize).max(1))
                     .layouter(&mut move |ui, _text, wrap_width| {
                         let mut job = crate::sql::highlight_sql(&current_sql, ui.visuals());
                         job.wrap.max_width = wrap_width;
