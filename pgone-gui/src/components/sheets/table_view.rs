@@ -367,9 +367,10 @@ impl ResultsTable {
     }
 
     fn show_pagination_controls(&self, ui: &mut egui::Ui, requested_page: &mut Option<usize>) {
+        let page_size = self.effective_page_size();
         let total_pages = self.total_rows.map(|total_rows| {
             total_rows
-                .div_ceil(self.page_size.max(1))
+                .div_ceil(page_size)
                 .max(usize::from(total_rows == 0))
         });
         let previous_enabled = self.pagination_enabled && self.current_page > 1;
@@ -406,7 +407,7 @@ impl ResultsTable {
         }
 
         ui.label(
-            egui::RichText::new(format!("{}/page", self.page_size))
+            egui::RichText::new(format!("{}/page", page_size))
                 .small()
                 .color(ui.visuals().weak_text_color()),
         );

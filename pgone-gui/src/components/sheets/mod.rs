@@ -79,7 +79,6 @@ pub struct GraphViewerTab {
     pub graph: SchemaGraph,
 }
 
-#[derive(Default)]
 pub struct ResultsTable {
     // Refresh control
     pub refresh_requested: bool,
@@ -187,6 +186,14 @@ impl ResultsTable {
             completion_word_end: 0,
             previous_sql_input: String::new(),
             pending_cursor_pos: None,
+        }
+    }
+
+    pub(super) fn effective_page_size(&self) -> usize {
+        if self.page_size == 0 {
+            DEFAULT_RESULTS_PAGE_SIZE
+        } else {
+            self.page_size
         }
     }
 
@@ -440,5 +447,11 @@ impl ResultsTable {
             Some(self.sql_input.clone())
         };
         self.ui_results_table(ui, sql.as_deref(), ctxs, has_ctxs);
+    }
+}
+
+impl Default for ResultsTable {
+    fn default() -> Self {
+        Self::new()
     }
 }

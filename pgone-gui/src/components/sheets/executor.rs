@@ -99,7 +99,7 @@ impl ResultsTable {
         self.total_rows = None;
         self.has_next_page = false;
         self.pagination_enabled = is_pageable_sql(&sql);
-        let page_size = self.page_size;
+        let page_size = self.effective_page_size();
 
         futures::spawn(async move {
             let result = match pools.get_or_create_pool(&dsn).await {
@@ -416,6 +416,14 @@ async fn detect_primary_keys(sql: &str, pool: &sqlx::PgPool) -> Option<HashSet<S
 mod tests {
     use super::*;
     use crate::components::sheets::DEFAULT_RESULTS_PAGE_SIZE;
+
+    #[test]
+    fn default_results_table_uses_default_page_size() {
+        let table = ResultsTable::default();
+
+        assert_eq!(table.page_size, DEFAULT_RESULTS_PAGE_SIZE);
+        assert_eq!(table.effective_page_size(), DEFAULT_RESULTS_PAGE_SIZE);
+    }
 
     #[test]
     fn builds_paginated_sql_for_select() {
