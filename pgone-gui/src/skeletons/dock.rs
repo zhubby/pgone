@@ -262,11 +262,7 @@ impl DockLayout {
                 request.title,
                 request.sql,
                 request.database,
-                request.columns,
-                request.rows,
-                request.row_count,
-                request.truncated,
-                request.explain,
+                request.max_rows,
             );
         }
 
@@ -923,16 +919,7 @@ mod tests {
     fn pending_sql_result_tab_opens_in_results_leaf() {
         let mut layout = DockLayout::default();
         let mut results_table = ResultsTable::new();
-        let id = results_table.open_sql_result(
-            "Query Result",
-            "SELECT 1",
-            "app",
-            vec!["?column?".to_owned()],
-            vec![vec!["1".to_owned()]],
-            1,
-            false,
-            None,
-        );
+        let id = results_table.open_sql_result("Query Result", "SELECT 1", "app", Some(100));
 
         for tab in results_table.take_pending_sql_result_tabs() {
             layout.push_results_viewer_tab(DockTab::SqlResult {
@@ -958,16 +945,7 @@ mod tests {
     fn sql_result_tab_survives_live_tab_retention() {
         let mut layout = DockLayout::default();
         let mut results_table = ResultsTable::new();
-        let id = results_table.open_sql_result(
-            "Query Result",
-            "SELECT 1",
-            "app",
-            vec!["?column?".to_owned()],
-            vec![vec!["1".to_owned()]],
-            1,
-            false,
-            None,
-        );
+        let id = results_table.open_sql_result("Query Result", "SELECT 1", "app", Some(100));
 
         for tab in results_table.take_pending_sql_result_tabs() {
             layout.push_results_viewer_tab(DockTab::SqlResult {
@@ -989,16 +967,7 @@ mod tests {
     fn sanitized_state_removes_sql_result_tabs() {
         let mut layout = DockLayout::default();
         let mut results_table = ResultsTable::new();
-        let id = results_table.open_sql_result(
-            "Query Result",
-            "SELECT 1",
-            "app",
-            vec!["?column?".to_owned()],
-            vec![vec!["1".to_owned()]],
-            1,
-            false,
-            None,
-        );
+        let id = results_table.open_sql_result("Query Result", "SELECT 1", "app", Some(100));
 
         for tab in results_table.take_pending_sql_result_tabs() {
             layout.push_results_viewer_tab(DockTab::SqlResult {
@@ -1129,7 +1098,8 @@ impl DockTabViewer<'_> {
     }
 
     fn show_sql_result(&mut self, ui: &mut Ui, id: u64) {
-        self.results_table.ui_sql_result(ui, id);
+        let mut sql_ctx = self.make_sql_ctx();
+        self.results_table.ui_sql_result(ui, id, &mut sql_ctx);
     }
 
     fn show_chat(&mut self, ui: &mut Ui, session_id: Option<String>) {

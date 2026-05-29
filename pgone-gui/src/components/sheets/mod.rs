@@ -27,6 +27,7 @@ pub struct ExplainInfo {
     pub rows: String,
 }
 
+#[derive(Clone)]
 pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
@@ -72,16 +73,31 @@ pub struct GraphViewerTabInfo {
 }
 
 #[derive(Clone)]
+pub struct SqlResultTabInfo {
+    pub id: u64,
+    pub title: String,
+}
+
 pub struct SqlResultTab {
     pub id: u64,
     pub title: String,
     pub sql: String,
     pub database: String,
+    pub page_size: usize,
+    pub current_page: usize,
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
-    pub row_count: usize,
-    pub truncated: bool,
-    pub explain: Option<String>,
+    pub primary_key_columns: HashSet<String>,
+    pub query_promise: Option<Promise<Result<QueryResult, String>>>,
+    pub error: Option<String>,
+    pub explain_info: Option<ExplainInfo>,
+    pub explain_error: Option<String>,
+    pub total_rows: Option<usize>,
+    pub has_next_page: bool,
+    pub pagination_enabled: bool,
+    pub paged_base_sql: Option<String>,
+    pub rows_affected: Option<u64>,
+    pub started: bool,
 }
 
 pub struct GraphViewerTab {
@@ -122,7 +138,7 @@ pub struct ResultsTable {
     pub pending_graph_viewer_tabs: Vec<GraphViewerTabInfo>,
     pub next_graph_viewer_tab_id: u64,
     pub sql_result_tabs: BTreeMap<u64, SqlResultTab>,
-    pub pending_sql_result_tabs: Vec<SqlResultTab>,
+    pub pending_sql_result_tabs: Vec<SqlResultTabInfo>,
     pub next_sql_result_tab_id: u64,
     pub selected_sql_result_rows: BTreeMap<u64, Option<usize>>,
     pub current_page: usize,
@@ -327,38 +343,49 @@ impl ResultsTable {
         std::mem::take(&mut self.pending_graph_viewer_tabs)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn open_sql_result(
         &mut self,
         title: impl Into<String>,
         sql: impl Into<String>,
         database: impl Into<String>,
-        columns: Vec<String>,
-        rows: Vec<Vec<String>>,
-        row_count: usize,
-        truncated: bool,
-        explain: Option<String>,
+        max_rows: Option<u32>,
     ) -> u64 {
         let id = self.next_sql_result_tab_id;
         self.next_sql_result_tab_id = self.next_sql_result_tab_id.saturating_add(1);
+        let title = title.into();
+        let page_size = max_rows
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(DEFAULT_RESULTS_PAGE_SIZE)
+            .clamp(1, 1_000);
         let tab = SqlResultTab {
             id,
-            title: title.into(),
+            title: title.clone(),
             sql: sql.into(),
             database: database.into(),
-            columns,
-            rows,
-            row_count,
-            truncated,
-            explain,
+            page_size,
+            current_page: 1,
+            columns: Vec::new(),
+            rows: Vec::new(),
+            primary_key_columns: HashSet::new(),
+            query_promise: None,
+            error: None,
+            explain_info: None,
+            explain_error: None,
+            total_rows: None,
+            has_next_page: false,
+            pagination_enabled: false,
+            paged_base_sql: None,
+            rows_affected: None,
+            started: false,
         };
-        self.sql_result_tabs.insert(id, tab.clone());
+        self.sql_result_tabs.insert(id, tab);
         self.selected_sql_result_rows.insert(id, None);
-        self.pending_sql_result_tabs.push(tab);
+        self.pending_sql_result_tabs
+            .push(SqlResultTabInfo { id, title });
         id
     }
 
-    pub fn take_pending_sql_result_tabs(&mut self) -> Vec<SqlResultTab> {
+    pub fn take_pending_sql_result_tabs(&mut self) -> Vec<SqlResultTabInfo> {
         std::mem::take(&mut self.pending_sql_result_tabs)
     }
 

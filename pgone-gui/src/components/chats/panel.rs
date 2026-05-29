@@ -49,11 +49,7 @@ pub struct AgentSqlResultRequest {
     pub title: String,
     pub sql: String,
     pub database: String,
-    pub columns: Vec<String>,
-    pub rows: Vec<Vec<String>>,
-    pub row_count: usize,
-    pub truncated: bool,
-    pub explain: Option<String>,
+    pub max_rows: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -68,11 +64,7 @@ struct RenderSqlResultPayload {
     title: Option<String>,
     sql: String,
     database_name: Option<String>,
-    columns: Vec<String>,
-    rows: Vec<Vec<String>>,
-    row_count: usize,
-    truncated: bool,
-    explain: Option<String>,
+    max_rows: Option<u32>,
 }
 
 pub struct ChatPanel {
@@ -1354,11 +1346,7 @@ fn sql_result_request_from_payload(payload: Value) -> Option<AgentSqlResultReque
         title,
         sql,
         database,
-        columns: payload.columns,
-        rows: payload.rows,
-        row_count: payload.row_count,
-        truncated: payload.truncated,
-        explain: payload.explain,
+        max_rows: payload.max_rows,
     })
 }
 
@@ -1575,38 +1563,27 @@ mod tests {
             "title": "Active users",
             "sql": " SELECT id FROM users ",
             "database_name": "app",
-            "columns": ["id"],
-            "rows": [["1"]],
-            "row_count": 1,
-            "truncated": false,
-            "explain": "Result"
+            "max_rows": 50
         }))
         .unwrap();
 
         assert_eq!(request.title, "Active users");
         assert_eq!(request.sql, "SELECT id FROM users");
         assert_eq!(request.database, "app");
-        assert_eq!(request.columns, vec!["id"]);
-        assert_eq!(request.rows, vec![vec!["1"]]);
-        assert_eq!(request.row_count, 1);
-        assert!(!request.truncated);
-        assert_eq!(request.explain.as_deref(), Some("Result"));
+        assert_eq!(request.max_rows, Some(50));
     }
 
     #[test]
     fn render_sql_result_payload_defaults_title_and_database() {
         let request = sql_result_request_from_payload(serde_json::json!({
             "sql": "SELECT 1",
-            "columns": ["?column?"],
-            "rows": [["1"]],
-            "row_count": 1,
-            "truncated": false,
-            "explain": null
+            "max_rows": null
         }))
         .unwrap();
 
         assert_eq!(request.title, "Query Result");
         assert_eq!(request.database, "");
+        assert_eq!(request.max_rows, None);
     }
 
     #[test]
@@ -1618,11 +1595,7 @@ mod tests {
                 "title": "Query",
                 "sql": "SELECT 1",
                 "database_name": "app",
-                "columns": ["?column?"],
-                "rows": [["1"]],
-                "row_count": 1,
-                "truncated": false,
-                "explain": null
+                "max_rows": 100
             }),
         };
 
@@ -1632,7 +1605,7 @@ mod tests {
         let requests = panel.take_pending_sql_result_requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].title, "Query");
-        assert_eq!(requests[0].rows, vec![vec!["1"]]);
+        assert_eq!(requests[0].max_rows, Some(100));
     }
 
     #[test]

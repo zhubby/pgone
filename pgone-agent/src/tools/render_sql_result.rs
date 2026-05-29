@@ -11,7 +11,6 @@ use super::{
     AgentContext, AgentError, AgentToolServices, Result, Tool, ToolOutput, database_name_property,
     integer_property, object_schema, parse_args, string_property, target_database,
 };
-use crate::ReadonlySqlRequest;
 
 pub(super) struct RenderSqlResultTool;
 
@@ -45,30 +44,20 @@ impl Tool for RenderSqlResultTool {
     async fn execute(
         &self,
         args: Value,
-        dbconfig_id: &str,
+        _dbconfig_id: &str,
         context: &AgentContext,
-        services: Arc<dyn AgentToolServices>,
+        _services: Arc<dyn AgentToolServices>,
     ) -> Result<ToolOutput> {
         let args: RenderSqlResultArgs = parse_args(args)?;
         let sql = args.sql.trim().to_owned();
         validate_readonly_sql(&sql)?;
+        let max_rows = args.max_rows.unwrap_or(100).clamp(1, 1_000);
         let title = args
             .title
             .map(|title| title.trim().to_owned())
             .filter(|title| !title.is_empty());
         let database_name =
             target_database(args.database_name.as_deref(), context).map(ToOwned::to_owned);
-        let result = services
-            .execute_readonly_sql(
-                dbconfig_id,
-                ReadonlySqlRequest {
-                    sql: sql.clone(),
-                    database_name: database_name.clone(),
-                    max_rows: args.max_rows.unwrap_or(100),
-                    timeout_ms: 20_000,
-                },
-            )
-            .await?;
 
         Ok(ToolOutput {
             content: json!({"rendered": true}).to_string(),
@@ -77,11 +66,7 @@ impl Tool for RenderSqlResultTool {
                 "title": title,
                 "database_name": database_name,
                 "sql": sql,
-                "columns": result.columns,
-                "rows": result.rows,
-                "row_count": result.row_count,
-                "truncated": result.truncated,
-                "explain": result.explain,
+                "max_rows": max_rows,
             })),
         })
     }
@@ -164,14 +149,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn renders_against_services_without_returning_rows_to_model() {
-        let services = Arc::new(MockServices::default());
+    async fn renders_sql_request_without_returning_rows_to_model() {
         let output = RenderSqlResultTool
             .execute(
                 json!({"title": "Users", "sql": "SELECT 1", "max_rows": 1}),
                 "local",
                 &context(),
-                services.clone(),
+                Arc::new(MockServices::default()),
             )
             .await
             .unwrap();
@@ -183,12 +167,8 @@ mod tests {
         assert_eq!(payload["title"], json!("Users"));
         assert_eq!(payload["database_name"], json!("app"));
         assert_eq!(payload["sql"], json!("SELECT 1"));
-        assert_eq!(payload["columns"], json!(["id"]));
-        assert_eq!(payload["rows"], json!([["1"]]));
-        assert_eq!(payload["row_count"], json!(1));
-        assert_eq!(
-            services.seen_database_name().await,
-            Some(Some("app".to_owned()))
-        );
+        assert_eq!(payload["max_rows"], json!(1));
+        assert!(payload.get("columns").is_none());
+        assert!(payload.get("rows").is_none());
     }
 }

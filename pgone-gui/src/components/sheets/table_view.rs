@@ -81,36 +81,123 @@ fn parse_json_cell(value: &str) -> Option<Value> {
         .filter(|value| value.is_object() || value.is_array())
 }
 
+fn show_sql_result_pagination_controls(
+    ui: &mut egui::Ui,
+    pagination_enabled: bool,
+    current_page: usize,
+    page_size: usize,
+    total_rows: Option<usize>,
+    has_next_page: bool,
+    requested_page: &mut Option<usize>,
+) {
+    let total_pages = total_rows.map(|total_rows| {
+        total_rows
+            .div_ceil(page_size)
+            .max(usize::from(total_rows == 0))
+    });
+    let previous_enabled = pagination_enabled && current_page > 1;
+    let next_enabled = pagination_enabled
+        && total_pages
+            .map(|total_pages| current_page < total_pages)
+            .unwrap_or(has_next_page);
+
+    if ui
+        .add_enabled(
+            next_enabled,
+            egui::Button::new(egui_phosphor::regular::CARET_RIGHT).small(),
+        )
+        .on_hover_text("Next page")
+        .clicked()
+    {
+        *requested_page = Some(current_page.saturating_add(1));
+    }
+
+    let page_label = total_pages
+        .map(|total_pages| format!("Page {current_page} / {total_pages}"))
+        .unwrap_or_else(|| format!("Page {current_page}"));
+    ui.label(egui::RichText::new(page_label).small());
+
+    if ui
+        .add_enabled(
+            previous_enabled,
+            egui::Button::new(egui_phosphor::regular::CARET_LEFT).small(),
+        )
+        .on_hover_text("Previous page")
+        .clicked()
+    {
+        *requested_page = Some(current_page.saturating_sub(1).max(1));
+    }
+
+    ui.label(
+        egui::RichText::new(format!("{page_size}/page"))
+            .small()
+            .color(ui.visuals().weak_text_color()),
+    );
+}
+
 impl ResultsTable {
-    pub fn ui_sql_result(&mut self, ui: &mut egui::Ui, id: u64) {
-        let Some(tab) = self.sql_result_tabs.get(&id).cloned() else {
+    pub fn ui_sql_result(&mut self, ui: &mut egui::Ui, id: u64, ctxs: &mut SqlCtx) {
+        self.ensure_sql_result_query_started(id, ctxs);
+        self.poll_sql_result_query(id);
+
+        let Some(tab) = self.sql_result_tabs.get(&id) else {
             ui.centered_and_justified(|ui| {
                 ui.label("Result tab no longer exists");
             });
             return;
         };
+        let sql = tab.sql.clone();
+        let database = tab.database.clone();
+        let columns = tab.columns.clone();
+        let rows = tab.rows.clone();
+        let primary_keys = tab.primary_key_columns.clone();
+        let error = tab.error.clone();
+        let explain_info = tab.explain_info.clone();
+        let explain_error = tab.explain_error.clone();
+        let rows_affected = tab.rows_affected;
+        let total_rows = tab.total_rows;
+        let has_next_page = tab.has_next_page;
+        let pagination_enabled = tab.pagination_enabled;
+        let current_page = tab.current_page;
+        let page_size = tab.page_size;
+        let is_loading = tab.query_promise.is_some();
 
         ui.horizontal(|ui| {
-            let first_line = tab.sql.lines().next().unwrap_or("");
-            let sql = if first_line.chars().count() > 300 {
+            let first_line = sql.lines().next().unwrap_or("");
+            let display_sql = if first_line.chars().count() > 300 {
                 format!("{}...", first_line.chars().take(300).collect::<String>())
             } else {
                 first_line.to_string()
             };
-            ui.label(egui::RichText::new(sql).color(egui::Color32::GRAY));
+            ui.label(egui::RichText::new(display_sql).color(egui::Color32::GRAY));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .button(egui_phosphor::regular::DOWNLOAD_SIMPLE)
                     .on_hover_text("Export CSV")
                     .clicked()
                 {
-                    self.export_csv(&tab.columns, &tab.rows);
+                    self.export_csv(&columns, &rows);
                 }
             });
         });
         ui.separator();
 
+        if let Some(error) = &error {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} Error: {}",
+                        egui_phosphor::regular::WARNING,
+                        error
+                    ))
+                    .color(egui::Color32::RED),
+                );
+            });
+            ui.separator();
+        }
+
         let mut json_viewer_requests = Vec::new();
+        let mut requested_page = None;
         let result_rect = ui.available_rect_before_wrap();
         let mut result_ui =
             ui.child_ui(result_rect, egui::Layout::top_down(egui::Align::LEFT), None);
@@ -118,47 +205,113 @@ impl ResultsTable {
             .exact_height(22.0)
             .show_inside(&mut result_ui, |ui| {
                 ui.horizontal(|ui| {
-                    let rendered = tab.rows.len();
-                    let mut status = format!("{} rows", tab.row_count);
-                    if tab.truncated {
-                        status.push_str(&format!("; showing {rendered}"));
-                    }
-                    if !tab.database.is_empty() {
-                        status.push_str(&format!("; database {}", tab.database));
-                    }
-                    ui.label(
-                        egui::RichText::new(status)
-                            .small()
-                            .color(ui.visuals().weak_text_color()),
-                    );
-                    if tab.explain.is_some() {
+                    if is_loading {
                         ui.label(
                             egui::RichText::new(format!(
-                                "{} Plan available",
-                                egui_phosphor::regular::INFO
+                                "{} Running...",
+                                egui_phosphor::regular::CIRCLE_NOTCH
+                            ))
+                            .small()
+                            .color(ui.visuals().weak_text_color()),
+                        );
+                    } else if let Some(rows_affected) = rows_affected {
+                        ui.label(
+                            egui::RichText::new(format!("Affected {rows_affected} rows"))
+                                .small()
+                                .color(ui.visuals().weak_text_color()),
+                        );
+                    } else {
+                        let row_count = total_rows.unwrap_or(rows.len());
+                        ui.label(
+                            egui::RichText::new(format!("{row_count} rows"))
+                                .small()
+                                .color(ui.visuals().weak_text_color()),
+                        );
+                    }
+                    if !database.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!("database {database}"))
+                                .small()
+                                .color(ui.visuals().weak_text_color()),
+                        );
+                    }
+                    if let Some(explain_info) = &explain_info {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} {} | Cost: {} | Rows: {}",
+                                egui_phosphor::regular::INFO,
+                                explain_info.scan_type,
+                                explain_info.cost,
+                                explain_info.rows
                             ))
                             .small()
                             .color(egui::Color32::from_rgb(100, 150, 200)),
                         );
+                    } else if let Some(error) = &explain_error {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} {}",
+                                egui_phosphor::regular::WARNING,
+                                error
+                            ))
+                            .small()
+                            .color(egui::Color32::from_rgb(200, 100, 100)),
+                        );
                     }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        show_sql_result_pagination_controls(
+                            ui,
+                            pagination_enabled,
+                            current_page,
+                            page_size,
+                            total_rows,
+                            has_next_page,
+                            &mut requested_page,
+                        );
+                    });
                 });
             });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::none())
             .show_inside(&mut result_ui, |ui| {
-                if tab.columns.is_empty() {
+                if is_loading {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(format!(
+                            "{} Running...",
+                            egui_phosphor::regular::CIRCLE_NOTCH
+                        ));
+                    });
+                    return;
+                }
+                if rows_affected.is_some() {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(format!("{} SQL executed", egui_phosphor::regular::CHECK));
+                    });
+                    return;
+                }
+                if columns.is_empty() {
                     ui.centered_and_justified(|ui| {
                         ui.label(format!("{} No results", egui_phosphor::regular::EMPTY));
                     });
                     return;
                 }
-                self.show_sql_result_grid(ui, id, &tab, &mut json_viewer_requests);
+                self.show_sql_result_grid(
+                    ui,
+                    id,
+                    &columns,
+                    &rows,
+                    &primary_keys,
+                    &mut json_viewer_requests,
+                );
             });
         ui.allocate_rect(result_rect, egui::Sense::hover());
 
         for (row_index, column, value) in json_viewer_requests {
             self.open_json_viewer(row_index, &column, value);
+        }
+        if let Some(page) = requested_page {
+            self.start_sql_result_page_query(id, ctxs, page);
         }
     }
 
@@ -166,7 +319,9 @@ impl ResultsTable {
         &mut self,
         ui: &mut egui::Ui,
         id: u64,
-        tab: &super::SqlResultTab,
+        columns: &[String],
+        rows: &[Vec<String>],
+        primary_keys: &std::collections::HashSet<String>,
         json_viewer_requests: &mut Vec<(usize, String, Value)>,
     ) {
         egui::ScrollArea::both().show(ui, |ui| {
@@ -174,24 +329,28 @@ impl ResultsTable {
                 .id_salt(format!("sql_result_table_{id}"))
                 .striped(true)
                 .resizable(true)
-                .columns(Column::auto().at_least(96.0), tab.columns.len());
+                .columns(Column::auto().at_least(96.0), columns.len());
 
             table
                 .header(22.0, |mut header| {
-                    for column in &tab.columns {
+                    for column in columns {
                         header.col(|ui| {
-                            ui.strong(column);
+                            if primary_keys.contains(column) {
+                                ui.strong(format!("{} {}", egui_phosphor::regular::KEY, column));
+                            } else {
+                                ui.strong(column);
+                            }
                         });
                     }
                 })
                 .body(|mut body| {
                     let mut selected_row =
                         self.selected_sql_result_rows.get(&id).copied().flatten();
-                    for (row_index, row) in tab.rows.iter().enumerate() {
+                    for (row_index, row) in rows.iter().enumerate() {
                         body.row(22.0, |mut table_row| {
                             table_row.set_selected(selected_row == Some(row_index));
                             let mut row_clicked = false;
-                            for index in 0..tab.columns.len() {
+                            for index in 0..columns.len() {
                                 table_row.col(|ui| {
                                     let value = row.get(index).map(String::as_str).unwrap_or("");
                                     let json_value = parse_json_cell(value);
@@ -222,7 +381,7 @@ impl ResultsTable {
                                             {
                                                 json_viewer_requests.push((
                                                     row_index,
-                                                    tab.columns[index].clone(),
+                                                    columns[index].clone(),
                                                     json_value,
                                                 ));
                                             }
@@ -236,7 +395,7 @@ impl ResultsTable {
                         });
                     }
                     self.selected_sql_result_rows
-                        .insert(id, selected_row.filter(|index| *index < tab.rows.len()));
+                        .insert(id, selected_row.filter(|index| *index < rows.len()));
                 });
         });
     }

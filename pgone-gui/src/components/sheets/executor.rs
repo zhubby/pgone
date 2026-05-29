@@ -50,30 +50,13 @@ impl ResultsTable {
         self.explain_error = None;
         self.primary_key_columns.clear();
 
-        let mut dsn = match ctxs.db.active_dsn() {
-            Some(dsn) => dsn,
-            None => {
-                self.sql_error = Some("Database config not found".into());
+        let dsn = match dsn_for_database(ctxs, self.selected_database.as_deref()) {
+            Ok(dsn) => dsn,
+            Err(error) => {
+                self.sql_error = Some(error);
                 return None;
             }
         };
-
-        if dsn.trim().is_empty() {
-            self.sql_error = Some("DSN is empty".into());
-            return None;
-        }
-
-        if let Some(ref selected_db) = self.selected_database {
-            if let Some(new_dsn) = utils::replace_database_in_dsn(&dsn, selected_db) {
-                dsn = new_dsn;
-            } else {
-                self.sql_error = Some(format!(
-                    "Failed to replace database in DSN: {}",
-                    selected_db
-                ));
-                return None;
-            }
-        }
 
         Some((dsn, sql))
     }
@@ -157,9 +140,143 @@ impl ResultsTable {
             }
         }
     }
+
+    pub(super) fn ensure_sql_result_query_started(&mut self, id: u64, ctxs: &mut SqlCtx) {
+        let Some(tab) = self.sql_result_tabs.get(&id) else {
+            return;
+        };
+        if tab.started || tab.query_promise.is_some() {
+            return;
+        }
+
+        let sql = tab.sql.clone();
+        let database = (!tab.database.trim().is_empty()).then_some(tab.database.as_str());
+        let page_size = tab.page_size;
+        let dsn = match dsn_for_database(ctxs, database) {
+            Ok(dsn) => dsn,
+            Err(error) => {
+                if let Some(tab) = self.sql_result_tabs.get_mut(&id) {
+                    tab.error = Some(error.clone());
+                    tab.started = true;
+                }
+                crate::notify::sql_execute_error(&error);
+                return;
+            }
+        };
+
+        self.start_sql_result_query(ctxs.db.pools.clone(), id, dsn, sql, 1, page_size);
+    }
+
+    pub(super) fn start_sql_result_page_query(&mut self, id: u64, ctxs: &mut SqlCtx, page: usize) {
+        let Some(tab) = self.sql_result_tabs.get(&id) else {
+            return;
+        };
+        let sql = tab
+            .paged_base_sql
+            .clone()
+            .unwrap_or_else(|| tab.sql.clone());
+        let database = (!tab.database.trim().is_empty()).then_some(tab.database.as_str());
+        let page_size = tab.page_size;
+        let dsn = match dsn_for_database(ctxs, database) {
+            Ok(dsn) => dsn,
+            Err(error) => {
+                if let Some(tab) = self.sql_result_tabs.get_mut(&id) {
+                    tab.error = Some(error.clone());
+                    tab.query_promise = None;
+                }
+                crate::notify::sql_execute_error(&error);
+                return;
+            }
+        };
+
+        self.start_sql_result_query(ctxs.db.pools.clone(), id, dsn, sql, page, page_size);
+    }
+
+    fn start_sql_result_query(
+        &mut self,
+        pools: PoolRegistry,
+        id: u64,
+        dsn: String,
+        sql: String,
+        page: usize,
+        page_size: usize,
+    ) {
+        let Some(tab) = self.sql_result_tabs.get_mut(&id) else {
+            return;
+        };
+        let (sender, promise) = Promise::new();
+        tab.query_promise = Some(promise);
+        tab.columns.clear();
+        tab.rows.clear();
+        tab.primary_key_columns.clear();
+        tab.error = None;
+        tab.explain_info = None;
+        tab.explain_error = None;
+        tab.total_rows = None;
+        tab.has_next_page = false;
+        tab.pagination_enabled = is_pageable_sql(&sql);
+        tab.paged_base_sql = Some(sql.clone());
+        tab.current_page = page.max(1);
+        tab.rows_affected = None;
+        tab.started = true;
+        self.selected_sql_result_rows.insert(id, None);
+
+        futures::spawn(async move {
+            let result = match pools.get_or_create_pool(&dsn).await {
+                Ok(pool) => execute_query(pool, &sql, page.max(1), page_size).await,
+                Err(error) => Err(error),
+            };
+            sender.send(result);
+        });
+    }
+
+    pub(super) fn poll_sql_result_query(&mut self, id: u64) {
+        let result = self
+            .sql_result_tabs
+            .get(&id)
+            .and_then(|tab| tab.query_promise.as_ref())
+            .and_then(|promise| promise.ready().cloned());
+
+        let Some(result) = result else {
+            return;
+        };
+
+        let Some(tab) = self.sql_result_tabs.get_mut(&id) else {
+            return;
+        };
+        match result {
+            Ok(result) => {
+                tab.columns = result.columns;
+                tab.rows = result.rows;
+                tab.primary_key_columns = result.primary_key_columns;
+                tab.explain_info = result.explain_info;
+                tab.explain_error = result.explain_error;
+                tab.total_rows = result.total_rows;
+                tab.has_next_page = result.has_next_page;
+                tab.pagination_enabled = result.pagination_enabled;
+                tab.rows_affected = result.rows_affected;
+                tab.error = None;
+                if let Some(rows_affected) = tab.rows_affected {
+                    crate::notify::sql_execute_success(rows_affected);
+                }
+            }
+            Err(error) => {
+                tab.error = Some(error.clone());
+                tab.columns.clear();
+                tab.rows.clear();
+                tab.primary_key_columns.clear();
+                tab.total_rows = None;
+                tab.has_next_page = false;
+                tab.pagination_enabled = false;
+                tab.rows_affected = None;
+                crate::notify::sql_execute_error(&error);
+            }
+        }
+        tab.query_promise = None;
+    }
 }
 
-async fn execute_query(
+pub(super) async fn execute_query(
     pool: PgPool,
     sql: &str,
     page: usize,
@@ -249,6 +366,24 @@ async fn execute_query(
         pagination_enabled,
         rows_affected: None,
     })
+}
+
+fn dsn_for_database(ctxs: &SqlCtx, database: Option<&str>) -> Result<String, String> {
+    let mut dsn = ctxs
+        .db
+        .active_dsn()
+        .ok_or_else(|| "Database config not found".to_owned())?;
+
+    if dsn.trim().is_empty() {
+        return Err("DSN is empty".to_owned());
+    }
+
+    if let Some(database) = database.filter(|database| !database.trim().is_empty()) {
+        dsn = utils::replace_database_in_dsn(&dsn, database)
+            .ok_or_else(|| format!("Failed to replace database in DSN: {database}"))?;
+    }
+
+    Ok(dsn)
 }
 
 pub(super) fn build_paginated_sql(

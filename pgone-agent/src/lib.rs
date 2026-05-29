@@ -546,7 +546,12 @@ fn format_cell(row: &PgRow, index: usize) -> String {
             .try_get::<NaiveTime, _>(index)
             .map(|value| value.format("%H:%M:%S%.f").to_string())
             .unwrap_or_else(|_| "<unprintable>".to_owned()),
-        "text" | "varchar" | "bpchar" | "name" | "citext" | "json" | "jsonb" => row
+        "json" | "jsonb" => row
+            .try_get::<serde_json::Value, _>(index)
+            .map(|value| serde_json::to_string(&value).unwrap_or_else(|_| value.to_string()))
+            .or_else(|_| row.try_get::<String, _>(index))
+            .unwrap_or_else(|_| "<unprintable>".to_owned()),
+        "text" | "varchar" | "bpchar" | "name" | "citext" => row
             .try_get::<String, _>(index)
             .unwrap_or_else(|_| "<unprintable>".to_owned()),
         "int2" => row
