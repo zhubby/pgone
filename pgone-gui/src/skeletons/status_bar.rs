@@ -48,8 +48,19 @@ pub fn show_status_bar(
             }
 
             ui.horizontal(|ui| {
-                if db.active_db_config_id.is_some() {
-                    ui.separator();
+                ui.separator();
+                show_connection_selector(ui, db);
+                if ui
+                    .small_button(egui_phosphor::regular::PLUS)
+                    .on_hover_text("New connection")
+                    .clicked()
+                {
+                    db.show_add_db = true;
+                }
+
+                if let Some(active_id) = db.active_db_config_id.clone() {
+                    show_connection_actions(ui, db, &active_id);
+
                     if let Some(cfg) = db.active_db_config() {
                         // Parse DSN to get connection details
                         if let Some(parsed) = crate::components::DbManager::parse_dsn(&cfg.dsn) {
@@ -105,6 +116,96 @@ pub fn show_status_bar(
     });
 
     requested_theme
+}
+
+fn show_connection_selector(ui: &mut Ui, db: &mut DbManager) {
+    db.ensure_storage();
+    let configs = db
+        .storage
+        .as_ref()
+        .map(|storage| storage.list_db_configs())
+        .unwrap_or_default();
+
+    if let Some(active_id) = db.active_db_config_id.clone()
+        && !configs.iter().any(|cfg| cfg.id == active_id)
+    {
+        db.clear_active_db_config();
+    }
+
+    let selected_text = db
+        .active_db_config_id
+        .as_deref()
+        .unwrap_or("No active connection");
+    let mut selected = db.active_db_config_id.clone();
+
+    ui.label(egui_phosphor::regular::PLUG);
+    egui::ComboBox::from_id_salt("status_bar_connection_selector")
+        .width(180.0)
+        .selected_text(selected_text)
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut selected, None, "No active connection");
+            if !configs.is_empty() {
+                ui.separator();
+            }
+            for cfg in configs {
+                ui.selectable_value(&mut selected, Some(cfg.id.clone()), cfg.id);
+            }
+        });
+
+    if selected != db.active_db_config_id {
+        if let Some(id) = selected {
+            db.select_db_config(&id);
+        } else {
+            db.clear_active_db_config();
+        }
+    }
+}
+
+fn show_connection_actions(ui: &mut Ui, db: &mut DbManager, active_id: &str) {
+    if ui
+        .small_button(egui_phosphor::regular::ARROW_CLOCKWISE)
+        .on_hover_text("Refresh structure")
+        .clicked()
+    {
+        db.request_structure_refresh();
+    }
+
+    ui.menu_button(egui_phosphor::regular::DOTS_THREE, |ui| {
+        if status_menu_button(ui, egui_phosphor::regular::DATABASE, "New Database").clicked() {
+            db.request_create_database();
+            ui.close();
+        }
+        if status_menu_button(ui, egui_phosphor::regular::PENCIL, "Edit Connection").clicked() {
+            if let Err(error) = db.open_edit_db_config(active_id) {
+                crate::notify::error(format!("Failed to load: {}", error));
+            }
+            ui.close();
+        }
+        if danger_status_menu_button(ui, egui_phosphor::regular::TRASH, "Delete Connection")
+            .clicked()
+        {
+            db.request_delete_db_config(active_id);
+            ui.close();
+        }
+    })
+    .response
+    .on_hover_text("Connection actions");
+}
+
+fn status_menu_button(ui: &mut Ui, icon: &str, label: &str) -> egui::Response {
+    separate_status_menu_item(ui);
+    ui.button(format!("{} {}", icon, label))
+}
+
+fn danger_status_menu_button(ui: &mut Ui, icon: &str, label: &str) -> egui::Response {
+    separate_status_menu_item(ui);
+    ui.button(egui::RichText::new(format!("{} {}", icon, label)).color(ui.visuals().error_fg_color))
+}
+
+fn separate_status_menu_item(ui: &mut Ui) {
+    if ui.cursor().top() > ui.min_rect().top() {
+        ui.separator();
+    }
 }
 
 fn show_build_info(ui: &mut Ui) {

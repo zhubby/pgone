@@ -5,6 +5,50 @@ use crate::components::ResultsTable;
 use std::collections::HashSet;
 
 impl DbTree {
+    pub(super) fn sync_active_connection(&mut self, active_id: Option<String>) {
+        if self.current_db_id == active_id {
+            return;
+        }
+
+        if let Some(current_id) = self.current_db_id.take() {
+            let state = self.take_connection_state();
+            self.connection_states.insert(current_id, state);
+        }
+
+        if let Some(active_id) = active_id {
+            let state = self
+                .connection_states
+                .remove(&active_id)
+                .unwrap_or_default();
+            self.load_connection_state(active_id, state);
+        } else {
+            self.reset();
+            self.current_db_id = None;
+        }
+    }
+
+    pub fn request_create_database(&mut self) {
+        use super::types::DialogType;
+        self.dialog = Some(DialogType::CreateDatabase);
+        self.dialog_input.clear();
+    }
+
+    pub fn refresh_active_structure(&mut self, db_manager: &mut crate::components::DbManager) {
+        self.sync_active_connection(db_manager.active_db_config_id.clone());
+        if self.current_db_id.is_some() {
+            self.reset();
+            loading::refresh_databases(self, db_manager);
+        }
+    }
+
+    pub fn show_dialogs(
+        &mut self,
+        ui: &mut egui::Ui,
+        db_manager: &mut crate::components::DbManager,
+    ) {
+        dialogs::show_dialogs(self, ui, db_manager);
+    }
+
     fn handle_connection_state(
         &mut self,
         db_manager: &mut crate::components::DbManager,
@@ -96,78 +140,42 @@ impl DbTree {
             .show(ui, |ui| {
             db_manager.ensure_storage();
             let Some(storage) = db_manager.storage.as_ref() else {
-                let response = ui.allocate_response(ui.available_size_before_wrap(), egui::Sense::click());
-                ui.painter().text(
-                    response.rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "Storage not ready",
-                    egui::FontId::proportional(14.0),
-                    ui.visuals().text_color(),
-                );
-                show_blank_area_context_menu(response, db_manager);
+                show_blank_area_message(ui, db_manager, "Storage not ready");
                 return;
             };
 
             let connection_configs = storage.list_db_configs();
             if connection_configs.is_empty() {
-                let response = ui.allocate_response(ui.available_size_before_wrap(), egui::Sense::click());
-                ui.painter().text(
-                    response.rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "No connections configured",
-                    egui::FontId::proportional(14.0),
-                    ui.visuals().text_color(),
-                );
-                show_blank_area_context_menu(response, db_manager);
+                db_manager.clear_active_db_config();
+                self.sync_active_connection(None);
+                self.connection_states.clear();
+                show_blank_area_message(ui, db_manager, "No connections configured");
                 return;
-            }
-
-            if let Some(active_id) = db_manager.active_db_config_id.clone()
-                && !connection_configs.iter().any(|cfg| cfg.id == active_id)
-            {
-                db_manager.active_db_config_id = None;
-                self.current_db_id = None;
             }
 
             let known_connection_ids = connection_configs
                 .iter()
                 .map(|cfg| cfg.id.clone())
                 .collect::<HashSet<_>>();
+
+            if let Some(active_id) = db_manager.active_db_config_id.clone()
+                && !known_connection_ids.contains(&active_id)
+            {
+                db_manager.clear_active_db_config();
+            }
+
+            self.sync_active_connection(db_manager.active_db_config_id.clone());
             self.connection_states
                 .retain(|connection_id, _| known_connection_ids.contains(connection_id));
-            self.expanded_connections
-                .retain(|connection_id| known_connection_ids.contains(connection_id));
 
-            for cfg in connection_configs {
-                let connection_id = cfg.id.clone();
-                let state = self
-                    .connection_states
-                    .remove(&connection_id)
-                    .unwrap_or_default();
-                self.load_connection_state(connection_id.clone(), state);
-                self.handle_connection_state(db_manager, results_table);
-                let is_active =
-                    db_manager.active_db_config_id.as_deref() == Some(connection_id.as_str());
-                let connection_label = if is_active {
-                    format!(
-                        "{} {}  [Active]",
-                        egui_phosphor::regular::PLUG,
-                        connection_id
-                    )
-                } else {
-                    format!("{} {}", egui_phosphor::regular::PLUG, connection_id)
-                };
-                let mut connection_title = egui::RichText::new(connection_label);
-                if is_active {
-                    connection_title = connection_title
-                        .strong()
-                        .color(ui.visuals().selection.stroke.color);
-                }
+            let Some(connection_id) = db_manager.active_db_config_id.clone() else {
+                show_blank_area_message(ui, db_manager, "No active connection selected");
+                return;
+            };
 
-                let connection_response = egui::CollapsingHeader::new(connection_title)
-                    .default_open(self.expanded_connections.contains(&connection_id))
-                    .show(ui, |ui| {
-                        if let Some(err) = &self.error {
+            self.handle_connection_state(db_manager, results_table);
+
+            if let Some(err) = &self.error {
                         ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
                         if ui.button("Retry").clicked() {
                             self.reset();
@@ -1097,57 +1105,11 @@ impl DbTree {
                 loading::load_table_detail_for_design(self, db_manager, &db_name, &schema_name, &table_name);
             }
 
-                });
-
-                if connection_response.header_response.clicked() && !is_active {
-                    db_manager.select_db_config(&connection_id);
-                }
-
-                if connection_response.fully_open() {
-                    self.expanded_connections.insert(connection_id.clone());
-                } else if connection_response.fully_closed() {
-                    self.expanded_connections.remove(&connection_id);
-                }
-
-                connection_response.header_response.context_menu(|ui| {
-                    if refresh_menu_button(ui).clicked() {
-                        if !is_active {
-                            db_manager.select_db_config(&connection_id);
-                        }
-                        self.reset();
-                        loading::refresh_databases(self, db_manager);
-                        ui.close();
-                    }
-                    if menu_button(ui, egui_phosphor::regular::DATABASE, "New Database").clicked() {
-                        use super::types::DialogType;
-                        self.dialog = Some(DialogType::CreateDatabase);
-                        self.dialog_input.clear();
-                        ui.close();
-                    }
-                    if menu_button(ui, egui_phosphor::regular::PENCIL, "Edit Connection").clicked() {
-                        if let Err(error) = db_manager.open_edit_db_config(&connection_id) {
-                            crate::notify::error(format!("Failed to load: {}", error));
-                        }
-                        ui.close();
-                    }
-                    if danger_menu_button(ui, egui_phosphor::regular::TRASH, "Delete").clicked() {
-                        db_manager.request_delete_db_config(&connection_id);
-                        ui.close();
-                    }
-                });
-
-                dialogs::show_dialogs(self, ui, db_manager);
-                let state = self.take_connection_state();
-                self.connection_states.insert(connection_id.clone(), state);
-            }
-
             show_blank_area_context_menu(
                 ui.allocate_response(ui.available_size_before_wrap(), egui::Sense::click()),
                 db_manager,
             );
         });
-
-        self.current_db_id = db_manager.active_db_config_id.clone();
     }
 
     fn reset(&mut self) {
@@ -1211,6 +1173,22 @@ fn show_blank_area_context_menu(
             ui.close();
         }
     });
+}
+
+fn show_blank_area_message(
+    ui: &mut egui::Ui,
+    db_manager: &mut crate::components::DbManager,
+    message: &str,
+) {
+    let response = ui.allocate_response(ui.available_size_before_wrap(), egui::Sense::click());
+    ui.painter().text(
+        response.rect.center(),
+        egui::Align2::CENTER_CENTER,
+        message,
+        egui::FontId::proportional(14.0),
+        ui.visuals().text_color(),
+    );
+    show_blank_area_context_menu(response, db_manager);
 }
 
 fn menu_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {

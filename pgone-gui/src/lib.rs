@@ -276,6 +276,16 @@ impl AppFrame {
         }
     }
 
+    fn apply_database_structure_requests(&mut self) {
+        if self.db.take_structure_refresh_request() {
+            self.db_tree.refresh_active_structure(&mut self.db);
+        }
+
+        if self.db.take_create_database_request() {
+            self.db_tree.request_create_database();
+        }
+    }
+
     fn show_export_window(&mut self, ctx: &Context) {
         if !self.show_export {
             return;
@@ -379,6 +389,8 @@ impl eframe::App for AppFrame {
         }
 
         // Database management windows
+        self.apply_database_structure_requests();
+        self.db_tree.show_dialogs(ui, &mut self.db);
         self.db.ui_add_db_window(&ctx);
         self.db.ui_delete_confirm_window(&ctx);
         self.db.ui_edit_db_window(&ctx);

@@ -101,6 +101,8 @@ pub struct DbManager {
     add_test_receiver: Option<mpsc::Receiver<ConnectionTestResult>>,
     edit_test_receiver: Option<mpsc::Receiver<ConnectionTestResult>>,
     storage_refresh_requested: bool,
+    structure_refresh_requested: bool,
+    create_database_requested: bool,
 }
 
 #[derive(Clone, Default)]
@@ -206,6 +208,8 @@ impl Default for DbManager {
             add_test_receiver: None,
             edit_test_receiver: None,
             storage_refresh_requested: false,
+            structure_refresh_requested: false,
+            create_database_requested: false,
         }
     }
 }
@@ -426,6 +430,32 @@ impl DbManager {
     pub fn select_db_config(&mut self, id: &str) {
         self.active_db_config_id = Some(id.to_string());
         notify::info(format!("Selected database: {}", id));
+    }
+
+    pub fn clear_active_db_config(&mut self) {
+        if self.active_db_config_id.take().is_some() {
+            notify::info("Cleared active database selection");
+        }
+    }
+
+    pub fn request_structure_refresh(&mut self) {
+        self.structure_refresh_requested = true;
+    }
+
+    pub fn take_structure_refresh_request(&mut self) -> bool {
+        let requested = self.structure_refresh_requested;
+        self.structure_refresh_requested = false;
+        requested
+    }
+
+    pub fn request_create_database(&mut self) {
+        self.create_database_requested = true;
+    }
+
+    pub fn take_create_database_request(&mut self) -> bool {
+        let requested = self.create_database_requested;
+        self.create_database_requested = false;
+        requested
     }
 
     pub fn open_edit_db_config(&mut self, id: &str) -> Result<(), String> {
@@ -1070,7 +1100,7 @@ impl DbManager {
                                 }
                                 storage.delete_db_config(id);
                                 if self.active_db_config_id.as_ref() == Some(id) {
-                                    self.active_db_config_id = None;
+                                    self.clear_active_db_config();
                                 }
                                 notify::info(format!("Deleted database: {}", id));
                             }

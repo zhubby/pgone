@@ -183,7 +183,6 @@ pub(super) struct ConnectionTreeState {
 #[derive(Default)]
 pub struct DbTree {
     pub(super) connection_states: HashMap<String, ConnectionTreeState>,
-    pub(super) expanded_connections: HashSet<String>,
 
     // Current database config ID
     pub(super) current_db_id: Option<String>,
@@ -484,28 +483,37 @@ mod tests {
     fn connection_states_restore_independent_database_cache() {
         let mut tree = DbTree::default();
 
-        tree.load_connection_state("first".to_string(), ConnectionTreeState::default());
+        tree.sync_active_connection(Some("first".to_string()));
         tree.databases.push(database("first_db"));
         tree.loaded_databases = true;
         tree.expanded_databases.insert("first_db".to_string());
-        let first_state = tree.take_connection_state();
-        tree.connection_states
-            .insert("first".to_string(), first_state);
 
-        tree.load_connection_state("second".to_string(), ConnectionTreeState::default());
+        tree.sync_active_connection(Some("second".to_string()));
         tree.databases.push(database("second_db"));
         tree.loaded_databases = true;
         tree.expanded_databases.insert("second_db".to_string());
-        let second_state = tree.take_connection_state();
-        tree.connection_states
-            .insert("second".to_string(), second_state);
 
-        let first_state = tree.connection_states.remove("first").unwrap();
-        tree.load_connection_state("first".to_string(), first_state);
+        tree.sync_active_connection(Some("first".to_string()));
 
         assert_eq!(tree.current_db_id.as_deref(), Some("first"));
         assert_eq!(tree.databases[0].name, "first_db");
         assert!(tree.expanded_databases.contains("first_db"));
         assert!(!tree.expanded_databases.contains("second_db"));
+    }
+
+    #[test]
+    fn active_none_clears_visible_tree_without_selecting_default() {
+        let mut tree = DbTree::default();
+
+        tree.sync_active_connection(Some("first".to_string()));
+        tree.databases.push(database("first_db"));
+        tree.loaded_databases = true;
+
+        tree.sync_active_connection(None);
+
+        assert_eq!(tree.current_db_id, None);
+        assert!(tree.databases.is_empty());
+        assert!(!tree.loaded_databases);
+        assert!(tree.connection_states.contains_key("first"));
     }
 }
