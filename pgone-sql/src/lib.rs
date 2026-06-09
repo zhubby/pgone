@@ -1,5 +1,6 @@
 pub mod error;
 pub mod models;
+pub mod monitor;
 pub mod session;
 
 // Database management
@@ -27,5 +28,11 @@ pub use error::{Result, SqlError};
 pub use models::{
     ColumnDetail, DatabaseInfo, ForeignKeyDetail, FunctionInfo, IndexInfo, MaterializedViewInfo,
     PrimaryKeyDetail, SchemaInfo, TableDetail, TableInfo, TriggerInfo, UserInfo, ViewInfo,
+};
+pub use monitor::{
+    ActivityRow, BackgroundWriterStats, IndexHealthRow, IndexHealthSort, IoStats, LockRow,
+    MaintenanceProgressRow, MonitorCapabilities, MonitorSnapshot, OptionalMonitorData,
+    ReplicationRow, StatementOptions, StatementRow, StatementSort, TableHealthRow, TableHealthSort,
+    WalStats,
 };
 pub use session::Session;

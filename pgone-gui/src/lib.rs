@@ -122,7 +122,7 @@ pub struct AppFrame {
     session_storage: SessionStorage,
     gui_storage: GuiStorage,
     sessions_loaded_from_storage: bool,
-    show_monitor: Option<skeletons::monitors::MonitorMetric>,
+    monitor: skeletons::monitors::MonitorWorkbench,
     show_export: bool,
     export_window: ExportWindow,
     show_import: bool,
@@ -192,7 +192,7 @@ impl AppFrame {
             session_storage,
             gui_storage,
             sessions_loaded_from_storage: false,
-            show_monitor: None,
+            monitor: Default::default(),
             show_export: false,
             export_window: ExportWindow::default(),
             show_import: false,
@@ -370,7 +370,7 @@ impl eframe::App for AppFrame {
             &mut reset_dock_layout,
             &mut self.show_settings,
             &mut self.show_about,
-            &mut self.show_monitor,
+            &mut self.monitor,
             &mut self.show_export,
             &mut self.show_import,
         );
@@ -410,11 +410,7 @@ impl eframe::App for AppFrame {
         skeletons::windows::show_about_window(&ctx, &mut self.show_about);
 
         // Monitor window
-        skeletons::monitors::window::show_monitor_window(
-            &ctx,
-            &mut self.show_monitor,
-            &mut self.db,
-        );
+        self.monitor.show(&ctx, &mut self.db);
 
         // Check for pending graph window open
         if let Some(schema_info) = self.db_tree.take_pending_open_graph() {

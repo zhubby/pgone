@@ -1,7 +1,7 @@
 use crate::components::DbManager;
 use crate::models::PersistedState;
 use crate::skeletons::dock::{DockLayout, DockPanel};
-use crate::skeletons::monitors::MonitorMetric;
+use crate::skeletons::monitors::{MonitorPanel, MonitorWorkbench};
 use eframe::egui::{Panel, Ui};
 #[cfg(target_os = "macos")]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -15,7 +15,7 @@ pub fn show_menu_bar(
     reset_dock_layout: &mut bool,
     show_settings: &mut bool,
     show_about: &mut bool,
-    show_monitor: &mut Option<MonitorMetric>,
+    monitor: &mut MonitorWorkbench,
     show_export: &mut bool,
     show_import: &mut bool,
 ) {
@@ -117,38 +117,16 @@ pub fn show_menu_bar(
                 }
             });
             ui.menu_button("Monitor", |ui| {
-                if menu_button(ui, egui_phosphor::regular::ACTIVITY, "Activity").clicked() {
-                    *show_monitor = Some(MonitorMetric::Activity);
+                if menu_button(ui, egui_phosphor::regular::GAUGE, "Open Workbench").clicked() {
+                    monitor.open_at(MonitorPanel::Overview);
                     ui.close();
                 }
-                if menu_button(ui, egui_phosphor::regular::FILE_TEXT, "Statements").clicked() {
-                    *show_monitor = Some(MonitorMetric::Statements);
-                    ui.close();
-                }
-                if menu_button(ui, egui_phosphor::regular::TABLE, "Tables").clicked() {
-                    *show_monitor = Some(MonitorMetric::Tables);
-                    ui.close();
-                }
-                if menu_button(ui, egui_phosphor::regular::LIST_MAGNIFYING_GLASS, "Indexes")
-                    .clicked()
-                {
-                    *show_monitor = Some(MonitorMetric::Indexes);
-                    ui.close();
-                }
-                if menu_button(ui, egui_phosphor::regular::PENCIL_SIMPLE_LINE, "Bgwriter").clicked()
-                {
-                    *show_monitor = Some(MonitorMetric::Bgwriter);
-                    ui.close();
-                }
-                if menu_button(ui, egui_phosphor::regular::ARROWS_CLOCKWISE, "Replication")
-                    .clicked()
-                {
-                    *show_monitor = Some(MonitorMetric::Replication);
-                    ui.close();
-                }
-                if menu_button(ui, egui_phosphor::regular::LOCK, "Locks").clicked() {
-                    *show_monitor = Some(MonitorMetric::Locks);
-                    ui.close();
+                ui.separator();
+                for panel in MonitorPanel::ALL {
+                    if menu_button(ui, panel.icon(), panel.title()).clicked() {
+                        monitor.open_at(panel);
+                        ui.close();
+                    }
                 }
             });
             // ui.menu_button("Settings", |ui| {

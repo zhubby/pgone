@@ -20,7 +20,7 @@ Core capabilities:
 - **SQL workbench**: write and run SQL, inspect paginated results, and switch the target database from the active connection.
 - **Schema exploration**: browse databases, schemas, tables, columns, indexes, constraints, triggers, routines, and custom types.
 - **Visual modeling**: inspect table relationships in the GUI and render schema output as Mermaid ER diagrams or DBML through MCP tools.
-- **Database monitoring**: view activity, statement statistics, tables, indexes, locks, replication, and bgwriter metrics.
+- **Database monitoring**: use a unified PostgreSQL monitor workbench for overview health, activity, query statistics, storage, locks, replication, WAL/I/O, and maintenance progress.
 - **Agent integration**: expose read-only PostgreSQL introspection through the Model Context Protocol.
 - **Local persistence**: store database configs, chat sessions, and messages in `~/.pgone/pgone.db`.
 
