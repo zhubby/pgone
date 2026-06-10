@@ -72,7 +72,11 @@ impl SettingsStore {
 
     pub fn load_app_settings() -> Settings {
         match Self::load() {
-            Ok(Some(document)) => document.app,
+            Ok(Some(document)) => {
+                let mut settings = document.app;
+                settings.normalize();
+                settings
+            }
             Ok(None) => Settings::default(),
             Err(error) => {
                 tracing::warn!("Failed to load GUI app settings: {error:#}");
@@ -98,6 +102,7 @@ impl SettingsStore {
         let mut document = Self::load()?.unwrap_or_default();
         document.version = SETTINGS_VERSION;
         document.app = settings.clone();
+        document.app.normalize();
         save_document_to_path(&Self::path(), &document)
     }
 

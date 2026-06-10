@@ -1,5 +1,5 @@
 use crate::futures;
-use crate::models::{SendShortcut, Settings};
+use crate::models::{MAX_FONT_SIZE, MIN_FONT_SIZE, SendShortcut, Settings};
 use crate::styles::toggle::toggle;
 use egui::{ComboBox, Ui};
 use egui_dock::{DockArea, DockState, Style, TabViewer};
@@ -37,7 +37,9 @@ impl Default for SettingsPanel {
 impl SettingsPanel {
     /// Get available font sizes
     pub fn get_available_font_sizes() -> Vec<f32> {
-        (10..=24).map(|size| size as f32).collect()
+        (MIN_FONT_SIZE as u32..=MAX_FONT_SIZE as u32)
+            .map(|size| size as f32)
+            .collect()
     }
 
     /// Initialize original settings (call when opening settings window)
@@ -472,5 +474,13 @@ mod tests {
         let panel = SettingsPanel::default();
 
         assert!(panel.tabs_are_fixed());
+    }
+
+    #[test]
+    fn font_sizes_start_at_14() {
+        let sizes = SettingsPanel::get_available_font_sizes();
+
+        assert_eq!(sizes.first().copied(), Some(14.0));
+        assert_eq!(sizes.last().copied(), Some(24.0));
     }
 }

@@ -3,6 +3,10 @@ use pgone_agent::LlmProviderKind;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+pub const MIN_FONT_SIZE: f32 = 14.0;
+pub const MAX_FONT_SIZE: f32 = 24.0;
+pub const DEFAULT_FONT_SIZE: f32 = MIN_FONT_SIZE;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -177,7 +181,7 @@ impl Default for Settings {
             openai_base_url: None,
             openai_model: "gpt-4o-mini".to_string(),
             font_family: "LXGWWenKai-Regular".to_string(),
-            font_size: 13.0,
+            font_size: DEFAULT_FONT_SIZE,
             llm_provider: LlmProviderKind::OpenAI,
             enable_monitor: false,
             proxy_enabled: false,
@@ -185,5 +189,37 @@ impl Default for Settings {
             proxy_port: None,
             enable_stream_api: false,
         }
+    }
+}
+
+impl Settings {
+    pub fn normalize(&mut self) {
+        self.font_size = if self.font_size.is_finite() {
+            self.font_size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE)
+        } else {
+            DEFAULT_FONT_SIZE
+        };
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+
+    #[test]
+    fn default_font_size_is_14() {
+        assert_eq!(Settings::default().font_size, 14.0);
+    }
+
+    #[test]
+    fn font_size_normalization_clamps_legacy_values_to_14() {
+        let mut settings = Settings {
+            font_size: 13.0,
+            ..Settings::default()
+        };
+
+        settings.normalize();
+
+        assert_eq!(settings.font_size, 14.0);
     }
 }
