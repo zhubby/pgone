@@ -2,6 +2,7 @@ use crate::error::{Result, SqlError};
 use crate::session::Session;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use sqlx::postgres::PgRow;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MonitorCapabilities {
@@ -361,27 +362,27 @@ impl Session {
             (None, None)
         };
 
-        let blks_read: i64 = database.get("blks_read");
-        let blks_hit: i64 = database.get("blks_hit");
+        let blks_read = i64_value(&database, "blks_read");
+        let blks_hit = i64_value(&database, "blks_hit");
         let cache_hit_ratio = cache_hit_ratio(blks_read, blks_hit);
 
         Ok(MonitorSnapshot {
             database_name: activity.get("database_name"),
             server_version: activity.get("server_version"),
-            max_connections: activity.get("max_connections"),
-            total_connections: activity.get("total_connections"),
-            active_connections: activity.get("active_connections"),
-            idle_connections: activity.get("idle_connections"),
-            waiting_connections: activity.get("waiting_connections"),
-            xact_commit: database.get("xact_commit"),
-            xact_rollback: database.get("xact_rollback"),
+            max_connections: i64_value(&activity, "max_connections"),
+            total_connections: i64_value(&activity, "total_connections"),
+            active_connections: i64_value(&activity, "active_connections"),
+            idle_connections: i64_value(&activity, "idle_connections"),
+            waiting_connections: i64_value(&activity, "waiting_connections"),
+            xact_commit: i64_value(&database, "xact_commit"),
+            xact_rollback: i64_value(&database, "xact_rollback"),
             cache_hit_ratio,
             blks_read,
             blks_hit,
-            deadlocks: database.get("deadlocks"),
-            temp_bytes: database.get("temp_bytes"),
-            lock_count: locks.get("lock_count"),
-            waiting_lock_count: locks.get("waiting_lock_count"),
+            deadlocks: i64_value(&database, "deadlocks"),
+            temp_bytes: i64_value(&database, "temp_bytes"),
+            lock_count: i64_value(&locks, "lock_count"),
+            waiting_lock_count: i64_value(&locks, "waiting_lock_count"),
             replication_clients,
             maintenance_jobs,
             wal_bytes,
@@ -461,12 +462,12 @@ impl Session {
             r#"
             SELECT
                 LEFT(query, 700) AS query,
-                calls,
-                rows,
-                total_exec_time,
-                mean_exec_time,
-                shared_blks_hit,
-                shared_blks_read
+                COALESCE(calls, 0)::bigint AS calls,
+                COALESCE(rows, 0)::bigint AS rows,
+                COALESCE(total_exec_time, 0)::float8 AS total_exec_time,
+                COALESCE(mean_exec_time, 0)::float8 AS mean_exec_time,
+                COALESCE(shared_blks_hit, 0)::bigint AS shared_blks_hit,
+                COALESCE(shared_blks_read, 0)::bigint AS shared_blks_read
             FROM pg_stat_statements
             ORDER BY {order_by}
             LIMIT $1
@@ -483,12 +484,12 @@ impl Session {
             .into_iter()
             .map(|row| StatementRow {
                 query: row.get("query"),
-                calls: row.get("calls"),
-                rows: row.get("rows"),
-                total_exec_time_ms: row.get::<Option<f64>, _>("total_exec_time").unwrap_or(0.0),
-                mean_exec_time_ms: row.get::<Option<f64>, _>("mean_exec_time").unwrap_or(0.0),
-                shared_blks_hit: row.get("shared_blks_hit"),
-                shared_blks_read: row.get("shared_blks_read"),
+                calls: i64_value(&row, "calls"),
+                rows: i64_value(&row, "rows"),
+                total_exec_time_ms: f64_value(&row, "total_exec_time"),
+                mean_exec_time_ms: f64_value(&row, "mean_exec_time"),
+                shared_blks_hit: i64_value(&row, "shared_blks_hit"),
+                shared_blks_read: i64_value(&row, "shared_blks_read"),
             })
             .collect();
 
@@ -505,7 +506,9 @@ impl Session {
             TableHealthSort::DeadTuples => "n_dead_tup DESC",
             TableHealthSort::DeadTupleRatio => "dead_tuple_ratio DESC",
             TableHealthSort::SeqScan => "seq_scan DESC",
-            TableHealthSort::Writes => "(n_tup_ins + n_tup_upd + n_tup_del) DESC",
+            TableHealthSort::Writes => {
+                "(COALESCE(n_tup_ins, 0) + COALESCE(n_tup_upd, 0) + COALESCE(n_tup_del, 0)) DESC"
+            }
         };
         let sql = format!(
             r#"
@@ -514,20 +517,20 @@ impl Session {
                 relname AS table_name,
                 pg_catalog.pg_total_relation_size(relid)::bigint AS size_bytes,
                 pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(relid)) AS size_pretty,
-                n_live_tup,
-                n_dead_tup,
+                COALESCE(n_live_tup, 0)::bigint AS n_live_tup,
+                COALESCE(n_dead_tup, 0)::bigint AS n_dead_tup,
                 CASE
-                    WHEN n_live_tup + n_dead_tup > 0
-                    THEN n_dead_tup::float8 / (n_live_tup + n_dead_tup)::float8
+                    WHEN COALESCE(n_live_tup, 0) + COALESCE(n_dead_tup, 0) > 0
+                    THEN COALESCE(n_dead_tup, 0)::float8 / (COALESCE(n_live_tup, 0) + COALESCE(n_dead_tup, 0))::float8
                     ELSE 0::float8
                 END AS dead_tuple_ratio,
-                seq_scan,
-                seq_tup_read,
-                idx_scan,
-                idx_tup_fetch,
-                n_tup_ins,
-                n_tup_upd,
-                n_tup_del,
+                COALESCE(seq_scan, 0)::bigint AS seq_scan,
+                COALESCE(seq_tup_read, 0)::bigint AS seq_tup_read,
+                COALESCE(idx_scan, 0)::bigint AS idx_scan,
+                COALESCE(idx_tup_fetch, 0)::bigint AS idx_tup_fetch,
+                COALESCE(n_tup_ins, 0)::bigint AS n_tup_ins,
+                COALESCE(n_tup_upd, 0)::bigint AS n_tup_upd,
+                COALESCE(n_tup_del, 0)::bigint AS n_tup_del,
                 CASE WHEN last_vacuum IS NULL THEN NULL ELSE to_char(last_vacuum, 'YYYY-MM-DD HH24:MI:SS') END AS last_vacuum,
                 CASE WHEN last_autovacuum IS NULL THEN NULL ELSE to_char(last_autovacuum, 'YYYY-MM-DD HH24:MI:SS') END AS last_autovacuum,
                 CASE WHEN last_analyze IS NULL THEN NULL ELSE to_char(last_analyze, 'YYYY-MM-DD HH24:MI:SS') END AS last_analyze,
@@ -549,18 +552,18 @@ impl Session {
             .map(|row| TableHealthRow {
                 schema_name: row.get("schema_name"),
                 table_name: row.get("table_name"),
-                size_bytes: row.get("size_bytes"),
+                size_bytes: i64_value(&row, "size_bytes"),
                 size_pretty: row.get("size_pretty"),
-                live_tuples: row.get("n_live_tup"),
-                dead_tuples: row.get("n_dead_tup"),
-                dead_tuple_ratio: row.get("dead_tuple_ratio"),
-                seq_scan: row.get("seq_scan"),
-                seq_tup_read: row.get("seq_tup_read"),
-                idx_scan: row.get("idx_scan"),
-                idx_tup_fetch: row.get("idx_tup_fetch"),
-                inserts: row.get("n_tup_ins"),
-                updates: row.get("n_tup_upd"),
-                deletes: row.get("n_tup_del"),
+                live_tuples: i64_value(&row, "n_live_tup"),
+                dead_tuples: i64_value(&row, "n_dead_tup"),
+                dead_tuple_ratio: f64_value(&row, "dead_tuple_ratio"),
+                seq_scan: i64_value(&row, "seq_scan"),
+                seq_tup_read: i64_value(&row, "seq_tup_read"),
+                idx_scan: i64_value(&row, "idx_scan"),
+                idx_tup_fetch: i64_value(&row, "idx_tup_fetch"),
+                inserts: i64_value(&row, "n_tup_ins"),
+                updates: i64_value(&row, "n_tup_upd"),
+                deletes: i64_value(&row, "n_tup_del"),
                 last_vacuum: row.get("last_vacuum"),
                 last_autovacuum: row.get("last_autovacuum"),
                 last_analyze: row.get("last_analyze"),
@@ -575,8 +578,8 @@ impl Session {
         sort: IndexHealthSort,
     ) -> Result<Vec<IndexHealthRow>> {
         let order_by = match sort {
-            IndexHealthSort::LeastScanned => "s.idx_scan ASC, size_bytes DESC",
-            IndexHealthSort::MostScanned => "s.idx_scan DESC",
+            IndexHealthSort::LeastScanned => "COALESCE(s.idx_scan, 0) ASC, size_bytes DESC",
+            IndexHealthSort::MostScanned => "COALESCE(s.idx_scan, 0) DESC",
             IndexHealthSort::Size => "size_bytes DESC",
         };
         let sql = format!(
@@ -587,9 +590,9 @@ impl Session {
                 s.indexrelname AS index_name,
                 pg_catalog.pg_relation_size(s.indexrelid)::bigint AS size_bytes,
                 pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(s.indexrelid)) AS size_pretty,
-                s.idx_scan,
-                s.idx_tup_read,
-                s.idx_tup_fetch,
+                COALESCE(s.idx_scan, 0)::bigint AS idx_scan,
+                COALESCE(s.idx_tup_read, 0)::bigint AS idx_tup_read,
+                COALESCE(s.idx_tup_fetch, 0)::bigint AS idx_tup_fetch,
                 i.indisunique AS unique,
                 i.indisvalid AS valid
             FROM pg_catalog.pg_stat_user_indexes s
@@ -611,11 +614,11 @@ impl Session {
                 schema_name: row.get("schema_name"),
                 table_name: row.get("table_name"),
                 index_name: row.get("index_name"),
-                size_bytes: row.get("size_bytes"),
+                size_bytes: i64_value(&row, "size_bytes"),
                 size_pretty: row.get("size_pretty"),
-                idx_scan: row.get("idx_scan"),
-                idx_tup_read: row.get("idx_tup_read"),
-                idx_tup_fetch: row.get("idx_tup_fetch"),
+                idx_scan: i64_value(&row, "idx_scan"),
+                idx_tup_read: i64_value(&row, "idx_tup_read"),
+                idx_tup_fetch: i64_value(&row, "idx_tup_fetch"),
                 unique: row.get("unique"),
                 valid: row.get("valid"),
             })
@@ -743,20 +746,16 @@ impl Session {
         .map_err(monitor_error)?;
 
         Ok(BackgroundWriterStats {
-            checkpoints_timed: row.get("checkpoints_timed"),
-            checkpoints_req: row.get("checkpoints_req"),
-            checkpoint_write_time_ms: row
-                .get::<Option<f64>, _>("checkpoint_write_time")
-                .unwrap_or(0.0),
-            checkpoint_sync_time_ms: row
-                .get::<Option<f64>, _>("checkpoint_sync_time")
-                .unwrap_or(0.0),
-            buffers_checkpoint: row.get("buffers_checkpoint"),
-            buffers_clean: row.get("buffers_clean"),
-            maxwritten_clean: row.get("maxwritten_clean"),
-            buffers_backend: row.get("buffers_backend"),
-            buffers_backend_fsync: row.get("buffers_backend_fsync"),
-            buffers_alloc: row.get("buffers_alloc"),
+            checkpoints_timed: i64_value(&row, "checkpoints_timed"),
+            checkpoints_req: i64_value(&row, "checkpoints_req"),
+            checkpoint_write_time_ms: f64_value(&row, "checkpoint_write_time"),
+            checkpoint_sync_time_ms: f64_value(&row, "checkpoint_sync_time"),
+            buffers_checkpoint: i64_value(&row, "buffers_checkpoint"),
+            buffers_clean: i64_value(&row, "buffers_clean"),
+            maxwritten_clean: i64_value(&row, "maxwritten_clean"),
+            buffers_backend: i64_value(&row, "buffers_backend"),
+            buffers_backend_fsync: i64_value(&row, "buffers_backend_fsync"),
+            buffers_alloc: i64_value(&row, "buffers_alloc"),
             stats_reset: row.get("stats_reset"),
         })
     }
@@ -789,14 +788,18 @@ impl Session {
         .map_err(monitor_error)?;
 
         Ok(OptionalMonitorData::available(Some(WalStats {
-            wal_records: row.get("wal_records"),
-            wal_fpi: row.get("wal_fpi"),
-            wal_bytes: row.get("wal_bytes"),
-            wal_buffers_full: row.get("wal_buffers_full"),
-            wal_write: row.get("wal_write"),
-            wal_sync: row.get("wal_sync"),
-            wal_write_time_ms: row.get::<Option<f64>, _>("wal_write_time").unwrap_or(0.0),
-            wal_sync_time_ms: row.get::<Option<f64>, _>("wal_sync_time").unwrap_or(0.0),
+            wal_records: i64_value(&row, "wal_records"),
+            wal_fpi: i64_value(&row, "wal_fpi"),
+            wal_bytes: row
+                .try_get::<Option<String>, _>("wal_bytes")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "0".to_string()),
+            wal_buffers_full: i64_value(&row, "wal_buffers_full"),
+            wal_write: i64_value(&row, "wal_write"),
+            wal_sync: i64_value(&row, "wal_sync"),
+            wal_write_time_ms: f64_value(&row, "wal_write_time"),
+            wal_sync_time_ms: f64_value(&row, "wal_sync_time"),
             stats_reset: row.get("stats_reset"),
         })))
     }
@@ -830,16 +833,16 @@ impl Session {
         .map_err(monitor_error)?;
 
         Ok(OptionalMonitorData::available(Some(IoStats {
-            reads: row.get("reads"),
-            writes: row.get("writes"),
-            writebacks: row.get("writebacks"),
-            extends: row.get("extends"),
-            hits: row.get("hits"),
-            evictions: row.get("evictions"),
-            fsyncs: row.get("fsyncs"),
-            read_time_ms: row.get("read_time"),
-            write_time_ms: row.get("write_time"),
-            fsync_time_ms: row.get("fsync_time"),
+            reads: i64_value(&row, "reads"),
+            writes: i64_value(&row, "writes"),
+            writebacks: i64_value(&row, "writebacks"),
+            extends: i64_value(&row, "extends"),
+            hits: i64_value(&row, "hits"),
+            evictions: i64_value(&row, "evictions"),
+            fsyncs: i64_value(&row, "fsyncs"),
+            read_time_ms: f64_value(&row, "read_time"),
+            write_time_ms: f64_value(&row, "write_time"),
+            fsync_time_ms: f64_value(&row, "fsync_time"),
         })))
     }
 
@@ -905,8 +908,8 @@ impl Session {
                     relation: row.get("relation"),
                     index_relation: row.get("index_relation"),
                     phase: row.get("phase"),
-                    progress_done: row.get("progress_done"),
-                    progress_total: row.get("progress_total"),
+                    progress_done: i64_value(&row, "progress_done"),
+                    progress_total: i64_value(&row, "progress_total"),
                 })
                 .collect(),
         ))
@@ -956,12 +959,29 @@ async fn fetch_io_totals(session: &Session) -> Result<(Option<i64>, Option<i64>)
     .await
     .map_err(monitor_error)?;
 
-    Ok((Some(row.get("reads")), Some(row.get("writes"))))
+    Ok((
+        Some(i64_value(&row, "reads")),
+        Some(i64_value(&row, "writes")),
+    ))
 }
 
 fn cache_hit_ratio(reads: i64, hits: i64) -> Option<f64> {
     let total = reads + hits;
     (total > 0).then_some(hits as f64 / total as f64)
+}
+
+fn i64_value(row: &PgRow, column: &str) -> i64 {
+    row.try_get::<Option<i64>, _>(column)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+fn f64_value(row: &PgRow, column: &str) -> f64 {
+    row.try_get::<Option<f64>, _>(column)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 fn monitor_error(error: sqlx::Error) -> SqlError {

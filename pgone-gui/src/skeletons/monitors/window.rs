@@ -15,6 +15,9 @@ use std::time::{Duration, Instant};
 
 const HISTORY_LIMIT: usize = 60;
 const MONITOR_QUERY_TIMEOUT: Duration = Duration::from_secs(8);
+const MONITOR_NAV_WIDTH: f32 = 196.0;
+const MONITOR_NAV_ITEM_WIDTH: f32 = 188.0;
+const MONITOR_NAV_ITEM_HEIGHT: f32 = 30.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RefreshCadence {
@@ -214,53 +217,67 @@ impl MonitorWorkbench {
         self.show_header(ui, pools, dsn);
         ui.add_space(8.0);
 
+        let content_height = ui.available_height();
         ui.horizontal(|ui| {
-            ui.set_height(ui.available_height());
-            self.show_navigation(ui);
+            ui.spacing_mut().item_spacing.x = 8.0;
+            ui.allocate_ui_with_layout(
+                egui::vec2(MONITOR_NAV_WIDTH, content_height),
+                egui::Layout::top_down(egui::Align::LEFT),
+                |ui| {
+                    ui.set_min_width(MONITOR_NAV_WIDTH);
+                    ui.set_max_width(MONITOR_NAV_WIDTH);
+                    self.show_navigation(ui);
+                },
+            );
             ui.separator();
-            ui.vertical(|ui| {
-                ui.set_width(ui.available_width());
-                self.show_panel_header(ui);
-                ui.add_space(8.0);
 
-                if let Some(error) = &self.error {
-                    error_banner(ui, error);
+            let content_width = ui.available_width();
+            ui.allocate_ui_with_layout(
+                egui::vec2(content_width, content_height),
+                egui::Layout::top_down(egui::Align::LEFT),
+                |ui| {
+                    self.show_panel_header(ui);
                     ui.add_space(8.0);
-                }
 
-                if self.promise.is_some() && self.snapshot.is_none() {
-                    centered_status(ui, "Loading monitor data...");
-                    return;
-                }
+                    if let Some(error) = &self.error {
+                        error_banner(ui, error);
+                        ui.add_space(8.0);
+                    }
 
-                match self.active_panel {
-                    MonitorPanel::Overview => self.show_overview(ui),
-                    MonitorPanel::Activity => self.show_activity(ui),
-                    MonitorPanel::Queries => self.show_queries(ui),
-                    MonitorPanel::Storage => self.show_storage(ui),
-                    MonitorPanel::Locks => self.show_locks(ui),
-                    MonitorPanel::Replication => self.show_replication(ui),
-                    MonitorPanel::WalIo => self.show_wal_io(ui),
-                    MonitorPanel::Maintenance => self.show_maintenance(ui),
-                }
+                    if self.promise.is_some() && self.snapshot.is_none() {
+                        centered_status(ui, "Loading monitor data...");
+                        return;
+                    }
 
-                if self.promise.is_some() {
-                    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "{} Refreshing {}...",
-                                egui_phosphor::regular::CIRCLE_NOTCH,
-                                self.loading_panel
-                                    .map(|panel| panel.title())
-                                    .unwrap_or("monitor")
-                            ))
-                            .small()
-                            .color(ui.visuals().weak_text_color()),
-                        );
-                    });
-                    ctx.request_repaint_after(Duration::from_millis(100));
-                }
-            });
+                    match self.active_panel {
+                        MonitorPanel::Overview => self.show_overview(ui),
+                        MonitorPanel::Activity => self.show_activity(ui),
+                        MonitorPanel::Queries => self.show_queries(ui),
+                        MonitorPanel::Storage => self.show_storage(ui),
+                        MonitorPanel::Locks => self.show_locks(ui),
+                        MonitorPanel::Replication => self.show_replication(ui),
+                        MonitorPanel::WalIo => self.show_wal_io(ui),
+                        MonitorPanel::Maintenance => self.show_maintenance(ui),
+                    }
+
+                    if self.promise.is_some() {
+                        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} Refreshing {}...",
+                                    egui_phosphor::regular::CIRCLE_NOTCH,
+                                    self.loading_panel
+                                        .map(|panel| panel.title())
+                                        .unwrap_or("monitor")
+                                ))
+                                .small()
+                                .color(ui.visuals().weak_text_color()),
+                            );
+                        });
+                        ctx.request_repaint_after(Duration::from_millis(100));
+                    }
+                },
+            );
         });
     }
 
@@ -323,35 +340,44 @@ impl MonitorWorkbench {
     }
 
     fn show_navigation(&mut self, ui: &mut egui::Ui) {
-        ui.vertical(|ui| {
-            ui.set_width(168.0);
-            ui.spacing_mut().item_spacing.y = 3.0;
-            for panel in MonitorPanel::ALL {
-                let selected = self.active_panel == panel;
-                let response = ui
-                    .selectable_label(selected, format!("{} {}", panel.icon(), panel.title()))
-                    .on_hover_text(panel.subtitle());
-                if response.clicked() {
-                    self.active_panel = panel;
-                    self.error = None;
-                    self.promise = None;
-                    self.refresh_requested = true;
-                }
-            }
+        ui.set_min_width(MONITOR_NAV_WIDTH);
+        ui.set_max_width(MONITOR_NAV_WIDTH);
+        ui.spacing_mut().item_spacing.y = 4.0;
 
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                if let Some(capabilities) = &self.capabilities {
-                    ui.label(
-                        RichText::new("Capabilities")
-                            .small()
-                            .color(ui.visuals().weak_text_color()),
-                    );
-                    capability_label(ui, "statements", capabilities.pg_stat_statements);
-                    capability_label(ui, "pg_stat_io", capabilities.pg_stat_io);
-                    capability_label(ui, "pg_stat_wal", capabilities.pg_stat_wal);
-                }
-            });
-        });
+        for panel in MonitorPanel::ALL {
+            let selected = self.active_panel == panel;
+            let response = ui
+                .add_sized(
+                    [MONITOR_NAV_ITEM_WIDTH, MONITOR_NAV_ITEM_HEIGHT],
+                    egui::Button::selectable(
+                        selected,
+                        format!("{} {}", panel.icon(), panel.title()),
+                    )
+                    .truncate(),
+                )
+                .on_hover_text(panel.subtitle());
+            if response.clicked() {
+                self.active_panel = panel;
+                self.error = None;
+                self.promise = None;
+                self.refresh_requested = true;
+            }
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(6.0);
+
+        if let Some(capabilities) = &self.capabilities {
+            ui.label(
+                RichText::new("Capabilities")
+                    .small()
+                    .color(ui.visuals().weak_text_color()),
+            );
+            capability_label(ui, "statements", capabilities.pg_stat_statements);
+            capability_label(ui, "pg_stat_io", capabilities.pg_stat_io);
+            capability_label(ui, "pg_stat_wal", capabilities.pg_stat_wal);
+        }
     }
 
     fn show_panel_header(&self, ui: &mut egui::Ui) {
@@ -1346,15 +1372,17 @@ fn screen_center(ctx: &Context) -> eframe::egui::Pos2 {
     ctx.content_rect().center()
 }
 
-fn table(ui: &mut egui::Ui, id: impl std::hash::Hash, add_contents: impl FnOnce(TableBuilder<'_>)) {
-    egui::ScrollArea::both().show(ui, |ui| {
-        let table = TableBuilder::new(ui)
-            .id_salt(id)
-            .striped(true)
-            .resizable(true)
-            .vscroll(true);
-        add_contents(table);
-    });
+fn table(ui: &mut egui::Ui, id: &'static str, add_contents: impl FnOnce(TableBuilder<'_>)) {
+    egui::ScrollArea::both()
+        .id_salt(("monitor_table_scroll", id))
+        .show(ui, |ui| {
+            let table = TableBuilder::new(ui)
+                .id_salt(("monitor_table", id))
+                .striped(true)
+                .resizable(true)
+                .vscroll(true);
+            add_contents(table);
+        });
 }
 
 fn header_text(header: &mut egui_extras::TableRow<'_, '_>, text: &str) {
